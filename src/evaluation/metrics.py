@@ -54,6 +54,57 @@ def add_model_proba(
     return df
 
 
+def compute_value_betting_results(
+    df: pd.DataFrame,
+    y_proba,
+    classes,
+) -> pd.DataFrame:
+    """
+    Multi-outcome value betting: for each match, bet 1 unit on every outcome
+    where model probability > bookmaker implied probability (1/odds).
+
+    df must have: y_true, B365H, B365D, B365A, Date (and index aligned with y_proba rows)
+    y_proba: 2D array shape (n_matches, 3)
+    classes: array of outcome labels in the same order as y_proba columns
+
+    Returns a DataFrame of individual bets with columns:
+      Date, y_true, outcome_bet, odds, model_prob, implied_prob, profit, cumulative_profit
+    One row per bet placed (can be multiple per match if multiple outcomes have edge).
+    """
+    outcomes = list(classes)
+    df = df.reset_index(drop=True)
+
+    bet_rows = []
+    for i, row in df.iterrows():
+        y_true = row["y_true"]
+        for j, outcome in enumerate(outcomes):
+            odds_col = _ODDS_COL[outcome]
+            odds = float(row[odds_col])
+            implied_prob = 1.0 / odds if odds > 0 else 1.0
+            model_prob = float(y_proba[i, j])
+            if model_prob > implied_prob:
+                profit = (odds - 1.0) if y_true == outcome else -1.0
+                bet_rows.append({
+                    "Date": row["Date"],
+                    "HomeTeam": row.get("HomeTeam", ""),
+                    "AwayTeam": row.get("AwayTeam", ""),
+                    "y_true": y_true,
+                    "y_pred": outcome,
+                    "odds": odds,
+                    "model_prob": model_prob,
+                    "implied_prob": implied_prob,
+                    "profit": profit,
+                })
+
+    if not bet_rows:
+        return pd.DataFrame(columns=["Date", "y_true", "y_pred", "odds",
+                                     "model_prob", "implied_prob", "profit", "cumulative_profit"])
+
+    result = pd.DataFrame(bet_rows).sort_values("Date").reset_index(drop=True)
+    result["cumulative_profit"] = result["profit"].cumsum()
+    return result
+
+
 def compute_roi(results: pd.DataFrame) -> float:
     """ROI as percentage: total_profit / total_staked * 100."""
     total_staked = float(len(results))

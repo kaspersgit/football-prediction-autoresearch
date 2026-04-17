@@ -4,13 +4,10 @@ import joblib
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from src.model.features import FEATURE_COLS, build_features_with_odds
+from src.model.features import build_features_with_odds
 
 MODEL_PATH = Path("models/baseline.joblib")
 TEST_SEASONS = 2
-
-# Index of league_code in FEATURE_COLS (HistGBM needs categorical_features indices)
-_CATEGORICAL_FEATURES = [FEATURE_COLS.index("league_code")]
 
 
 def split_by_season(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -32,7 +29,6 @@ def train_model(df: pd.DataFrame) -> dict:
         learning_rate=0.05,
         max_depth=4,
         min_samples_leaf=20,
-        categorical_features=_CATEGORICAL_FEATURES,
         random_state=42,
     )
     model.fit(X_train, y_train)

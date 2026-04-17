@@ -5,13 +5,10 @@ ELO_K = 30
 ELO_HOME_ADV = 100
 ELO_DEFAULT = 1500
 
-_LEAGUE_TO_INT = {"E0": 0, "D1": 1, "SP1": 2, "I1": 3}
-
 FEATURE_COLS = [
-    "home_form_pts", "home_form_gf", "home_form_ga", "home_form_gd",
-    "away_form_pts", "away_form_gf", "away_form_ga", "away_form_gd",
-    "home_elo", "away_elo", "elo_diff",
-    "league_code",
+    "home_form_pts", "home_form_gf", "home_form_ga",
+    "away_form_pts", "away_form_gf", "away_form_ga",
+    "home_elo", "away_elo",
 ]
 
 
@@ -88,16 +85,7 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
                                "form_gf": "away_form_gf", "form_ga": "away_form_ga"}),
         on=["Date", "AwayTeam"], how="left",
     )
-
-    # Derived features
-    merged["home_form_gd"] = merged["home_form_gf"] - merged["home_form_ga"]
-    merged["away_form_gd"] = merged["away_form_gf"] - merged["away_form_ga"]
-    merged["elo_diff"] = merged["home_elo"] - merged["away_elo"]
-    merged["league_code"] = merged["league"].map(_LEAGUE_TO_INT).fillna(0).astype(int)
-
-    base_cols = ["home_form_pts", "home_form_gf", "home_form_ga",
-                 "away_form_pts", "away_form_gf", "away_form_ga"]
-    merged = merged.dropna(subset=base_cols).reset_index(drop=True)
+    merged = merged.dropna(subset=FEATURE_COLS).reset_index(drop=True)
     return merged
 
 

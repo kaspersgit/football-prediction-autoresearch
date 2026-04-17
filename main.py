@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from src.data.loader import load_all_data
-from src.evaluation.metrics import compute_betting_results, compute_roi, compute_stability
+from src.evaluation.metrics import compute_roi, compute_stability, compute_value_betting_results
 from src.evaluation.report import generate_report
 from src.model.features import build_features_with_odds
 from src.model.train import split_by_season, train_model
@@ -36,19 +36,25 @@ def run_pipeline():
 
     eval_df = odds_test.copy()
     eval_df["y_true"] = y_test.values
-    eval_df["y_pred"] = results["y_pred"]
 
-    print("Computing metrics...")
-    betting_results = compute_betting_results(eval_df)
+    # Multi-outcome value betting
+    betting_results = compute_value_betting_results(
+        eval_df,
+        results["y_proba"],
+        results["classes"],
+    )
     roi = compute_roi(betting_results)
     stability = compute_stability(betting_results)
     accuracy = results["accuracy"]
 
+    n_matches = len(eval_df)
+    n_bets = len(betting_results)
     print("\n=== RESULTS ===")
-    print(f"Accuracy:  {accuracy:.3f}")
+    print(f"Accuracy:  {accuracy:.3f}  (on all {n_matches} test matches)")
+    print(f"Value bets:{n_bets} / {n_matches} matches ({n_bets / n_matches:.1%})")
     print(f"ROI:       {roi:+.2f}%")
     print(f"Stability: {stability:.4f}")
-    print(f"Test bets: {len(betting_results)}")
+    print(f"Test bets: {n_bets}")
 
     print("\nGenerating report...")
     generate_report(

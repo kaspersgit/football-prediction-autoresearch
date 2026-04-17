@@ -10,7 +10,7 @@
 | Model      | HistGradientBoostingClassifier |
 | Features   | 5-game rolling mean: pts, gf, ga (home + away) + Elo ratings — 8 features total |
 
-_Last updated: 2026-04-17 (Iteration 6 — HistGBM with Elo + rolling features, all bets; STILL BEST after Iter 7 regression)_
+_Last updated: 2026-04-17 (Iteration 6 — HistGBM with Elo + rolling features, all bets; STILL BEST after Iter 7 + Iter 8 regressions)_
 
 ---
 
@@ -44,6 +44,23 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 8: Multi-Outcome Value Betting
+
+**Date:** 2026-04-17
+**Hypothesis:** Betting any outcome where model probability > bookmaker implied probability — across all three outcomes (H/D/A) per match — will improve ROI by identifying underpriced draws and away wins that single-outcome value betting (Iterations 4+5) systematically missed.
+**Files changed:** `src/model/features.py` — reverted to Iter 6 baseline (8 features, no derived cols); `src/model/train.py` — reverted to Iter 6 baseline (HistGBM, no categorical_features); `src/evaluation/metrics.py` — added `compute_value_betting_results()` function (multi-outcome value betting, kept existing functions unchanged); `main.py` — switched from flat betting (`compute_betting_results`) to multi-outcome value betting (`compute_value_betting_results`).
+
+**Results:**
+- Accuracy: 0.521 (same as Iter 6 — same model)
+- ROI: -17.80%
+- Stability: -0.0993
+- Test bets: 3337 / 2643 matches (126.3% — average 1.26 bets per match)
+- vs Iter 6 (best): ROI -12.71pp, Stability -0.0477 — **REGRESSION on all metrics**
+
+**Analysis:** Multi-outcome value betting substantially worsened ROI from -5.09% to -17.80% (-12.71pp). The bet rate of 126.3% (>1 bet per match) reveals that the model frequently sees "value" in multiple outcomes simultaneously — which is only possible because the model's probability distribution is not well-calibrated against bookmaker implied probabilities. Specifically, bookmaker odds include a vig (~5% margin) that compresses all implied probabilities below 1.0; a poorly calibrated model that outputs probabilities close to the bookmaker's may generate spurious value signals on multiple outcomes at once. The result is that multi-outcome betting magnifies the same systematic overconfidence problem seen in Iterations 4+5, just across more outcomes. Iter 6 flat betting (all matches, no filter) remains the best approach — the bookmaker margin cannot be beaten by simple probability comparison on this feature set.
+
+---
 
 ## Iteration 7: Feature Enrichment (Goal Difference, Elo Diff, League Categorical)
 
@@ -180,6 +197,8 @@ Ranked by estimated probability of improving ROI:
 
 ~~**Additional feature engineering (goal difference, league effects, elo_diff):**~~ _Tested in Iteration 7 — regression on all metrics. Derived features that are linear combinations of existing features (gd = gf - ga; elo_diff = home_elo - away_elo) did not add information and slightly hurt generalization. Discarded approach._
 
+~~**Multi-outcome value betting:**~~ _Tested in Iteration 8 — severe regression. ROI -17.80% vs -5.09% in Iter 6. Bet rate 126.3% (>1 per match) indicates the model generates spurious value across multiple outcomes simultaneously, amplifying the overconfidence problem. Any value-betting approach using raw model probabilities vs. bookmaker implied probabilities is abandoned — the model is not calibrated well enough relative to the bookmaker vig._
+
 1. **Elo hyperparameter tuning (K factor, home advantage):** The current Elo uses K=30, HOME_ADV=100 as defaults. Tuning these on a held-out validation window might produce more accurate strength estimates, giving GBM a sharper signal. _Medium confidence — cheap experiment; Elo is proven to help (Iter 3+6), so better Elo = better model._
 
 2. **Genuinely new information: season phase (match week / game number):** A season-phase indicator (early, mid, late) or raw match-week number captures the fact that team form is more volatile and Elo less settled early in a season. This is structurally orthogonal to current features. _Medium confidence — adds non-redundant information._
@@ -195,6 +214,8 @@ Ranked by estimated probability of improving ROI:
 ---
 
 ## Key Findings So Far
+
+- **All value-betting approaches have failed — flat betting remains best (Iterations 4, 5, 8):** Three attempts to exploit model probabilities vs. bookmaker implied probabilities have all catastrophically worsened ROI: single-outcome value betting with raw LogReg (-15.10%), with calibrated LogReg (-15.52%), and multi-outcome value betting with HistGBM (-17.80%). The multi-outcome approach (Iter 8) bet on 3337 outcomes across 2643 matches (126.3% bet rate), revealing that the model simultaneously sees spurious "value" on multiple outcomes per match. The root cause is that bookmaker odds carry a vig that is not accounted for in the model's probability output, creating systematic false positive value signals. Future improvement must come from either (a) reducing the base loss rate (better accuracy) or (b) explicit bookmaker-margin correction before applying a value filter.
 
 - **Derived linear combination features regress performance (Iteration 7):** Adding `home_form_gd` (= gf − ga), `away_form_gd`, `elo_diff` (= home_elo − away_elo), and `league_code` worsened all metrics vs Iter 6 (ROI: -5.09% → -6.30%, Accuracy: 0.521 → 0.518, Stability: -0.0516 → -0.0647). Features that are exact linear combinations of existing features offer no new information for tree models and can dilute the signal budget, increasing variance without reducing bias. The lesson: only add features that represent genuinely new information.
 
