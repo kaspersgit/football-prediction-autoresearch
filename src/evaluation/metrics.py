@@ -1,6 +1,7 @@
 import pandas as pd
 
 _ODDS_COL = {"H": "B365H", "D": "B365D", "A": "B365A"}
+_IMPLIED_COL = {"H": "B365H", "D": "B365D", "A": "B365A"}
 
 
 def compute_betting_results(df: pd.DataFrame) -> pd.DataFrame:
@@ -22,6 +23,34 @@ def compute_betting_results(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["profit"] = profits
     df["cumulative_profit"] = df["profit"].cumsum()
+    return df
+
+
+def add_model_proba(
+    df: pd.DataFrame,
+    y_proba,
+    classes,
+) -> pd.DataFrame:
+    """
+    Add model probability column for each row's predicted outcome.
+    Also adds bookmaker implied probability and an 'is_value_bet' flag.
+    y_proba: 2D array shape (n, 3), classes: array of class labels ['A','D','H'] (sorted)
+    """
+    df = df.copy()
+    class_list = list(classes)
+    model_probs = []
+    implied_probs = []
+    for pos, (i, row) in enumerate(df.iterrows()):
+        pred = row["y_pred"]
+        pred_idx = class_list.index(pred)
+        model_prob = float(y_proba[pos, pred_idx])
+        odds = float(row[_IMPLIED_COL[pred]])
+        implied_prob = 1.0 / odds if odds > 0 else 1.0
+        model_probs.append(model_prob)
+        implied_probs.append(implied_prob)
+    df["model_prob"] = model_probs
+    df["implied_prob"] = implied_probs
+    df["is_value_bet"] = df["model_prob"] > df["implied_prob"]
     return df
 
 

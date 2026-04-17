@@ -10,7 +10,7 @@
 | Model      | Logistic Regression + StandardScaler |
 | Features   | 5-game rolling mean: pts, gf, ga (home + away) + Elo ratings — 8 features total |
 
-_Last updated: 2026-04-17 (Iteration 3 — Elo ratings as features)_
+_Last updated: 2026-04-17 (Iteration 4 — value betting filter; Iter 3 remains best)_
 
 ---
 
@@ -44,6 +44,23 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 4: Value Betting Filter
+
+**Date:** 2026-04-17
+**Hypothesis:** Only betting when model's predicted probability exceeds the bookmaker's implied probability (value bets) will improve ROI — possibly into positive territory — because it filters out bets where we have no edge over the market.
+**Files changed:** src/evaluation/metrics.py — added `add_model_proba()` function that computes model probability per predicted outcome, bookmaker implied probability (1/odds), and `is_value_bet` flag; main.py — added `add_model_proba` call and value-bet filter before computing betting metrics.
+
+**Results:**
+- Accuracy: 0.519 (unchanged — whole-test-set metric)
+- ROI: -15.10%
+- Stability: -0.1292
+- Test bets: 884 (33.4% of 2643)
+- vs Iter 3: ROI -8.78pp worse, Stability -0.0640 worse
+
+**Analysis:** Value betting severely worsened ROI (-15.10% vs -6.32%). The filter selects 884 bets (33.4%), but these are precisely the bets where the model is overconfident relative to the bookmaker. Logistic Regression without calibration tends to produce over-confident probabilities in the direction of the predicted class; the "value" signal is therefore mostly noise — the model thinks it has edge where it does not. The bookmaker's implied probability is better calibrated than the raw LogReg output, so filtering to cases where model > bookmaker actually selects the worst bets. Value betting requires well-calibrated model probabilities (e.g., via Platt scaling or isotonic regression) to work in practice.
+
+---
 
 ## Iteration 3: Elo Ratings as Features
 
@@ -105,7 +122,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 Ranked by estimated probability of improving ROI:
 
-1. **Threshold-based betting (value bets):** Only bet when model probability exceeds bookmaker implied probability. This directly targets edge over the market and should reduce bet count while improving ROI. _High confidence._
+~~**Threshold-based betting (value bets):**~~ _Tested in Iteration 4 — worsened ROI from -6.32% to -15.10%. Raw LogReg probabilities are poorly calibrated; value filtering selects overconfident bets, not genuine edge. Requires probability calibration (Platt scaling / isotonic regression) to work._
+
+1. **Probability calibration + value betting:** Apply Platt scaling or isotonic regression to calibrate LogReg output before using value-bet filter. Calibrated probabilities are required for value betting to work. _High confidence if combined with calibration._
 
 2. **Weighted rolling average:** Weight recent games more heavily in the rolling mean (e.g., exponential decay). More recent form may be more predictive than older games. _Medium confidence._
 
@@ -120,6 +139,8 @@ Ranked by estimated probability of improving ROI:
 ---
 
 ## Key Findings So Far
+
+- **Value betting without calibration makes ROI worse (Iteration 4):** Filtering to bets where model probability > bookmaker implied probability worsened ROI from -6.32% to -15.10% and reduced bets to 884 (33.4%). The root cause: Logistic Regression probabilities are not calibrated, causing systematic overconfidence for predicted outcomes. The model picks exactly the bets where it is most wrong relative to the market. Value betting requires probability calibration (Platt scaling or isotonic regression) as a prerequisite.
 
 - **Elo ratings meaningfully improve accuracy and ROI (Iteration 3):** Adding pre-match Elo ratings for home and away teams (K=30, HOME_ADV=100) improved accuracy by +2.7pp (0.492 → 0.519) and ROI by +0.47pp (-6.79% → -6.32%). Elo is now part of the permanent 8-feature set. ROI remains negative, but the hypothesis was confirmed: long-run team strength captures information beyond 5-game rolling form. Next priority: value-bet threshold filtering to exploit the improved probability estimates.
 
