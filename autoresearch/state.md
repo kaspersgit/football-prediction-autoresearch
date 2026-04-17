@@ -10,7 +10,7 @@
 | Model      | Logistic Regression + StandardScaler |
 | Features   | 5-game rolling mean: pts, gf, ga (home + away) — 6 features total |
 
-_Last updated: 2026-04-17 (Iteration 0 — baseline)_
+_Last updated: 2026-04-17 (Iteration 2 — HistGradientBoosting)_
 
 ---
 
@@ -45,6 +45,23 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ## Iteration History
 
+## Iteration 2: HistGradientBoostingClassifier
+
+**Date:** 2026-04-17
+**Hypothesis:** Replacing Logistic Regression with HistGradientBoostingClassifier will improve ROI because gradient boosting captures non-linear feature interactions that a linear model cannot, potentially finding subtler patterns between team form stats.
+**Files changed:** src/model/train.py — replaced Pipeline(StandardScaler + LogisticRegression) with HistGradientBoostingClassifier(max_iter=200, learning_rate=0.05, max_depth=4, random_state=42); src/model/features.py — reverted to combined rolling stats baseline (also fixed groupby().apply() pandas 3.x bug where "team" was dropped from index)
+
+**Results:**
+- Accuracy: 0.487
+- ROI: -7.23%
+- Stability: -0.0671
+- Test bets: 2643
+- vs baseline: Accuracy -0.005, ROI -0.44%, Stability -0.0034
+
+**Analysis:** HistGBM did not improve over Logistic Regression. The gradient boosting model produced marginally lower accuracy and worse ROI (-7.23% vs -6.79%). With only 6 features (rolling means of pts, gf, ga for home and away teams), there are few non-linear interactions for the tree model to exploit. The linear model appears adequate for these aggregate features. The key bottleneck is the features themselves, not the model capacity. This suggests future iterations should focus on richer features (e.g., Elo ratings) or smarter bet selection (value betting threshold), rather than swapping model architectures.
+
+---
+
 ## Iteration 1: Home/Away Split Form
 
 **Date:** 2026-04-17
@@ -73,11 +90,13 @@ Ranked by estimated probability of improving ROI:
 
 1. **Threshold-based betting (value bets):** Only bet when model probability exceeds bookmaker implied probability. This directly targets edge over the market and should reduce bet count while improving ROI. _High confidence._
 
-2. **Gradient Boosting model (XGBoost/LightGBM):** Logistic Regression is linear and likely underfit given the non-linear interactions between team features. Tree-based models may capture these better. _Medium-high confidence._
+2. **Elo ratings as features:** Elo gives a dynamic per-team strength estimate that updates after every match, which is a richer signal than rolling form. Many published betting models use Elo as a core feature. _Medium-high confidence._
 
-3. **Elo ratings as features:** Elo gives a dynamic per-team strength estimate that updates after every match, which is a richer signal than rolling form. Many published betting models use Elo as a core feature. _Medium-high confidence._
+3. **Weighted rolling average:** Weight recent games more heavily in the rolling mean (e.g., exponential decay). More recent form may be more predictive than older games. _Medium confidence._
 
-4. **Home/away split form:** The current rolling stats mix home and away performance. A team may have very different home vs away form, and separating these could improve predictions. _Medium confidence._
+~~**Gradient Boosting model (XGBoost/LightGBM):**~~ _Tested in Iteration 2 — no improvement over Logistic Regression with the current 6-feature set. Model capacity is not the bottleneck._
+
+~~**Home/away split form:**~~ _Tested in Iteration 1 — worsened all metrics. Discarded._
 
 5. **Weighted rolling average:** Weight recent games more heavily in the rolling mean (e.g., exponential decay). More recent form may be more predictive than older games. _Medium confidence._
 
@@ -88,6 +107,8 @@ Ranked by estimated probability of improving ROI:
 ## Key Findings So Far
 
 - **Home/away venue split hurts, not helps (Iteration 1):** Splitting rolling form into home-only and away-only stats reduced all metrics vs baseline. The additional warm-up cost (needing 5 home AND 5 away games) drops ~10% of test matches, and sparser per-venue windows produce noisier estimates. Combined rolling form across all games is a better signal at window=5.
+
+- **HistGBM offers no improvement over Logistic Regression (Iteration 2):** With only 6 aggregate rolling-mean features, there are insufficient non-linear interactions for gradient boosting to exploit. Both models perform near-equivalently (-6.79% vs -7.23% ROI). The bottleneck is feature richness, not model capacity. Future iterations should prioritize richer features (Elo ratings) or value-bet threshold filtering rather than model architecture changes.
 
 ---
 
