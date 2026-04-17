@@ -1,6 +1,7 @@
 import pandas as pd
-import numpy as np
+
 from src.evaluation.metrics import compute_betting_results, compute_roi, compute_stability
+
 
 def _make_results():
     return pd.DataFrame({
