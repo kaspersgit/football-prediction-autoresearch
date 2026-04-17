@@ -2,10 +2,7 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import HistGradientBoostingClassifier
 
 from src.model.features import build_features_with_odds
 
@@ -27,11 +24,13 @@ def train_model(df: pd.DataFrame) -> dict:
     X_train, y_train, _ = build_features_with_odds(train_df)
     X_test, y_test, odds_test = build_features_with_odds(test_df)
 
-    base = Pipeline([
-        ("scaler", StandardScaler()),
-        ("clf", LogisticRegression(max_iter=1000, random_state=42)),
-    ])
-    model = CalibratedClassifierCV(base, cv=5, method="isotonic")
+    model = HistGradientBoostingClassifier(
+        max_iter=300,
+        learning_rate=0.05,
+        max_depth=4,
+        min_samples_leaf=20,
+        random_state=42,
+    )
     model.fit(X_train, y_train)
 
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)

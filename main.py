@@ -10,12 +10,7 @@ import sys
 from pathlib import Path
 
 from src.data.loader import load_all_data
-from src.evaluation.metrics import (
-    add_model_proba,
-    compute_betting_results,
-    compute_roi,
-    compute_stability,
-)
+from src.evaluation.metrics import compute_betting_results, compute_roi, compute_stability
 from src.evaluation.report import generate_report
 from src.model.features import build_features_with_odds
 from src.model.train import split_by_season, train_model
@@ -43,13 +38,8 @@ def run_pipeline():
     eval_df["y_true"] = y_test.values
     eval_df["y_pred"] = results["y_pred"]
 
-    # Add model probabilities and filter to value bets only
-    eval_df = add_model_proba(eval_df, results["y_proba"], results["classes"])
-    value_df = eval_df[eval_df["is_value_bet"]].reset_index(drop=True)
-    print(f"Value bets: {len(value_df)} / {len(eval_df)} total ({len(value_df)/len(eval_df):.1%})")
-
     print("Computing metrics...")
-    betting_results = compute_betting_results(value_df)
+    betting_results = compute_betting_results(eval_df)
     roi = compute_roi(betting_results)
     stability = compute_stability(betting_results)
     accuracy = results["accuracy"]

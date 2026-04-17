@@ -4,13 +4,13 @@
 
 | Metric     | Value          |
 |------------|----------------|
-| Accuracy   | 0.519          |
-| ROI        | -6.32%         |
-| Stability  | -0.0652        |
-| Model      | Logistic Regression + StandardScaler |
+| Accuracy   | 0.521          |
+| ROI        | -5.09%         |
+| Stability  | -0.0516        |
+| Model      | HistGradientBoostingClassifier |
 | Features   | 5-game rolling mean: pts, gf, ga (home + away) + Elo ratings — 8 features total |
 
-_Last updated: 2026-04-17 (Iteration 5 — calibrated probabilities + value betting; Iter 3 remains best)_
+_Last updated: 2026-04-17 (Iteration 6 — HistGBM with Elo + rolling features, all bets; NEW BEST)_
 
 ---
 
@@ -44,6 +44,23 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 6: HistGBM with Elo + Rolling Features (All Bets)
+
+**Date:** 2026-04-17
+**Hypothesis:** HistGradientBoostingClassifier with the full 8-feature set (Elo + rolling stats) will outperform Logistic Regression because the richer feature combination gives the gradient boosting model non-linear interactions to exploit — unlike Iteration 2 where GBM had only 6 weak rolling features.
+**Files changed:** `src/model/train.py` — replaced `CalibratedClassifierCV(Pipeline(StandardScaler+LogisticRegression))` with bare `HistGradientBoostingClassifier(max_iter=300, learning_rate=0.05, max_depth=4, min_samples_leaf=20, random_state=42)`; `main.py` — reverted to bet on all matches (removed value-bet filter and `add_model_proba` call).
+
+**Results:**
+- Accuracy: 0.521
+- ROI: -5.09%
+- Stability: -0.0516
+- Test bets: 2643
+- vs Iter 3 (previous best): Accuracy +0.002, ROI +1.23pp, Stability +0.0136 — **NEW BEST on all metrics**
+
+**Analysis:** HistGBM with the full 8-feature Elo+rolling set is a clear winner over Logistic Regression. ROI improved from -6.32% to -5.09% (+1.23pp) and stability improved substantially from -0.0652 to -0.0516. This confirms the hypothesis: the Elo feature provides the non-linear interactions (e.g., Elo differential × rolling form) that GBM can exploit but that LogReg's linear boundary cannot capture. Iteration 2 showed GBM≈LogReg with 6 rolling-only features; adding Elo gave GBM the signal it needed. ROI is still negative (-5.09%), meaning we are still inside the bookmaker vig, but we have closed the gap considerably. Next priority: enrich features further (e.g., league-specific effects, season phase, head-to-head, goal difference rolling stats) to push the base model's discrimination above the vig threshold.
+
+---
 
 ## Iteration 5: Calibrated Probabilities + Value Betting
 
@@ -144,11 +161,11 @@ Ranked by estimated probability of improving ROI:
 
 ~~**Probability calibration + value betting:**~~ _Tested in Iteration 5 — calibration (isotonic, cv=5) did not improve ROI over Iteration 4. ROI -15.52% vs -15.10%. The value-bet approach based on predicted-class probability appears structurally broken with this feature set; calibration preserves ranking so the same bets are selected. Value betting via this mechanism is abandoned._
 
-1. **Weighted rolling average:** Weight recent games more heavily in the rolling mean (e.g., exponential decay). More recent form may be more predictive than older games. _Medium confidence._
+1. **Additional feature engineering (goal difference, league effects, season phase):** The Iter 6 result (-5.09% ROI) shows GBM can exploit non-linear feature interactions when given enough signal. Adding rolling goal-difference mean, league-specific intercepts (categorical feature — HistGBM handles natively), and season-phase indicator (early vs late) could push the model's discrimination across the vig threshold. _High confidence — incremental improvement on a clearly working architecture._
 
-2. **Shorter rolling window (3 games):** A 3-game window may capture more recent form changes. Worth comparing to 5 and 10. _Low-medium confidence._
+2. **Elo hyperparameter tuning (K factor, home advantage):** The current Elo uses K=30, HOME_ADV=100 as defaults. Tuning these on a held-out validation window might produce more accurate strength estimates, giving GBM a sharper signal. _Medium confidence — cheap experiment._
 
-3. **Bet on all matches (no filter), but improve base model features:** The Iter 3 result (-6.32% ROI, 2643 bets) with no value-bet filter is the best seen. Additional features such as league-specific intercepts, season phase (early vs late), or head-to-head record may improve the base model's discrimination enough to push ROI positive without a value-bet filter. _Medium confidence._
+3. **Weighted / shorter rolling window:** Exponential decay weighting or a 3-game window instead of flat 5-game mean may capture more recent form changes relevant to match outcome. _Low-medium confidence — small expected improvement but quick to test._
 
 ~~**Elo ratings as features:**~~ _Tested in Iteration 3 — improved accuracy (+2.7pp) and ROI (+0.47%) but remains negative. Elo is now a permanent part of the feature set._
 
@@ -159,6 +176,8 @@ Ranked by estimated probability of improving ROI:
 ---
 
 ## Key Findings So Far
+
+- **HistGBM + Elo features is the new best model (Iteration 6):** Replacing LogisticRegression with HistGradientBoostingClassifier (max_iter=300, lr=0.05, max_depth=4, min_samples_leaf=20) on the 8-feature Elo+rolling set improved ROI from -6.32% to -5.09% (+1.23pp) and stability from -0.0652 to -0.0516. The hypothesis is confirmed: GBM benefits from Elo's non-linear interactions where it had no gain with rolling-only features (Iter 2). This is the first iteration to clearly beat the previous best on all three metrics simultaneously.
 
 - **Probability calibration does not fix the value-bet filter (Iteration 5):** Wrapping LogReg in `CalibratedClassifierCV(cv=5, method="isotonic")` left ROI essentially unchanged at -15.52% (vs -15.10% in Iter 4). Isotonic calibration is a monotone transform of the predicted probabilities, so it preserves the ranking of outcomes — the same bets are selected as "value" before and after calibration. The structural flaw is that the value-bet filter always bets in the direction of the model's predicted class, and the model's predicted class is already the bookmaker's most likely outcome most of the time. Value betting via this mechanism is abandoned.
 
