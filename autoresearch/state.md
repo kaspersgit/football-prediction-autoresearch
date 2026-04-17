@@ -4,13 +4,13 @@
 
 | Metric     | Value          |
 |------------|----------------|
-| Accuracy   | 0.492          |
-| ROI        | -6.79%         |
-| Stability  | -0.0637        |
+| Accuracy   | 0.519          |
+| ROI        | -6.32%         |
+| Stability  | -0.0652        |
 | Model      | Logistic Regression + StandardScaler |
-| Features   | 5-game rolling mean: pts, gf, ga (home + away) — 6 features total |
+| Features   | 5-game rolling mean: pts, gf, ga (home + away) + Elo ratings — 8 features total |
 
-_Last updated: 2026-04-17 (Iteration 2 — HistGradientBoosting)_
+_Last updated: 2026-04-17 (Iteration 3 — Elo ratings as features)_
 
 ---
 
@@ -44,6 +44,23 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 3: Elo Ratings as Features
+
+**Date:** 2026-04-17
+**Hypothesis:** Adding Elo ratings as features will improve ROI because Elo captures long-run team strength that a 5-game rolling window misses — especially early in a season when rolling form is noisy.
+**Files changed:** src/model/train.py — reverted from HistGBM to LogisticRegression + StandardScaler pipeline; src/model/features.py — added `_compute_elo()` function computing pre-match Elo ratings (K=30, HOME_ADV=100, default=1500), added `home_elo` and `away_elo` as two new features (8 total); also aligned `group_keys=True` to match original baseline to fix a pandas groupby compatibility issue.
+
+**Results:**
+- Accuracy: 0.519
+- ROI: -6.32%
+- Stability: -0.0652
+- Test bets: 2643
+- vs baseline: Accuracy +0.027, ROI +0.47%, Stability -0.0015
+
+**Analysis:** Elo ratings improved both accuracy and ROI over the baseline. Accuracy jumped from 0.492 to 0.519 (+2.7pp), and ROI improved from -6.79% to -6.32% (+0.47pp). The number of test bets is unchanged at 2643 (Elo is always available from match 1; the rolling form warm-up remains the binding constraint). Stability is marginally worse (-0.0652 vs -0.0637), likely noise rather than a systematic pattern. The result confirms the hypothesis: Elo's global team strength signal adds genuine information beyond 5-game rolling form. However, ROI remains negative, so Elo alone is insufficient — future work should explore value betting or combining Elo with threshold-based bet selection.
+
+---
 
 ## Iteration 2: HistGradientBoostingClassifier
 
@@ -90,21 +107,21 @@ Ranked by estimated probability of improving ROI:
 
 1. **Threshold-based betting (value bets):** Only bet when model probability exceeds bookmaker implied probability. This directly targets edge over the market and should reduce bet count while improving ROI. _High confidence._
 
-2. **Elo ratings as features:** Elo gives a dynamic per-team strength estimate that updates after every match, which is a richer signal than rolling form. Many published betting models use Elo as a core feature. _Medium-high confidence._
+2. **Weighted rolling average:** Weight recent games more heavily in the rolling mean (e.g., exponential decay). More recent form may be more predictive than older games. _Medium confidence._
 
-3. **Weighted rolling average:** Weight recent games more heavily in the rolling mean (e.g., exponential decay). More recent form may be more predictive than older games. _Medium confidence._
+3. **Shorter rolling window (3 games):** A 3-game window may capture more recent form changes. Worth comparing to 5 and 10. _Low-medium confidence._
+
+~~**Elo ratings as features:**~~ _Tested in Iteration 3 — improved accuracy (+2.7pp) and ROI (+0.47%) but remains negative. Elo is now a permanent part of the feature set._
 
 ~~**Gradient Boosting model (XGBoost/LightGBM):**~~ _Tested in Iteration 2 — no improvement over Logistic Regression with the current 6-feature set. Model capacity is not the bottleneck._
 
 ~~**Home/away split form:**~~ _Tested in Iteration 1 — worsened all metrics. Discarded._
 
-5. **Weighted rolling average:** Weight recent games more heavily in the rolling mean (e.g., exponential decay). More recent form may be more predictive than older games. _Medium confidence._
-
-6. **Shorter rolling window (3 games):** A 3-game window may capture more recent form changes. Worth comparing to 5 and 10. _Low-medium confidence._
-
 ---
 
 ## Key Findings So Far
+
+- **Elo ratings meaningfully improve accuracy and ROI (Iteration 3):** Adding pre-match Elo ratings for home and away teams (K=30, HOME_ADV=100) improved accuracy by +2.7pp (0.492 → 0.519) and ROI by +0.47pp (-6.79% → -6.32%). Elo is now part of the permanent 8-feature set. ROI remains negative, but the hypothesis was confirmed: long-run team strength captures information beyond 5-game rolling form. Next priority: value-bet threshold filtering to exploit the improved probability estimates.
 
 - **Home/away venue split hurts, not helps (Iteration 1):** Splitting rolling form into home-only and away-only stats reduced all metrics vs baseline. The additional warm-up cost (needing 5 home AND 5 away games) drops ~10% of test matches, and sparser per-venue windows produce noisier estimates. Combined rolling form across all games is a better signal at window=5.
 

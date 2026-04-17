@@ -2,7 +2,9 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from src.model.features import build_features_with_odds
 
@@ -24,27 +26,25 @@ def train_model(df: pd.DataFrame) -> dict:
     X_train, y_train, _ = build_features_with_odds(train_df)
     X_test, y_test, odds_test = build_features_with_odds(test_df)
 
-    model = HistGradientBoostingClassifier(
-        max_iter=200,
-        learning_rate=0.05,
-        max_depth=4,
-        random_state=42,
-    )
-    model.fit(X_train, y_train)
+    pipeline = Pipeline([
+        ("scaler", StandardScaler()),
+        ("clf", LogisticRegression(max_iter=1000, random_state=42)),
+    ])
+    pipeline.fit(X_train, y_train)
 
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, MODEL_PATH)
+    joblib.dump(pipeline, MODEL_PATH)
     print(f"Model saved to {MODEL_PATH}")
 
-    y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)
-    classes = model.classes_
+    y_pred = pipeline.predict(X_test)
+    y_proba = pipeline.predict_proba(X_test)
+    classes = pipeline.classes_
 
     accuracy = (y_pred == y_test.values).mean()
     print(f"Test accuracy: {accuracy:.3f}")
 
     return {
-        "pipeline": model,
+        "pipeline": pipeline,
         "X_test": X_test,
         "y_test": y_test,
         "y_pred": y_pred,
