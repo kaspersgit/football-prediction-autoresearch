@@ -5,6 +5,15 @@ ELO_K = 30
 ELO_HOME_ADV = 100
 ELO_DEFAULT = 1500
 
+_LEAGUE_TO_INT = {"E0": 0, "D1": 1, "SP1": 2, "I1": 3}
+
+FEATURE_COLS = [
+    "home_form_pts", "home_form_gf", "home_form_ga", "home_form_gd",
+    "away_form_pts", "away_form_gf", "away_form_ga", "away_form_gd",
+    "home_elo", "away_elo", "elo_diff",
+    "league_code",
+]
+
 
 def _points(ftr: str, is_home: bool) -> int:
     if ftr == "H":
@@ -15,38 +24,23 @@ def _points(ftr: str, is_home: bool) -> int:
 
 
 def _compute_elo(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute pre-match Elo ratings for each row, updated in date order.
-    Returns df with home_elo and away_elo columns added.
-    No leakage: Elo recorded BEFORE the match result is applied.
-    """
+    """Pre-match Elo ratings — updated after each match, no leakage."""
     df = df.sort_values("Date").reset_index(drop=True)
     elo: dict[str, float] = {}
-
-    home_elos = []
-    away_elos = []
+    home_elos, away_elos = [], []
 
     for _, row in df.iterrows():
-        home = row["HomeTeam"]
-        away = row["AwayTeam"]
-
+        home, away = row["HomeTeam"], row["AwayTeam"]
         h_elo = elo.get(home, ELO_DEFAULT)
         a_elo = elo.get(away, ELO_DEFAULT)
-
         home_elos.append(h_elo)
         away_elos.append(a_elo)
 
-        # Expected score for home team (with home advantage)
         expected_home = 1 / (1 + 10 ** ((a_elo - h_elo + ELO_HOME_ADV) / 400))
         expected_away = 1 - expected_home
-
         ftr = row["FTR"]
-        if ftr == "H":
-            actual_home, actual_away = 1.0, 0.0
-        elif ftr == "A":
-            actual_home, actual_away = 0.0, 1.0
-        else:
-            actual_home, actual_away = 0.5, 0.5
+        actual_home = 1.0 if ftr == "H" else (0.0 if ftr == "A" else 0.5)
+        actual_away = 1.0 - actual_home
 
         elo[home] = h_elo + ELO_K * (actual_home - expected_home)
         elo[away] = a_elo + ELO_K * (actual_away - expected_away)
@@ -58,7 +52,7 @@ def _compute_elo(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _team_rolling_stats(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
-    """Compute rolling stats per team across all matches (home or away)."""
+    """Rolling stats per team across all matches."""
     records = []
     for _, row in df.iterrows():
         for team, is_home in [(row["HomeTeam"], True), (row["AwayTeam"], False)]:
@@ -74,8 +68,6 @@ def _team_rolling_stats(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
             form_ga=g["ga"].shift(1).rolling(window, min_periods=window).mean(),
         )
     )
-    # In some pandas versions groupby+apply promotes the group key to the index;
-    # reset to ensure "team" is available as a regular column.
     if "team" not in team_df.columns:
         team_df = team_df.reset_index(level="team")
     return team_df[["Date", "team", "form_pts", "form_gf", "form_ga"]]
@@ -89,28 +81,24 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     merged = df.merge(
         stats.rename(columns={"team": "HomeTeam", "form_pts": "home_form_pts",
                                "form_gf": "home_form_gf", "form_ga": "home_form_ga"}),
-        on=["Date", "HomeTeam"], how="left"
+        on=["Date", "HomeTeam"], how="left",
     )
     merged = merged.merge(
         stats.rename(columns={"team": "AwayTeam", "form_pts": "away_form_pts",
                                "form_gf": "away_form_gf", "form_ga": "away_form_ga"}),
-        on=["Date", "AwayTeam"], how="left"
+        on=["Date", "AwayTeam"], how="left",
     )
 
-    feature_cols = [
-        "home_form_pts", "home_form_gf", "home_form_ga",
-        "away_form_pts", "away_form_gf", "away_form_ga",
-        "home_elo", "away_elo",
-    ]
-    merged = merged.dropna(subset=feature_cols)
-    return merged.reset_index(drop=True)
+    # Derived features
+    merged["home_form_gd"] = merged["home_form_gf"] - merged["home_form_ga"]
+    merged["away_form_gd"] = merged["away_form_gf"] - merged["away_form_ga"]
+    merged["elo_diff"] = merged["home_elo"] - merged["away_elo"]
+    merged["league_code"] = merged["league"].map(_LEAGUE_TO_INT).fillna(0).astype(int)
 
-
-FEATURE_COLS = [
-    "home_form_pts", "home_form_gf", "home_form_ga",
-    "away_form_pts", "away_form_gf", "away_form_ga",
-    "home_elo", "away_elo",
-]
+    base_cols = ["home_form_pts", "home_form_gf", "home_form_ga",
+                 "away_form_pts", "away_form_gf", "away_form_ga"]
+    merged = merged.dropna(subset=base_cols).reset_index(drop=True)
+    return merged
 
 
 def build_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:

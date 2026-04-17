@@ -10,7 +10,7 @@
 | Model      | HistGradientBoostingClassifier |
 | Features   | 5-game rolling mean: pts, gf, ga (home + away) + Elo ratings — 8 features total |
 
-_Last updated: 2026-04-17 (Iteration 6 — HistGBM with Elo + rolling features, all bets; NEW BEST)_
+_Last updated: 2026-04-17 (Iteration 6 — HistGBM with Elo + rolling features, all bets; STILL BEST after Iter 7 regression)_
 
 ---
 
@@ -44,6 +44,23 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 7: Feature Enrichment (Goal Difference, Elo Diff, League Categorical)
+
+**Date:** 2026-04-17
+**Hypothesis:** Adding `home_form_gd`, `away_form_gd` (rolling goal difference), `elo_diff` (Elo differential), and `league_code` (integer-encoded league as HistGBM categorical) on top of the Iter 6 8-feature set would improve ROI because: goal difference captures style more directly than separate gf/ga; Elo diff is the single strongest Elo scalar; league captures systematic home-advantage differences across competitions.
+**Files changed:** `src/model/features.py` — added `FEATURE_COLS` as module-level constant (12 features), added derived feature computation (`home_form_gd`, `away_form_gd`, `elo_diff`, `league_code`) inside `_build_merged()`; `src/model/train.py` — imported `FEATURE_COLS`, added `categorical_features=_CATEGORICAL_FEATURES` to `HistGradientBoostingClassifier`.
+
+**Results:**
+- Accuracy: 0.518
+- ROI: -6.30%
+- Stability: -0.0647
+- Test bets: 2643
+- vs Iter 6 (best): Accuracy -0.003, ROI -1.21pp, Stability -0.0131 — **REGRESSION on all metrics**
+
+**Analysis:** Adding the four derived features hurt rather than helped. The most likely explanation is multicollinearity: `home_form_gd` is a deterministic linear combination of `home_form_gf` and `home_form_ga` (already in the feature set), and `elo_diff` is a linear combination of `home_elo` and `away_elo`. While HistGBM is tree-based and theoretically tolerant of correlated features, adding redundant linear combinations can still inflate variance by splitting the tree budget across equivalent signals, reducing generalization. The `league_code` categorical likely offers negligible additional discriminative power since the Elo system already captures cross-league team strength implicitly. The result is a net regression: Iter 6 remains the best. Future directions should avoid derived features that are pure linear combinations of existing ones; instead pursue genuinely new information (head-to-head records, season phase, squad depth).
+
+---
 
 ## Iteration 6: HistGBM with Elo + Rolling Features (All Bets)
 
@@ -161,9 +178,11 @@ Ranked by estimated probability of improving ROI:
 
 ~~**Probability calibration + value betting:**~~ _Tested in Iteration 5 — calibration (isotonic, cv=5) did not improve ROI over Iteration 4. ROI -15.52% vs -15.10%. The value-bet approach based on predicted-class probability appears structurally broken with this feature set; calibration preserves ranking so the same bets are selected. Value betting via this mechanism is abandoned._
 
-1. **Additional feature engineering (goal difference, league effects, season phase):** The Iter 6 result (-5.09% ROI) shows GBM can exploit non-linear feature interactions when given enough signal. Adding rolling goal-difference mean, league-specific intercepts (categorical feature — HistGBM handles natively), and season-phase indicator (early vs late) could push the model's discrimination across the vig threshold. _High confidence — incremental improvement on a clearly working architecture._
+~~**Additional feature engineering (goal difference, league effects, elo_diff):**~~ _Tested in Iteration 7 — regression on all metrics. Derived features that are linear combinations of existing features (gd = gf - ga; elo_diff = home_elo - away_elo) did not add information and slightly hurt generalization. Discarded approach._
 
-2. **Elo hyperparameter tuning (K factor, home advantage):** The current Elo uses K=30, HOME_ADV=100 as defaults. Tuning these on a held-out validation window might produce more accurate strength estimates, giving GBM a sharper signal. _Medium confidence — cheap experiment._
+1. **Elo hyperparameter tuning (K factor, home advantage):** The current Elo uses K=30, HOME_ADV=100 as defaults. Tuning these on a held-out validation window might produce more accurate strength estimates, giving GBM a sharper signal. _Medium confidence — cheap experiment; Elo is proven to help (Iter 3+6), so better Elo = better model._
+
+2. **Genuinely new information: season phase (match week / game number):** A season-phase indicator (early, mid, late) or raw match-week number captures the fact that team form is more volatile and Elo less settled early in a season. This is structurally orthogonal to current features. _Medium confidence — adds non-redundant information._
 
 3. **Weighted / shorter rolling window:** Exponential decay weighting or a 3-game window instead of flat 5-game mean may capture more recent form changes relevant to match outcome. _Low-medium confidence — small expected improvement but quick to test._
 
@@ -176,6 +195,8 @@ Ranked by estimated probability of improving ROI:
 ---
 
 ## Key Findings So Far
+
+- **Derived linear combination features regress performance (Iteration 7):** Adding `home_form_gd` (= gf − ga), `away_form_gd`, `elo_diff` (= home_elo − away_elo), and `league_code` worsened all metrics vs Iter 6 (ROI: -5.09% → -6.30%, Accuracy: 0.521 → 0.518, Stability: -0.0516 → -0.0647). Features that are exact linear combinations of existing features offer no new information for tree models and can dilute the signal budget, increasing variance without reducing bias. The lesson: only add features that represent genuinely new information.
 
 - **HistGBM + Elo features is the new best model (Iteration 6):** Replacing LogisticRegression with HistGradientBoostingClassifier (max_iter=300, lr=0.05, max_depth=4, min_samples_leaf=20) on the 8-feature Elo+rolling set improved ROI from -6.32% to -5.09% (+1.23pp) and stability from -0.0652 to -0.0516. The hypothesis is confirmed: GBM benefits from Elo's non-linear interactions where it had no gain with rolling-only features (Iter 2). This is the first iteration to clearly beat the previous best on all three metrics simultaneously.
 
