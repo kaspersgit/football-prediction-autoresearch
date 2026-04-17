@@ -2,6 +2,7 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -26,25 +27,26 @@ def train_model(df: pd.DataFrame) -> dict:
     X_train, y_train, _ = build_features_with_odds(train_df)
     X_test, y_test, odds_test = build_features_with_odds(test_df)
 
-    pipeline = Pipeline([
+    base = Pipeline([
         ("scaler", StandardScaler()),
         ("clf", LogisticRegression(max_iter=1000, random_state=42)),
     ])
-    pipeline.fit(X_train, y_train)
+    model = CalibratedClassifierCV(base, cv=5, method="isotonic")
+    model.fit(X_train, y_train)
 
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(pipeline, MODEL_PATH)
+    joblib.dump(model, MODEL_PATH)
     print(f"Model saved to {MODEL_PATH}")
 
-    y_pred = pipeline.predict(X_test)
-    y_proba = pipeline.predict_proba(X_test)
-    classes = pipeline.classes_
+    y_pred = model.predict(X_test)
+    y_proba = model.predict_proba(X_test)
+    classes = model.classes_
 
     accuracy = (y_pred == y_test.values).mean()
     print(f"Test accuracy: {accuracy:.3f}")
 
     return {
-        "pipeline": pipeline,
+        "pipeline": model,
         "X_test": X_test,
         "y_test": y_test,
         "y_pred": y_pred,

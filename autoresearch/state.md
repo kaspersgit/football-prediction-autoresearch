@@ -10,7 +10,7 @@
 | Model      | Logistic Regression + StandardScaler |
 | Features   | 5-game rolling mean: pts, gf, ga (home + away) + Elo ratings — 8 features total |
 
-_Last updated: 2026-04-17 (Iteration 4 — value betting filter; Iter 3 remains best)_
+_Last updated: 2026-04-17 (Iteration 5 — calibrated probabilities + value betting; Iter 3 remains best)_
 
 ---
 
@@ -44,6 +44,24 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 5: Calibrated Probabilities + Value Betting
+
+**Date:** 2026-04-17
+**Hypothesis:** Wrapping LogisticRegression in `CalibratedClassifierCV` (cv=5, method="isotonic") will fix the overconfidence problem identified in Iteration 4, making the value-bet filter (`model_prob > 1/odds`) a genuine edge signal and improving ROI.
+**Files changed:** src/model/train.py — replaced bare `Pipeline(StandardScaler + LogisticRegression)` with `CalibratedClassifierCV(base_pipeline, cv=5, method="isotonic")`; `model.classes_` accessed directly (CalibratedClassifierCV exposes this attribute).
+
+**Results:**
+- Accuracy: 0.522
+- ROI: -15.52%
+- Stability: -0.1318
+- Test bets: 929 (35.1% of 2643)
+- vs Iter 3 (best): ROI -9.20pp worse, Stability -0.0666 worse
+- vs Iter 4: ROI -0.42pp worse — marginally worse, not better
+
+**Analysis:** Isotonic calibration did not rescue the value-bet filter. ROI remained deeply negative at -15.52%, essentially the same as Iteration 4 (-15.10%). The number of value bets increased slightly (929 vs 884), suggesting calibration softened probabilities somewhat but did not eliminate the systematic overconfidence. Two structural problems likely persist: (1) the model's predicted class is strongly correlated with inflated probability for that class — calibration reduces the magnitude of overconfidence but does not change which bets are selected, because the ranking of outcomes per match is preserved by monotone calibration; (2) the value-bet filter operates on the predicted outcome only, so it consistently picks bets in the direction of the model's already-dominant signal. The model may lack the discriminative power to identify genuine value regardless of calibration quality. The entire value-betting approach may require a fundamentally different signal (e.g., draw probability specifically, or ensemble disagreement) rather than calibration of a single classifier.
+
+---
 
 ## Iteration 4: Value Betting Filter
 
@@ -124,11 +142,13 @@ Ranked by estimated probability of improving ROI:
 
 ~~**Threshold-based betting (value bets):**~~ _Tested in Iteration 4 — worsened ROI from -6.32% to -15.10%. Raw LogReg probabilities are poorly calibrated; value filtering selects overconfident bets, not genuine edge. Requires probability calibration (Platt scaling / isotonic regression) to work._
 
-1. **Probability calibration + value betting:** Apply Platt scaling or isotonic regression to calibrate LogReg output before using value-bet filter. Calibrated probabilities are required for value betting to work. _High confidence if combined with calibration._
+~~**Probability calibration + value betting:**~~ _Tested in Iteration 5 — calibration (isotonic, cv=5) did not improve ROI over Iteration 4. ROI -15.52% vs -15.10%. The value-bet approach based on predicted-class probability appears structurally broken with this feature set; calibration preserves ranking so the same bets are selected. Value betting via this mechanism is abandoned._
 
-2. **Weighted rolling average:** Weight recent games more heavily in the rolling mean (e.g., exponential decay). More recent form may be more predictive than older games. _Medium confidence._
+1. **Weighted rolling average:** Weight recent games more heavily in the rolling mean (e.g., exponential decay). More recent form may be more predictive than older games. _Medium confidence._
 
-3. **Shorter rolling window (3 games):** A 3-game window may capture more recent form changes. Worth comparing to 5 and 10. _Low-medium confidence._
+2. **Shorter rolling window (3 games):** A 3-game window may capture more recent form changes. Worth comparing to 5 and 10. _Low-medium confidence._
+
+3. **Bet on all matches (no filter), but improve base model features:** The Iter 3 result (-6.32% ROI, 2643 bets) with no value-bet filter is the best seen. Additional features such as league-specific intercepts, season phase (early vs late), or head-to-head record may improve the base model's discrimination enough to push ROI positive without a value-bet filter. _Medium confidence._
 
 ~~**Elo ratings as features:**~~ _Tested in Iteration 3 — improved accuracy (+2.7pp) and ROI (+0.47%) but remains negative. Elo is now a permanent part of the feature set._
 
@@ -139,6 +159,8 @@ Ranked by estimated probability of improving ROI:
 ---
 
 ## Key Findings So Far
+
+- **Probability calibration does not fix the value-bet filter (Iteration 5):** Wrapping LogReg in `CalibratedClassifierCV(cv=5, method="isotonic")` left ROI essentially unchanged at -15.52% (vs -15.10% in Iter 4). Isotonic calibration is a monotone transform of the predicted probabilities, so it preserves the ranking of outcomes — the same bets are selected as "value" before and after calibration. The structural flaw is that the value-bet filter always bets in the direction of the model's predicted class, and the model's predicted class is already the bookmaker's most likely outcome most of the time. Value betting via this mechanism is abandoned.
 
 - **Value betting without calibration makes ROI worse (Iteration 4):** Filtering to bets where model probability > bookmaker implied probability worsened ROI from -6.32% to -15.10% and reduced bets to 884 (33.4%). The root cause: Logistic Regression probabilities are not calibrated, causing systematic overconfidence for predicted outcomes. The model picks exactly the bets where it is most wrong relative to the market. Value betting requires probability calibration (Platt scaling or isotonic regression) as a prerequisite.
 
