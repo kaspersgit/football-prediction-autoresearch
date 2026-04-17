@@ -45,7 +45,25 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ## Iteration History
 
-_(No iterations yet — start here.)_
+## Iteration 1: Home/Away Split Form
+
+**Date:** 2026-04-17
+**Hypothesis:** Separating home and away rolling form will improve ROI because teams often perform very differently at home vs away, and mixing the two signals adds noise.
+**Files changed:** src/model/features.py — replaced combined team rolling stats with venue-specific stats (home team's home-game stats, away team's away-game stats)
+
+**Results:**
+- Accuracy: 0.481
+- ROI: -8.78%
+- Stability: -0.0825
+- Test bets: 2379
+- vs baseline: Accuracy -0.011, ROI -1.99%, Stability -0.0188
+
+**Analysis:** The venue-split approach underperformed on all three metrics. The most likely cause is the warm-up cost: requiring 5 home-only games AND 5 away-only games to compute features drops more early-season matches (2379 vs 2643 test bets), removing games where the signal may have been better calibrated. Additionally, having only 5 home games per team (roughly half a season) may produce noisier rolling estimates than 5 combined games, which are more frequent. The hypothesis that venue-split form is less noisy was not confirmed — the added sparsity appears to hurt more than the venue specificity helps.
+
+**Next directions (ranked):**
+1. **Threshold-based betting (value bets):** Only bet when model probability exceeds bookmaker implied probability. This directly targets edge over the market and should reduce bet count while improving ROI. High confidence — this is the single most principled improvement available.
+2. **Gradient Boosting model (XGBoost/LightGBM):** Logistic Regression is linear; tree-based models may capture non-linear interactions between features better. Medium-high confidence.
+3. **Elo ratings as features:** A dynamic per-team strength estimate that updates after every match, richer than rolling form alone. Many published betting models use Elo as a core feature. Medium-high confidence.
 
 ---
 
@@ -69,7 +87,7 @@ Ranked by estimated probability of improving ROI:
 
 ## Key Findings So Far
 
-_(Empty — no completed iterations yet.)_
+- **Home/away venue split hurts, not helps (Iteration 1):** Splitting rolling form into home-only and away-only stats reduced all metrics vs baseline. The additional warm-up cost (needing 5 home AND 5 away games) drops ~10% of test matches, and sparser per-venue windows produce noisier estimates. Combined rolling form across all games is a better signal at window=5.
 
 ---
 
