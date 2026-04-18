@@ -10,7 +10,7 @@
 | Model      | HistGradientBoostingClassifier |
 | Features   | 5-game rolling mean: pts, gf, ga (home + away) + Elo ratings — 8 features total |
 
-_Last updated: 2026-04-17 (Iteration 6 — HistGBM with Elo + rolling features, all bets; STILL BEST after Iter 7 + Iter 8 regressions)_
+_Last updated: 2026-04-18 (Iteration 6 — HistGBM with Elo + rolling features, all bets; STILL BEST after Iter 7, 8, 9, 10 regressions)_
 
 ---
 
@@ -44,6 +44,40 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 10: Shorter Rolling Window (3-game)
+
+**Date:** 2026-04-18
+**Hypothesis:** A 3-game rolling window captures more recent form than the 5-game window — tighter recency should improve signal quality and reduce noise from stale results.
+**Files changed:** `src/model/features.py` — changed `WINDOW` from 5 to 3. Also restored flat betting in `main.py` (reverted from Iter 8's multi-outcome value betting back to `compute_betting_results`).
+
+**Results:**
+- Accuracy: 0.519
+- ROI: -5.53%
+- Stability: -0.0563
+- Test bets: 2743 (vs 2643 in Iter 6 — smaller window has lower warm-up cost, adds 100 test bets)
+- vs Iter 6 (best): Accuracy -0.002, ROI -0.44pp, Stability -0.0047 — **REGRESSION on all metrics**
+
+**Analysis:** The 3-game window worsened all metrics. Despite the lower warm-up cost adding 100 more test bets, the model's predictive accuracy fell slightly and ROI worsened. A shorter window produces noisier rolling estimates — with only 3 games, team form stats are more susceptible to single-match outliers (red cards, unusual opponents, travel fatigue). The 5-game window appears to offer a better bias-variance tradeoff for this dataset. Combined with the fact that Iteration 1 showed home/away-split form (sparser windows) also hurt, the evidence consistently points to the 5-game window as optimal at this scale. Reverted `WINDOW` to 5.
+
+---
+
+## Iteration 9: Elo Hyperparameter Tuning (K=20, HOME_ADV=65)
+
+**Date:** 2026-04-18
+**Hypothesis:** The default Elo parameters (K=30, HOME_ADV=100) may not be optimal for this dataset. Lowering K to 20 (more stable, less reactive ratings) and HOME_ADV to 65 (reflecting modern football's declining home advantage) will produce more accurate team strength estimates and improve ROI.
+**Files changed:** `src/model/features.py` — changed `ELO_K` from 30 to 20, `ELO_HOME_ADV` from 100 to 65. Also restored flat betting in `main.py` (reverted from Iter 8's multi-outcome value betting back to `compute_betting_results`).
+
+**Results:**
+- Accuracy: 0.516
+- ROI: -6.19%
+- Stability: -0.0629
+- Test bets: 2643
+- vs Iter 6 (best): Accuracy -0.005, ROI -1.10pp, Stability -0.0113 — **REGRESSION on all metrics**
+
+**Analysis:** Lower K and lower HOME_ADV both worsened results across all three metrics. The K=30 and HOME_ADV=100 defaults appear better calibrated to this multi-league European dataset. Two possible reasons: (1) A higher K=30 makes Elo more reactive to recent results, which may actually be beneficial over a ~12-year training set where team quality changes dramatically season to season; static lower-K ratings accumulate inertia that misrepresents current strength. (2) The HOME_ADV=100 may reflect a historical dataset baseline that is simply more accurate as a prior over all seasons and leagues combined — reducing to 65 undershoots the actual advantage embedded in this dataset's composition. The original K=30, HOME_ADV=100 parameters are confirmed as better. Reverted both values.
+
+---
 
 ## Iteration 8: Multi-Outcome Value Betting
 
@@ -199,11 +233,15 @@ Ranked by estimated probability of improving ROI:
 
 ~~**Multi-outcome value betting:**~~ _Tested in Iteration 8 — severe regression. ROI -17.80% vs -5.09% in Iter 6. Bet rate 126.3% (>1 per match) indicates the model generates spurious value across multiple outcomes simultaneously, amplifying the overconfidence problem. Any value-betting approach using raw model probabilities vs. bookmaker implied probabilities is abandoned — the model is not calibrated well enough relative to the bookmaker vig._
 
-1. **Elo hyperparameter tuning (K factor, home advantage):** The current Elo uses K=30, HOME_ADV=100 as defaults. Tuning these on a held-out validation window might produce more accurate strength estimates, giving GBM a sharper signal. _Medium confidence — cheap experiment; Elo is proven to help (Iter 3+6), so better Elo = better model._
+~~**Elo hyperparameter tuning (K=20, HOME_ADV=65):**~~ _Tested in Iteration 9 — regression on all metrics (ROI -6.19% vs -5.09%). K=30 and HOME_ADV=100 are confirmed as better for this multi-league European dataset. The higher K provides more reactivity to team form changes season-to-season; the higher HOME_ADV better reflects the historical baseline across the full dataset. Elo parameter search abandoned at this scale._
 
-2. **Genuinely new information: season phase (match week / game number):** A season-phase indicator (early, mid, late) or raw match-week number captures the fact that team form is more volatile and Elo less settled early in a season. This is structurally orthogonal to current features. _Medium confidence — adds non-redundant information._
+~~**Shorter rolling window (WINDOW=3):**~~ _Tested in Iteration 10 — regression on all metrics (ROI -5.53% vs -5.09%). Fewer games = noisier estimates; consistent with Iteration 1 finding. WINDOW=5 is confirmed as optimal._
 
-3. **Weighted / shorter rolling window:** Exponential decay weighting or a 3-game window instead of flat 5-game mean may capture more recent form changes relevant to match outcome. _Low-medium confidence — small expected improvement but quick to test._
+1. **Genuinely new information: season phase (match week / game number):** A season-phase indicator (early, mid, late) or raw match-week number captures the fact that team form is more volatile and Elo less settled early in a season. This is structurally orthogonal to current features. _Medium confidence — adds non-redundant information._
+
+2. **Head-to-head historical record:** The h2h win rate between the two teams is entirely new information not encoded in Elo or rolling form. Could capture persistent matchup-specific dominance. _Medium confidence._
+
+3. **GBM hyperparameter search:** The current HistGBM uses heuristic parameters (max_iter=300, lr=0.05, max_depth=4, min_samples_leaf=20). A grid search on max_depth (3, 4, 5) and min_samples_leaf (10, 20, 30) might squeeze out a small improvement. _Low-medium confidence — model capacity unlikely bottleneck, but cheap._
 
 ~~**Elo ratings as features:**~~ _Tested in Iteration 3 — improved accuracy (+2.7pp) and ROI (+0.47%) but remains negative. Elo is now a permanent part of the feature set._
 
