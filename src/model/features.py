@@ -9,6 +9,7 @@ FEATURE_COLS = [
     "home_form_pts", "home_form_gf", "home_form_ga",
     "away_form_pts", "away_form_gf", "away_form_ga",
     "home_elo", "away_elo",
+    "market_h", "market_d", "market_a",
 ]
 
 
@@ -147,6 +148,10 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
                                "form_gf": "away_form_gf", "form_ga": "away_form_ga"}),
         on=["Date", "AwayTeam"], how="left",
     )
+    total_imp = 1/merged["B365H"] + 1/merged["B365D"] + 1/merged["B365A"]
+    merged["market_h"] = (1/merged["B365H"]) / total_imp
+    merged["market_d"] = (1/merged["B365D"]) / total_imp
+    merged["market_a"] = (1/merged["B365A"]) / total_imp
     merged = merged.dropna(subset=FEATURE_COLS).reset_index(drop=True)
     return merged
 
@@ -225,6 +230,9 @@ def build_fixture_features(
             "away_form_ga": af["form_ga"],
             "home_elo": elo_state.get(home, ELO_DEFAULT),
             "away_elo": elo_state.get(away, ELO_DEFAULT),
+            "market_h": (1/row["B365H"]) / (1/row["B365H"] + 1/row["B365D"] + 1/row["B365A"]),
+            "market_d": (1/row["B365D"]) / (1/row["B365H"] + 1/row["B365D"] + 1/row["B365A"]),
+            "market_a": (1/row["B365A"]) / (1/row["B365H"] + 1/row["B365D"] + 1/row["B365A"]),
         })
 
     if not rows:

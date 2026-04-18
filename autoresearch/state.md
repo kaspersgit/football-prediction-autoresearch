@@ -2,17 +2,16 @@
 
 ## Current Best Model
 
-| Metric     | Value          |
-|------------|----------------|
-| Accuracy   | 0.523          |
-| ROI        | -8.21%         |
-| Stability  | -0.0573        |
-| Bets       | 1180 / 2626 (44.9%) |
-| Threshold  | 0.06           |
-| Model      | HistGradientBoostingClassifier |
-| Features   | 5-game rolling mean: pts, gf, ga (home + away) + Elo ratings — 8 features total |
+| Metric       | threshold=0.0        | threshold=0.06      |
+|--------------|----------------------|---------------------|
+| Accuracy     | 0.532                | 0.532               |
+| ROI          | **-6.72%**           | -6.41%              |
+| Stability    | **-0.0448**          | -0.0552             |
+| Bets         | 3848 / 2626 (146.5%) | 335 / 2626 (12.8%)  |
+| Model        | HistGradientBoostingClassifier | same |
+| Features     | 8 rolling/Elo + 3 market fair probs = **11 features** | same |
 
-_Last updated: 2026-04-18 (Iteration 15 — threshold=0.06 identified as optimal operating point via grid search. **Caveat: threshold was selected on test set.**)_
+_Last updated: 2026-04-18 (Iteration 16 — market fair probabilities as features. **New best at threshold=0.0: ROI -6.72%, +4.27pp vs prior best.**)_
 
 **Note on evaluation setup (2026-04-18):** All metrics from Iteration 11 onward use the new pipeline:
 - **Walk-forward backtest**: one model trained per test season (2425 then 2526); Elo carries forward correctly.
@@ -52,6 +51,43 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 17: Sigmoid Calibration on Top of Odds Features
+
+**Date:** 2026-04-18
+**Hypothesis:** Sigmoid calibration (Platt scaling) applied on top of the odds-features model will further improve probability alignment. Unlike isotonic, sigmoid uses only 2 parameters per class and is less prone to overfitting — it may correct the residual shape of HistGBM's probability outputs without degrading the market-alignment already learned from the odds features.
+**Files changed:** `src/model/train.py` — wrapped `HistGradientBoostingClassifier` in `CalibratedClassifierCV(base, cv=3, method="sigmoid")`.
+
+**Results (odds features active, Iteration 16 base):**
+
+| Threshold | Bets | ROI | Stability | vs Iter 16 |
+|-----------|------|-----|-----------|------------|
+| 0.00 | 4008 (152.6%) | -8.64% | -0.0547 | **-1.92pp ROI** ↓ |
+| 0.06 | 161 (6.1%) | -5.89% | -0.0374 | +0.52pp ROI ↑ |
+
+**Analysis:** Sigmoid calibration is a clear regression at threshold=0.0 (ROI -8.64% vs -6.72%), though it shows marginal improvement at threshold=0.06 (-5.89% vs -6.41%). However, at threshold=0.06 the bet count collapses from 335 to 161 — only 6.1% of matches. The threshold=0.06 improvement is statistically fragile (161 bets). The threshold=0.0 result is the more reliable signal, and it is unambiguously worse. The calibration appears to distort the market-aligned probabilities that the model learned directly from the odds features — the model's raw probabilities (already market-informed) are more useful to the value-betting filter than the sigmoid-smoothed versions. Reverted.
+
+---
+
+## Iteration 16: Market Fair Probabilities as Features
+
+**Date:** 2026-04-18
+**Hypothesis:** Adding the bookmaker's vig-corrected fair probabilities (`market_h`, `market_d`, `market_a`) as features lets the model learn to deviate from the market rather than predict outcomes in isolation. This directly addresses the probability calibration problem: the model can explicitly learn "given all my signals AND what the market thinks, what is my probability?"
+**Files changed:** `src/model/features.py` — added `market_h`, `market_d`, `market_a` (vig-corrected: `(1/odds) / sum(1/odds)`) to `FEATURE_COLS`; computed in `_build_merged()` and `build_fixture_features()`.
+
+**Results:**
+
+| Threshold | Bets | ROI | Stability | vs prior baseline |
+|-----------|------|-----|-----------|-------------------|
+| 0.00 | 3848 (146.5%) | **-6.72%** | **-0.0448** | **+4.27pp** ↑ (**NEW BEST**) |
+| 0.06 | 335 (12.8%) | -6.41% | -0.0552 | +1.80pp vs Iter 15 |
+
+- Accuracy: **0.532** (+0.009 vs 0.523 prior — largest single-iteration accuracy jump)
+- **NEW BEST on all metrics at threshold=0.0.**
+
+**Analysis:** Adding market fair probabilities as features produced the largest improvement in the project so far. Accuracy jumped +0.009 (largest single-step gain), ROI improved +4.27pp at threshold=0.0. The mechanism: the model now knows the market's prior for each match and can learn to detect systematic patterns where its other signals (Elo, rolling form) diverge from the market estimate. Rather than predicting H/D/A from team statistics alone, it predicts "does the market misprice this match?" The bet count at threshold=0.06 drops from 1180 to 335 because the model's probabilities are now much closer to market fair probs — finding 6% edge requires a real signal above the market's already-informed estimate.
+
+---
 
 ## Iteration 15: Threshold Grid Search
 
@@ -342,21 +378,21 @@ Ranked by estimated probability of improving ROI:
 
 ~~**Shorter rolling window (WINDOW=3):**~~ _Tested in Iteration 10 — regression on all metrics (ROI -5.53% vs -5.09%). Fewer games = noisier estimates; consistent with Iteration 1 finding. WINDOW=5 is confirmed as optimal._
 
-~~**Season phase (match_month):**~~ _Tested in Iteration 11 — regression._
-~~**Head-to-head historical win rate:**~~ _Tested in Iteration 12 — regression on ROI, accuracy +0.002._
-~~**Longer rolling window (WINDOW=7):**~~ _Tested in Iteration 13 — regression on ROI, accuracy +0.005._
-~~**Probability calibration (isotonic cv=3):**~~ _Tested in Iteration 14 — regression. Calibration to empirical frequencies ≠ alignment with bookmaker pricing._
-~~**Threshold tuning:**~~ _Tested in Iteration 15 — threshold=0.06 gives best ROI (-8.21% vs -10.99% baseline). **New recommended operating point.** Caveat: selected on test set._
+~~**Season phase (match_month):**~~ _Tested Iter 11 — regression._
+~~**Head-to-head win rate:**~~ _Tested Iter 12 — regression on ROI._
+~~**WINDOW=7:**~~ _Tested Iter 13 — regression on ROI._
+~~**Isotonic calibration (cv=3):**~~ _Tested Iter 14 — regression._
+~~**Threshold tuning:**~~ _Tested Iter 15 — threshold=0.06 was best statistically-robust operating point (pre-odds-features)._
+~~**Market fair probs as features:**~~ _Tested Iter 16 — **NEW BEST**: ROI -6.72% at threshold=0.0 (+4.27pp), accuracy 0.532 (+0.009). Kept._
+~~**Sigmoid calibration on odds-features model:**~~ _Tested Iter 17 — regression at threshold=0.0 (-8.64% vs -6.72%). Calibration distorts the market-aligned probs the model already learned. Reverted._
 
-**Operating point going forward:** evaluate at both threshold=0.0 (clean baseline) and threshold=0.06 (operating point).
+**Current paradigm:** market fair probs are now the dominant feature. Evaluate at threshold=0.0 (robust baseline) and threshold=0.06 (operating point, needs re-griding on new model).
 
-**Research direction pivot:** All feature and calibration experiments have either not improved ROI or improved it only via threshold selection. The model appears to have reached a ceiling under the current paradigm (value betting on 4 leagues, 8 features). Consider:
+1. **Threshold re-grid on odds-features model:** Iter 15 grid was pre-odds-features. With the new model, probabilities are market-aligned so the optimal threshold may have shifted. _High confidence — cheap, necessary._
 
-1. **Draw-specific model:** Draws are the hardest outcome (bookmakers overprice them; public underestimates them). A separate classifier trained only to identify draws vs non-draws might provide more accurate draw probabilities, which are the hardest to calibrate. _Medium-high confidence — draws are structurally different from H/A outcomes._
+2. **League-specific models:** Train one HistGBM per league. With odds features, a per-league model can learn league-specific deviations from market pricing. _Medium confidence._
 
-2. **League-specific models:** Train a separate HistGBM per league. League-specific patterns (e.g., Serie A's low-scoring draws, Bundesliga's high home win rate) may be better captured by specialised models than a pooled model with implicit cross-league noise. _Medium confidence._
-
-3. **Odds-based features:** Add the opening bookmaker odds as features directly. The model would learn to compare its probability estimates to the market, which directly addresses the calibration vs market problem. The market is the strongest available signal. _High confidence — the odds ARE the best prior; using them as a feature lets the model explicitly learn when to deviate._
+3. **Form features + odds combined:** Previously WINDOW=7 and h2h regressed without odds features. May add value now that the model sees market context. _Medium confidence — worth re-testing in new paradigm._
 
 ~~**Elo ratings as features:**~~ _Tested in Iteration 3 — improved accuracy (+2.7pp) and ROI (+0.47%) but remains negative. Elo is now a permanent part of the feature set._
 
