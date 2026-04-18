@@ -4,14 +4,14 @@
 
 | Metric       | threshold=0.0        | threshold=0.06      |
 |--------------|----------------------|---------------------|
-| Accuracy     | 0.532                | 0.532               |
-| ROI          | **-6.72%**           | -6.41%              |
-| Stability    | **-0.0448**          | -0.0552             |
-| Bets         | 3848 / 2626 (146.5%) | 335 / 2626 (12.8%)  |
+| Accuracy     | 0.531                | 0.531               |
+| ROI          | **-6.39%**           | **+3.93%** ✅        |
+| Stability    | **-0.0421**          | **+0.0254** ✅       |
+| Bets         | 3854 / 2626 (146.8%) | 335 / 2626 (12.8%)  |
 | Model        | HistGradientBoostingClassifier | same |
-| Features     | 8 rolling/Elo + 3 market fair probs = **11 features** | same |
+| Features     | 8 rolling/Elo + 3 market fair probs + 3 league dummies = **14 features** | same |
 
-_Last updated: 2026-04-18 (Iteration 16 — market fair probabilities as features. **New best at threshold=0.0: ROI -6.72%, +4.27pp vs prior best.**)_
+_Last updated: 2026-04-18 (Iteration 19 — league one-hot encoding. **New best at threshold=0.06: ROI +3.93%, first positive ROI at meaningful bet count.**)_
 
 **Note on evaluation setup (2026-04-18):** All metrics from Iteration 11 onward use the new pipeline:
 - **Walk-forward backtest**: one model trained per test season (2425 then 2526); Elo carries forward correctly.
@@ -51,6 +51,43 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 19: League One-Hot Encoding
+
+**Date:** 2026-04-18
+**Hypothesis:** Adding league identity (E0/D1/SP1/I1) as one-hot features lets the model learn league-specific patterns — home advantage, draw rate, and form predictability differ across the Bundesliga, Premier League, La Liga, and Serie A. The model currently has no explicit league signal; it relies only on the market odds to infer context.
+**Files changed:** `src/model/features.py` — added `league_E0`, `league_D1`, `league_SP1` (I1 = omitted reference category) to `FEATURE_COLS`; computed in `_build_merged()` and `build_fixture_features()`.
+
+**Results:**
+
+| Threshold | Bets | ROI | Stability | vs Iteration 16 |
+|-----------|------|-----|-----------|-----------------|
+| 0.00 | 3854 (146.8%) | **-6.39%** | **-0.0421** | +0.33pp ROI ↑, +0.0027 stability ↑ |
+| 0.06 | 335 (12.8%) | **+3.93%** ✅ | **+0.0254** ✅ | **+10.34pp ROI** ↑ — **NEW BEST** |
+
+- Accuracy: **0.531** (-0.001 vs 0.532 — marginal accuracy drop, major ROI gain)
+- **NEW BEST on ROI and Stability at threshold=0.06: first positive ROI at a statistically meaningful sample (335 bets).**
+
+**Analysis:** League encoding produced the largest improvement yet at the threshold=0.06 operating point (+10.34pp ROI, from -6.41% to +3.93%). The mechanism: each league has different baseline H/D/A rates and different betting market dynamics. Without league identity, the model learned a single average deviation pattern from the market. With league dummies, it can learn that, say, a 6% edge in the Bundesliga vs the Serie A may have different reliability. The accuracy dip (-0.001) is consistent with the pattern seen throughout — these features are calibrated for value betting ROI, not classification accuracy. Stability also turned positive (+0.0254), meaning cumulative profit curves are now trending upward at threshold=0.06. The bet count of 335 is the same as Iteration 16, ruling out sample size as an explanation.
+
+---
+
+## Iteration 18: Venue-Specific Rolling Form (REVERTED — regression)
+
+**Date:** 2026-04-18
+**Hypothesis:** Rolling form computed separately for home games (home team) and away games (away team) is more predictive than all-games form, since venue splits capture systematically different performance.
+**Files changed:** `src/model/features.py` — added 6 venue-specific form features; reverted after results.
+
+**Results (reverted):**
+
+| Threshold | Bets | ROI | Stability | vs Iteration 16 |
+|-----------|------|-----|-----------|-----------------|
+| 0.00 | 3912 (149.4%) | -8.84% | -0.0570 | **-2.12pp ROI** ↓ |
+| 0.06 | 244 (9.3%) | -6.85% | -0.0579 | -0.44pp ROI ↓ |
+
+**Analysis:** Venue-specific form produced a clear regression. With WINDOW=5 split by venue, each team's home (or away) form window spans ~10 real weeks vs ~2.5 weeks for all-games form — the signal is noisier because sample sizes halve. The 6 new features are also highly correlated with the existing 6 all-games features (a team's home form is correlated with overall form), adding collinearity without independent signal. The model's accuracy improved marginally (0.534) but ROI worsened substantially. Reverted.
+
+---
 
 ## Iteration 17: Sigmoid Calibration on Top of Odds Features
 
