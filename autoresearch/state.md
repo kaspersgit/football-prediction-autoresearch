@@ -51,6 +51,40 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ## Iteration History
 
+## Iteration 13: Longer Rolling Window (WINDOW=7)
+
+**Date:** 2026-04-18
+**Hypothesis:** A 7-game rolling window captures more stable team form than WINDOW=5, smoothing out noise from single anomalous results. WINDOW=3 was worse (Iter 10), suggesting more data is better — so 7 might beat 5.
+**Files changed:** `src/model/features.py` — changed `WINDOW` from 5 to 7.
+
+**Results:**
+- Accuracy: 0.528 (+0.005 vs baseline 0.523)
+- ROI: -11.73% (-0.74pp vs baseline -10.99%)
+- Stability: -0.0750 (-0.0026 vs baseline -0.0724)
+- Bets: 3699 / 2614 (141.5% — slight drop because more matches lack 7-game history)
+- **REGRESSION on ROI and Stability; Accuracy improved**
+
+**Analysis:** Same pattern as Iteration 12: accuracy improved (+0.005) but ROI and Stability degraded. A 7-game window produces smoother, more reliable form estimates that make the model classify outcomes more accurately — yet this does not translate to better value betting performance. The probable explanation is that better classification does not improve the model's probability calibration relative to bookmaker odds. The model with WINDOW=7 still outputs probabilities that are systematically mis-matched to the bookmaker's vig-adjusted fair odds, generating the same spurious value signals. This confirms a critical insight: **in this evaluation setup, discriminative accuracy and betting ROI are decoupled.** Improvements to classification accuracy do not automatically improve ROI under value betting. What is needed is better probability calibration rather than better discrimination. Reverted to WINDOW=5.
+
+---
+
+## Iteration 12: Head-to-Head Historical Win Rate
+
+**Date:** 2026-04-18
+**Hypothesis:** Adding `h2h_home_win_rate` — the historical home win rate between the two teams across all prior meetings — will improve ROI by capturing persistent matchup-specific dominance that Elo and rolling form cannot encode.
+**Files changed:** `src/model/features.py` — added `_compute_h2h()`, `_get_current_h2h_state()`, `_h2h_rate()` functions; added `h2h_home_win_rate` to `FEATURE_COLS` and `_build_merged()`; added h2h lookup in `build_fixture_features()`. Teams with no prior h2h meetings use 0.5 as a neutral prior.
+
+**Results:**
+- Accuracy: 0.525 (+0.002 vs baseline 0.523)
+- ROI: -12.55% (-1.56pp vs baseline -10.99%)
+- Stability: -0.0811 (-0.0087 vs baseline -0.0724)
+- Bets: 3749 / 2626 (142.8%)
+- **REGRESSION on ROI and Stability; Accuracy marginally improved**
+
+**Analysis:** H2H improves classification accuracy (+0.002) but worsens betting ROI (-1.56pp). This is the same decoupling pattern seen in Iterations 12 and 13: the h2h signal adds genuine discriminative information but does not improve probability calibration against bookmaker odds. The h2h rate likely shifts the model's probability distribution in ways that create more spurious value signals, increasing bet volume slightly (3749 vs 3776 baseline) while lowering the average quality. Reverted.
+
+---
+
 ## Iteration 11: Season Phase (match_month)
 
 **Date:** 2026-04-18
@@ -263,13 +297,19 @@ Ranked by estimated probability of improving ROI:
 
 ~~**Shorter rolling window (WINDOW=3):**~~ _Tested in Iteration 10 — regression on all metrics (ROI -5.53% vs -5.09%). Fewer games = noisier estimates; consistent with Iteration 1 finding. WINDOW=5 is confirmed as optimal._
 
-~~**Season phase (match_month):**~~ _Tested in Iteration 11 — regression on all metrics (ROI -12.08% vs -10.99%). Month is too blunt; rolling form and Elo already implicitly capture early-season noise. Approach abandoned._
+~~**Season phase (match_month):**~~ _Tested in Iteration 11 — regression. Month is too blunt a signal._
 
-1. **Head-to-head historical record:** The h2h win rate between the two teams is entirely new information not encoded in Elo or rolling form. Could capture persistent matchup-specific dominance (e.g. a team that consistently underperforms its Elo against a specific opponent). _Medium confidence._
+~~**Head-to-head historical win rate:**~~ _Tested in Iteration 12 — regression on ROI (-12.55% vs -10.99%), accuracy improved +0.002. Exemplifies the accuracy/ROI decoupling problem._
 
-2. **GBM hyperparameter search:** The current HistGBM uses heuristic parameters (max_iter=300, lr=0.05, max_depth=4, min_samples_leaf=20). A grid search on max_depth (3, 4, 5) and min_samples_leaf (10, 20, 30) might squeeze out a small improvement. _Low-medium confidence._
+~~**Longer rolling window (WINDOW=7):**~~ _Tested in Iteration 13 — regression on ROI (-11.73% vs -10.99%), accuracy improved +0.005. Same decoupling pattern. WINDOW=5 confirmed as best._
 
-3. **Longer rolling window (WINDOW=7 or 10):** The 5-game window was better than 3 (Iter 10), but a longer window might capture more stable form signals. _Low-medium confidence — consistent with Iter 10 finding that more data is better._
+**CRITICAL INSIGHT — accuracy and ROI are decoupled under value betting:** Every iteration since the new evaluation setup has improved classification accuracy but worsened ROI. The root cause: value betting ROI depends on probability *calibration* vs bookmaker fair odds, not on classification accuracy. Better discriminative features shift the model's predicted probabilities in ways that do not align better with the bookmaker's pricing. **Next priority must target calibration directly, not discriminative power.**
+
+1. **Probability calibration (CalibratedClassifierCV, method="isotonic" or "sigmoid"):** Directly calibrate the model's output probabilities so they better reflect true outcome frequencies. This was tried in Iter 5 but on a different model (LogReg) and evaluation setup. With HistGBM under walk-forward, calibration may behave differently. _High confidence — addresses the root cause of the accuracy/ROI decoupling._
+
+2. **Threshold tuning:** Run the backtest across a grid of thresholds (e.g., 0.02, 0.05, 0.08, 0.10) to find where the bet filter actually adds value. Currently all comparisons are at threshold=0.0. A higher threshold may filter out the worst spurious value signals. _Medium confidence — cheap experiment._
+
+3. **GBM hyperparameter search:** _Low-medium confidence — unlikely to fix calibration problem._
 
 ~~**Elo ratings as features:**~~ _Tested in Iteration 3 — improved accuracy (+2.7pp) and ROI (+0.47%) but remains negative. Elo is now a permanent part of the feature set._
 

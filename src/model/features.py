@@ -20,6 +20,68 @@ def _points(ftr: str, is_home: bool) -> int:
     return 1
 
 
+def _compute_h2h(df: pd.DataFrame) -> pd.DataFrame:
+    """Pre-match head-to-head home win rate for each fixture — no leakage."""
+    df = df.sort_values("Date").reset_index(drop=True)
+    # pair_wins[(team_a, team_b)] = [a_wins, b_wins, total] where team_a < team_b alphabetically
+    pair_wins: dict[tuple, list] = {}
+    rates = []
+
+    for _, row in df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        key = (min(home, away), max(home, away))
+        team_a = key[0]
+        rec = pair_wins.get(key, [0, 0, 0])  # [a_wins, b_wins, total]
+
+        if rec[2] == 0:
+            rates.append(0.5)
+        else:
+            home_wins = rec[0] if home == team_a else rec[1]
+            rates.append(home_wins / rec[2])
+
+        # Update after reading (no leakage)
+        ftr = row["FTR"]
+        if key not in pair_wins:
+            pair_wins[key] = [0, 0, 0]
+        if ftr == "H":
+            pair_wins[key][0 if home == team_a else 1] += 1
+        elif ftr == "A":
+            pair_wins[key][1 if home == team_a else 0] += 1
+        pair_wins[key][2] += 1
+
+    df = df.copy()
+    df["h2h_home_win_rate"] = rates
+    return df
+
+
+def _get_current_h2h_state(df: pd.DataFrame) -> dict[tuple, list]:
+    """Run h2h through all matches and return final [a_wins, b_wins, total] per pair."""
+    df = df.sort_values("Date")
+    pair_wins: dict[tuple, list] = {}
+    for _, row in df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        key = (min(home, away), max(home, away))
+        team_a = key[0]
+        if key not in pair_wins:
+            pair_wins[key] = [0, 0, 0]
+        ftr = row["FTR"]
+        if ftr == "H":
+            pair_wins[key][0 if home == team_a else 1] += 1
+        elif ftr == "A":
+            pair_wins[key][1 if home == team_a else 0] += 1
+        pair_wins[key][2] += 1
+    return pair_wins
+
+
+def _h2h_rate(state: dict, home: str, away: str) -> float:
+    key = (min(home, away), max(home, away))
+    rec = state.get(key, [0, 0, 0])
+    if rec[2] == 0:
+        return 0.5
+    home_wins = rec[0] if home == key[0] else rec[1]
+    return home_wins / rec[2]
+
+
 def _compute_elo(df: pd.DataFrame) -> pd.DataFrame:
     """Pre-match Elo ratings — updated after each match, no leakage."""
     df = df.sort_values("Date").reset_index(drop=True)
