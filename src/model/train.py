@@ -3,6 +3,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import HistGradientBoostingClassifier
 
 from src.model.features import build_features_with_odds
@@ -99,13 +100,7 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS) -> d
 def train_on_all_data(df: pd.DataFrame):
     """Train on the full dataset (no holdout) for live fixture prediction."""
     X, y, _ = build_features_with_odds(df)
-    model = HistGradientBoostingClassifier(
-        max_iter=300,
-        learning_rate=0.05,
-        max_depth=4,
-        min_samples_leaf=20,
-        random_state=42,
-    )
+    model = HistGradientBoostingClassifier(**_MODEL_CFG)
     model.fit(X, y)
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, MODEL_PATH)
