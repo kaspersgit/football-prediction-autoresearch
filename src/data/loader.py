@@ -7,6 +7,7 @@ RAW_DIR = Path("data/raw")
 REQUIRED_COLS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "B365H", "B365D", "B365A"]
 
 _LEAGUE_MAP = {"E0": "england", "D1": "germany", "SP1": "spain", "I1": "italy"}
+_FIXTURE_ODDS_COLS = ["B365H", "B365D", "B365A"]
 
 
 def _parse_filename(path: Path) -> tuple[str, str]:
@@ -33,6 +34,27 @@ def _load_file(path: Path) -> pd.DataFrame | None:
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
     df = df.dropna(subset=["Date"])
     return df
+
+
+def load_fixtures() -> pd.DataFrame:
+    """Load upcoming fixtures from data/raw/fixtures.csv, filtered to tracked leagues."""
+    path = RAW_DIR / "fixtures.csv"
+    if not path.exists():
+        raise FileNotFoundError(
+            "fixtures.csv not found — run with --predict to download it first"
+        )
+    df = pd.read_csv(path, encoding="utf-8-sig", low_memory=False)
+    df = df[df["Div"].isin(_LEAGUE_MAP)].copy()
+    missing_odds = [c for c in _FIXTURE_ODDS_COLS if c not in df.columns]
+    if missing_odds:
+        raise ValueError(f"fixtures.csv missing columns: {missing_odds}")
+    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
+    df = df.dropna(subset=["Date", "HomeTeam", "AwayTeam"] + _FIXTURE_ODDS_COLS)
+    for col in _FIXTURE_ODDS_COLS:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.dropna(subset=_FIXTURE_ODDS_COLS)
+    df["league"] = df["Div"].map(_LEAGUE_MAP)
+    return df[["Date", "HomeTeam", "AwayTeam", "league", "Div"] + _FIXTURE_ODDS_COLS].reset_index(drop=True)
 
 
 def load_all_data() -> pd.DataFrame:

@@ -4,13 +4,19 @@
 
 | Metric     | Value          |
 |------------|----------------|
-| Accuracy   | 0.521          |
-| ROI        | -5.09%         |
-| Stability  | -0.0516        |
+| Accuracy   | 0.523          |
+| ROI        | -10.99%        |
+| Stability  | -0.0724        |
+| Bets       | 3776 / 2626 (143.8%) |
 | Model      | HistGradientBoostingClassifier |
 | Features   | 5-game rolling mean: pts, gf, ga (home + away) + Elo ratings — 8 features total |
 
-_Last updated: 2026-04-18 (Iteration 6 — HistGBM with Elo + rolling features, all bets; STILL BEST after Iter 7, 8, 9, 10 regressions)_
+_Last updated: 2026-04-18 (re-baselined under new evaluation setup — walk-forward backtest + value betting; same Iter 6 model weights. STILL BEST after Iter 11 regression.)_
+
+**Note on evaluation setup change (2026-04-18):** All metrics from Iteration 11 onward use the new pipeline:
+- **Walk-forward backtest**: one model trained per test season (season 2425, then 2526), not a single static split. Elo now carries forward correctly from training into test seasons.
+- **Value betting evaluation**: multi-outcome value betting with vig-corrected fair probabilities (threshold=0.0 default).
+- **Test set**: last 2 seasons = 2425 (1426 matches) + 2526 partial (1200 matches) = 2626 total.
 
 ---
 
@@ -44,6 +50,26 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 11: Season Phase (match_month)
+
+**Date:** 2026-04-18
+**Hypothesis:** Adding `match_month` (calendar month 1–12) as a 9th feature gives GBM the ability to learn that early-season predictions (August–September) are less reliable because Elo ratings and rolling form are unsettled. This information is structurally orthogonal to all 8 current features.
+**Files changed:** `src/model/features.py` — added `"match_month"` to `FEATURE_COLS`, added `df["Date"].dt.month` computation in `_build_merged`, added `match_month` in `build_fixture_features`.
+
+**Evaluation baseline (new setup — walk-forward + value betting):**
+- Accuracy: 0.523, ROI: -10.99%, Stability: -0.0724, Bets: 3776 / 2626
+
+**Results:**
+- Accuracy: 0.521
+- ROI: -12.08%
+- Stability: -0.0798
+- Bets: 3766 / 2626 (143.4%)
+- vs baseline: Accuracy -0.002, ROI -1.09pp, Stability -0.0074 — **REGRESSION on all metrics**
+
+**Analysis:** Adding `match_month` worsened all metrics. The most likely explanation is that month is too blunt a signal — it conflates very different situations (e.g., September matches across different leagues start at different points in their respective seasons, and a mid-table Bundesliga team in September is very different from a newly promoted Premier League side). HistGBM may also be splitting tree budget on a noisy signal that offers marginal discrimination at best. Additionally, since the rolling form and Elo features already implicitly capture early-season noise (form is NA until enough games are played, Elo starts at default for new teams), the month feature may be providing no new information the model can usefully exploit. Reverted.
+
+---
 
 ## Iteration 10: Shorter Rolling Window (3-game)
 
@@ -237,11 +263,13 @@ Ranked by estimated probability of improving ROI:
 
 ~~**Shorter rolling window (WINDOW=3):**~~ _Tested in Iteration 10 — regression on all metrics (ROI -5.53% vs -5.09%). Fewer games = noisier estimates; consistent with Iteration 1 finding. WINDOW=5 is confirmed as optimal._
 
-1. **Genuinely new information: season phase (match week / game number):** A season-phase indicator (early, mid, late) or raw match-week number captures the fact that team form is more volatile and Elo less settled early in a season. This is structurally orthogonal to current features. _Medium confidence — adds non-redundant information._
+~~**Season phase (match_month):**~~ _Tested in Iteration 11 — regression on all metrics (ROI -12.08% vs -10.99%). Month is too blunt; rolling form and Elo already implicitly capture early-season noise. Approach abandoned._
 
-2. **Head-to-head historical record:** The h2h win rate between the two teams is entirely new information not encoded in Elo or rolling form. Could capture persistent matchup-specific dominance. _Medium confidence._
+1. **Head-to-head historical record:** The h2h win rate between the two teams is entirely new information not encoded in Elo or rolling form. Could capture persistent matchup-specific dominance (e.g. a team that consistently underperforms its Elo against a specific opponent). _Medium confidence._
 
-3. **GBM hyperparameter search:** The current HistGBM uses heuristic parameters (max_iter=300, lr=0.05, max_depth=4, min_samples_leaf=20). A grid search on max_depth (3, 4, 5) and min_samples_leaf (10, 20, 30) might squeeze out a small improvement. _Low-medium confidence — model capacity unlikely bottleneck, but cheap._
+2. **GBM hyperparameter search:** The current HistGBM uses heuristic parameters (max_iter=300, lr=0.05, max_depth=4, min_samples_leaf=20). A grid search on max_depth (3, 4, 5) and min_samples_leaf (10, 20, 30) might squeeze out a small improvement. _Low-medium confidence._
+
+3. **Longer rolling window (WINDOW=7 or 10):** The 5-game window was better than 3 (Iter 10), but a longer window might capture more stable form signals. _Low-medium confidence — consistent with Iter 10 finding that more data is better._
 
 ~~**Elo ratings as features:**~~ _Tested in Iteration 3 — improved accuracy (+2.7pp) and ROI (+0.47%) but remains negative. Elo is now a permanent part of the feature set._
 
@@ -281,7 +309,10 @@ Ranked by estimated probability of improving ROI:
 - Accuracy of ~0.492 on a 3-class problem (H/D/A) is close to the naive baseline; draws are hard to predict
 
 **Pipeline facts:**
-- Run pipeline: `uv run python main.py`
+- Run pipeline: `uv run python main.py` (value betting, threshold=0.0)
+- Run with edge filter: `uv run python main.py --threshold 0.05` (require ≥5% edge)
 - Run tests: `uv run pytest tests/ -v`
-- Frozen files: `src/data/`, `src/evaluation/`, `main.py`, `tests/`
-- Editable files: `src/model/features.py`, `src/model/train.py`, `autoresearch/state.md`
+- Profit chart saved automatically: `reports/profit_curve.png`
+- Evaluation strategy: multi-outcome value betting with vig-corrected fair probabilities
+- Frozen files: `src/data/`, `src/evaluation/report.py`, `tests/`
+- Editable files: `src/model/features.py`, `src/model/train.py`, `src/evaluation/metrics.py`, `main.py`, `autoresearch/state.md`

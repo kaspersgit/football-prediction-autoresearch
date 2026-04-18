@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 
@@ -8,6 +9,14 @@ from src.model.features import build_features_with_odds
 
 MODEL_PATH = Path("models/baseline.joblib")
 TEST_SEASONS = 2
+
+_MODEL_CFG = dict(
+    max_iter=300,
+    learning_rate=0.05,
+    max_depth=4,
+    min_samples_leaf=20,
+    random_state=42,
+)
 
 
 def split_by_season(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -18,12 +27,78 @@ def split_by_season(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return train, test
 
 
-def train_model(df: pd.DataFrame) -> dict:
-    train_df, test_df = split_by_season(df)
+def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS) -> dict:
+    """
+    Season-level walk-forward backtest.
 
-    X_train, y_train, _ = build_features_with_odds(train_df)
-    X_test, y_test, odds_test = build_features_with_odds(test_df)
+    Features are computed on the full dataset so Elo ratings carry forward
+    from training seasons into each test season (no cold-start reset).
+    One model is trained per test season, each using only data from before that season.
+    """
+    # Build features on full dataset — Elo is correct throughout
+    full_X, full_y, full_odds = build_features_with_odds(df)
+    full_X = full_X.reset_index(drop=True)
+    full_y = full_y.reset_index(drop=True)
+    full_odds = full_odds.reset_index(drop=True)
 
+    seasons = sorted(full_odds["season"].unique())
+    test_seasons = seasons[-n_test_seasons:]
+
+    season_results = []
+    model = None
+
+    for test_season in test_seasons:
+        train_seasons = [s for s in seasons if s < test_season]
+        train_mask = full_odds["season"].isin(train_seasons)
+        test_mask = full_odds["season"] == test_season
+
+        X_train = full_X[train_mask]
+        y_train = full_y[train_mask]
+        X_test = full_X[test_mask]
+        y_test = full_y[test_mask]
+        odds_test = full_odds[test_mask]
+
+        model = HistGradientBoostingClassifier(**_MODEL_CFG)
+        model.fit(X_train, y_train)
+
+        y_pred = model.predict(X_test)
+        y_proba = model.predict_proba(X_test)
+        accuracy = (y_pred == y_test.values).mean()
+        print(f"  Season {test_season}: {train_mask.sum()} train / {test_mask.sum()} test — accuracy {accuracy:.3f}")
+
+        season_results.append({
+            "y_pred": y_pred,
+            "y_proba": y_proba,
+            "y_true": y_test.values,
+            "odds_test": odds_test,
+            "classes": model.classes_,
+        })
+
+    # Save the most recently trained model (trained on all seasons before the last test season)
+    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, MODEL_PATH)
+
+    y_pred_all = np.concatenate([r["y_pred"] for r in season_results])
+    y_proba_all = np.vstack([r["y_proba"] for r in season_results])
+    y_true_all = np.concatenate([r["y_true"] for r in season_results])
+    odds_all = pd.concat([r["odds_test"] for r in season_results]).reset_index(drop=True)
+
+    accuracy = (y_pred_all == y_true_all).mean()
+    print(f"Combined test accuracy: {accuracy:.3f}")
+
+    return {
+        "y_pred": y_pred_all,
+        "y_proba": y_proba_all,
+        "y_test": pd.Series(y_true_all),
+        "classes": season_results[-1]["classes"],
+        "odds_test": odds_all,
+        "accuracy": accuracy,
+    }
+
+
+def train_on_all_data(df: pd.DataFrame):
+    """Train on the full dataset (no holdout) for live fixture prediction."""
+    X, y, _ = build_features_with_odds(df)
     model = HistGradientBoostingClassifier(
         max_iter=300,
         learning_rate=0.05,
@@ -31,29 +106,11 @@ def train_model(df: pd.DataFrame) -> dict:
         min_samples_leaf=20,
         random_state=42,
     )
-    model.fit(X_train, y_train)
-
+    model.fit(X, y)
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, MODEL_PATH)
-    print(f"Model saved to {MODEL_PATH}")
-
-    y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)
-    classes = model.classes_
-
-    accuracy = (y_pred == y_test.values).mean()
-    print(f"Test accuracy: {accuracy:.3f}")
-
-    return {
-        "pipeline": model,
-        "X_test": X_test,
-        "y_test": y_test,
-        "y_pred": y_pred,
-        "y_proba": y_proba,
-        "classes": classes,
-        "odds_test": odds_test,
-        "accuracy": accuracy,
-    }
+    print(f"Model trained on {len(X)} matches, saved to {MODEL_PATH}")
+    return model
 
 
 def load_model():

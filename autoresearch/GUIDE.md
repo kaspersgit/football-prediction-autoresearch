@@ -8,13 +8,14 @@ You are an autoresearch LLM tasked with iteratively improving the football match
 
 **DO NOT touch:**
 - `src/data/` — data loading and download logic is frozen
-- `src/evaluation/` — evaluation metrics and report generation are frozen
-- `main.py` — the pipeline runner is frozen
+- `src/evaluation/report.py` — HTML report generation is frozen
 - `tests/` — existing tests must continue to pass
 
 **You MAY modify:**
 - `src/model/features.py` — add or change features
 - `src/model/train.py` — change model type, hyperparameters, training strategy
+- `src/evaluation/metrics.py` — betting strategy and metric computation (unfrozen as of Iteration 4)
+- `main.py` — pipeline wiring, to connect new metric signatures (unfrozen as of Iteration 4)
 - `autoresearch/state.md` — update after every iteration
 
 ## Iteration Protocol
@@ -34,10 +35,12 @@ Make minimal changes to `src/model/features.py` and/or `src/model/train.py`. Kee
 ### 4. Run the Pipeline
 
 ```bash
-uv run python main.py
+uv run python main.py                   # value betting, threshold=0.0 (any positive edge)
+uv run python main.py --threshold 0.05  # require at least 5% edge over fair odds
 ```
 
-Record the output metrics (Accuracy, ROI, Stability).
+Record the output metrics (Accuracy, Threshold, Bets, ROI, Stability).
+A profit curve PNG is saved to `reports/profit_curve.png` automatically on each run.
 
 ### 5. Run Tests
 

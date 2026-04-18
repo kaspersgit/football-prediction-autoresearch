@@ -89,6 +89,87 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+def _get_current_elo_state(df: pd.DataFrame) -> dict[str, float]:
+    """Run Elo through all matches and return final rating per team."""
+    df = df.sort_values("Date")
+    elo: dict[str, float] = {}
+    for _, row in df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        h_elo = elo.get(home, ELO_DEFAULT)
+        a_elo = elo.get(away, ELO_DEFAULT)
+        expected_home = 1 / (1 + 10 ** ((a_elo - h_elo + ELO_HOME_ADV) / 400))
+        ftr = row["FTR"]
+        actual_home = 1.0 if ftr == "H" else (0.0 if ftr == "A" else 0.5)
+        elo[home] = h_elo + ELO_K * (actual_home - expected_home)
+        elo[away] = a_elo + ELO_K * ((1 - actual_home) - (1 - expected_home))
+    return elo
+
+
+def _get_current_team_form(df: pd.DataFrame, window: int = WINDOW) -> dict[str, dict]:
+    """Return rolling form state per team based on their last `window` completed games."""
+    records = []
+    for _, row in df.iterrows():
+        for team, is_home in [(row["HomeTeam"], True), (row["AwayTeam"], False)]:
+            gf = row["FTHG"] if is_home else row["FTAG"]
+            ga = row["FTAG"] if is_home else row["FTHG"]
+            pts = _points(row["FTR"], is_home)
+            records.append({"Date": row["Date"], "team": team, "gf": gf, "ga": ga, "pts": pts})
+    team_df = pd.DataFrame(records).sort_values("Date")
+    form: dict[str, dict] = {}
+    for team, group in team_df.groupby("team"):
+        last_n = group.tail(window)
+        if len(last_n) >= window:
+            form[team] = {
+                "form_pts": last_n["pts"].mean(),
+                "form_gf": last_n["gf"].mean(),
+                "form_ga": last_n["ga"].mean(),
+            }
+    return form
+
+
+def build_fixture_features(
+    historical_df: pd.DataFrame,
+    fixtures_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Build the feature matrix for upcoming fixtures using the current model state
+    (Elo ratings and rolling form) derived from all historical matches.
+
+    Teams with fewer than WINDOW completed games are dropped (insufficient history).
+    Returns a DataFrame with FEATURE_COLS plus match metadata columns.
+    """
+    elo_state = _get_current_elo_state(historical_df)
+    form_state = _get_current_team_form(historical_df)
+
+    rows = []
+    for _, row in fixtures_df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        if home not in form_state or away not in form_state:
+            continue
+        hf, af = form_state[home], form_state[away]
+        rows.append({
+            "Date": row["Date"],
+            "HomeTeam": home,
+            "AwayTeam": away,
+            "league": row.get("league", ""),
+            "B365H": row["B365H"],
+            "B365D": row["B365D"],
+            "B365A": row["B365A"],
+            "home_form_pts": hf["form_pts"],
+            "home_form_gf": hf["form_gf"],
+            "home_form_ga": hf["form_ga"],
+            "away_form_pts": af["form_pts"],
+            "away_form_gf": af["form_gf"],
+            "away_form_ga": af["form_ga"],
+            "home_elo": elo_state.get(home, ELO_DEFAULT),
+            "away_elo": elo_state.get(away, ELO_DEFAULT),
+        })
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values("Date").reset_index(drop=True)
+
+
 def build_features(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     merged = _build_merged(df)
     X = merged[FEATURE_COLS].reset_index(drop=True)
