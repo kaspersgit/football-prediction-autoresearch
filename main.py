@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 
 import matplotlib
+import numpy as np
+import pandas as pd
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -166,6 +168,74 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float) -> 
     print(f"\n{'='*90}")
 
 
+def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame) -> None:
+    """Print ROI breakdowns by league and by tier matchup."""
+    bets = betting_results.copy()
+    bets["Date"] = pd.to_datetime(bets["Date"])
+    odds_test = odds_test.copy()
+    odds_test["Date"] = pd.to_datetime(odds_test["Date"])
+
+    bets = bets.merge(
+        odds_test[["HomeTeam", "AwayTeam", "Date", "league"]],
+        on=["HomeTeam", "AwayTeam", "Date"], how="left",
+    )
+
+    # Per-league strength tiers (top/mid/bot = top-third/mid/bottom-third of that league)
+    tiers: dict[str, str] = {}
+    for lg in odds_test["league"].unique():
+        lg_df = odds_test[odds_test["league"] == lg]
+        ts: dict[str, list] = {}
+        for _, row in lg_df.iterrows():
+            total = 1/row["B365H"] + 1/row["B365D"] + 1/row["B365A"]
+            ts.setdefault(row["HomeTeam"], []).append((1/row["B365H"]) / total)
+            ts.setdefault(row["AwayTeam"], []).append((1/row["B365A"]) / total)
+        avg = {t: float(np.mean(v)) for t, v in ts.items()}
+        t33, t67 = np.percentile(list(avg.values()), 33), np.percentile(list(avg.values()), 67)
+        for team, s in avg.items():
+            tiers[team] = "top" if s >= t67 else ("bot" if s < t33 else "mid")
+
+    bets["home_tier"] = bets["HomeTeam"].map(tiers)
+    bets["away_tier"] = bets["AwayTeam"].map(tiers)
+
+    LG = {"E0": "England", "D1": "Germany", "SP1": "Spain", "I1": "Italy"}
+
+    def _roi(sub): return sub["profit"].sum() / len(sub) * 100 if len(sub) else float("nan")
+
+    print("\n=== ROI BY LEAGUE ===")
+    print(f"  {'League':>10}  {'Bets':>5}  {'ROI':>8}")
+    print("  " + "-"*28)
+    for lc, ln in LG.items():
+        sub = bets[bets["league"] == lc]
+        if len(sub) == 0:
+            continue
+        print(f"  {ln:>10}  {len(sub):>5}  {_roi(sub):>+7.2f}%")
+
+    print("\n=== ROI BY TIER MATCHUP ===")
+    print(f"  {'Matchup':>12}  {'Bets':>5}  {'ROI':>8}")
+    print("  " + "-"*30)
+    for ht in ["top", "mid", "bot"]:
+        for at in ["top", "mid", "bot"]:
+            sub = bets[(bets["home_tier"] == ht) & (bets["away_tier"] == at)]
+            if len(sub) < 5:
+                continue
+            print(f"  {ht+' vs '+at:>12}  {len(sub):>5}  {_roi(sub):>+7.2f}%")
+
+    print("\n=== ROI BY LEAGUE × TIER MATCHUP ===")
+    for lc, ln in LG.items():
+        lg_bets = bets[bets["league"] == lc]
+        if len(lg_bets) == 0:
+            continue
+        print(f"\n  {ln}:")
+        print(f"  {'Matchup':>12}  {'Bets':>5}  {'ROI':>8}")
+        print("  " + "-"*28)
+        for ht in ["top", "mid", "bot"]:
+            for at in ["top", "mid", "bot"]:
+                sub = lg_bets[(lg_bets["home_tier"] == ht) & (lg_bets["away_tier"] == at)]
+                if len(sub) < 5:
+                    continue
+                print(f"  {ht+' vs '+at:>12}  {len(sub):>5}  {_roi(sub):>+7.2f}%")
+
+
 def _run_backtest():
     if "--update" in sys.argv:
         print("Updating current season data...")
@@ -208,6 +278,8 @@ def _run_backtest():
     print(f"Bets:      {n_bets} / {n_matches} matches ({n_bets / n_matches:.1%})")
     print(f"ROI:       {roi:+.2f}%")
     print(f"Stability: {stability:.4f}")
+
+    _print_split_analysis(betting_results, eval_df)
 
     _save_profit_chart(betting_results, Path("reports/profit_curve.png"))
 
