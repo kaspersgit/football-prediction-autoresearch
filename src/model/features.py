@@ -13,6 +13,7 @@ FEATURE_COLS = [
     "league_E0", "league_D1", "league_SP1",  # I1 is the omitted reference category
     "h2h_home_win_rate",
     "home_draw_rate", "away_draw_rate",
+    "home_market_bias", "away_market_bias",
 ]
 
 
@@ -336,6 +337,38 @@ def _team_rolling_stats(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
     return team_df[["Date", "team", "form_pts", "form_gf", "form_ga"]]
 
 
+def _team_venue_rolling_stats(df: pd.DataFrame, window: int = WINDOW) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Rolling form split by venue: home-game form for each team, away-game form for each team.
+    Uses min_periods=1 so no NaN — early estimates are noisy but HistGBM handles it.
+    Returns (home_stats_df, away_stats_df) both indexed by (Date, team)."""
+    home_records, away_records = [], []
+    for _, row in df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        home_records.append({
+            "Date": row["Date"], "team": home,
+            "gf": row["FTHG"], "ga": row["FTAG"], "pts": _points(row["FTR"], True),
+        })
+        away_records.append({
+            "Date": row["Date"], "team": away,
+            "gf": row["FTAG"], "ga": row["FTHG"], "pts": _points(row["FTR"], False),
+        })
+
+    def _ewm_form(records):
+        tdf = pd.DataFrame(records).sort_values("Date")
+        tdf = tdf.groupby("team", group_keys=True).apply(
+            lambda g: g.assign(
+                vform_pts=g["pts"].shift(1).ewm(span=window, min_periods=1).mean(),
+                vform_gf=g["gf"].shift(1).ewm(span=window, min_periods=1).mean(),
+                vform_ga=g["ga"].shift(1).ewm(span=window, min_periods=1).mean(),
+            )
+        )
+        if "team" not in tdf.columns:
+            tdf = tdf.reset_index(level="team")
+        return tdf[["Date", "team", "vform_pts", "vform_gf", "vform_ga"]]
+
+    return _ewm_form(home_records), _ewm_form(away_records)
+
+
 def _compute_draw_rates(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
     """Pre-match rolling draw rate per team over last `window` games — no leakage."""
     records = []
@@ -386,6 +419,7 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = _compute_elo(df)
     df = _compute_h2h(df)
     df = _compute_draw_rates(df)
+    df = _compute_market_bias(df)
     stats = _team_rolling_stats(df)
 
     merged = df.merge(
@@ -450,6 +484,30 @@ def _get_current_elo_delta_state(df: pd.DataFrame, window: int = WINDOW) -> dict
     return result
 
 
+def _get_current_venue_form(df: pd.DataFrame, window: int = WINDOW) -> tuple[dict, dict]:
+    """Return each team's current EWM form in home games and away games separately."""
+    def _venue_form(records):
+        tdf = pd.DataFrame(records).sort_values("Date")
+        result = {}
+        for team, group in tdf.groupby("team"):
+            ewm_vals = group[["pts", "gf", "ga"]].ewm(span=window, min_periods=1).mean().iloc[-1]
+            result[team] = {
+                "vform_pts": float(ewm_vals["pts"]),
+                "vform_gf":  float(ewm_vals["gf"]),
+                "vform_ga":  float(ewm_vals["ga"]),
+            }
+        return result
+
+    home_records, away_records = [], []
+    for _, row in df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        home_records.append({"Date": row["Date"], "team": home,
+                              "gf": row["FTHG"], "ga": row["FTAG"], "pts": _points(row["FTR"], True)})
+        away_records.append({"Date": row["Date"], "team": away,
+                              "gf": row["FTAG"], "ga": row["FTHG"], "pts": _points(row["FTR"], False)})
+    return _venue_form(home_records), _venue_form(away_records)
+
+
 def _get_current_team_form(df: pd.DataFrame, window: int = WINDOW) -> dict[str, dict]:
     """Return rolling form state per team based on their last `window` completed games."""
     records = []
@@ -487,6 +545,7 @@ def build_fixture_features(
     form_state = _get_current_team_form(historical_df)
     h2h_state = _get_current_h2h_state(historical_df)
     draw_rate_state = _get_current_draw_rates(historical_df)
+    market_bias_state = _get_current_market_bias(historical_df)
 
     rows = []
     for _, row in fixtures_df.iterrows():
@@ -520,6 +579,8 @@ def build_fixture_features(
             "h2h_home_win_rate": _h2h_rate(h2h_state, home, away),
             "home_draw_rate": draw_rate_state.get(home, float("nan")),
             "away_draw_rate": draw_rate_state.get(away, float("nan")),
+            "home_market_bias": market_bias_state.get(home, float("nan")),
+            "away_market_bias": market_bias_state.get(away, float("nan")),
         })
 
     if not rows:

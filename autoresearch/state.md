@@ -4,15 +4,16 @@
 
 | Metric    | threshold=0.0        |
 |-----------|----------------------|
-| Accuracy  | 0.511                |
-| ROI       | **+1.07%** ✅ (goal: > 0% — **ACHIEVED**) |
-| Stability | **+0.0073** ✅ (goal: > 0 — **ACHIEVED**) |
-| Bets      | 2181 / 2626 (83.1%) |
+| Accuracy  | 0.515                |
+| ROI       | **+3.15%** ✅ |
+| Stability | **+0.0204** ✅ |
+| Bets      | 2180 / 2626 (83.0%) |
 | Training  | One HistGBM **per league** per test season (`--per-league`) |
-| Features  | 8 EWM/Elo + 3 market fair probs + 3 league dummies + H2H + 2 draw rates = **17 features** |
+| Features  | 8 EWM/Elo + 3 market fair probs + 3 league dummies + H2H + 2 draw rates + 2 market bias = **19 features** |
+| Model cfg | max_depth=4, min_samples_leaf=20, l2_regularization=0.1, lr=0.05, max_iter=300 |
 | Bet filter | Pinnacle closing (`PSCH/PSCD/PSCA`) confirms edge over B365 where available |
 
-_Last updated: 2026-04-21 (Iteration 41 — draw rate features. **New best: ROI +1.07%, Stability +0.0073.**)_
+_Last updated: 2026-04-21 (Iterations 44–53: market bias + l2_regularization=0.1. **New best: ROI +3.15%, Stability +0.0204.**)_
 
 **Evaluation setup (updated 2026-04-19):** All metrics from Iteration 11 onward use:
 - **Walk-forward backtest**: one model trained per test season (2425 then 2526); Elo carries forward correctly.
