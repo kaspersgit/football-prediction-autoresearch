@@ -12,6 +12,7 @@ FEATURE_COLS = [
     "market_h", "market_d", "market_a",
     "league_E0", "league_D1", "league_SP1",  # I1 is the omitted reference category
     "h2h_home_win_rate",
+    "home_draw_rate", "away_draw_rate",
 ]
 
 
@@ -384,6 +385,7 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("Date").reset_index(drop=True)
     df = _compute_elo(df)
     df = _compute_h2h(df)
+    df = _compute_draw_rates(df)
     stats = _team_rolling_stats(df)
 
     merged = df.merge(
@@ -484,6 +486,7 @@ def build_fixture_features(
     elo_state = _get_current_elo_state(historical_df)
     form_state = _get_current_team_form(historical_df)
     h2h_state = _get_current_h2h_state(historical_df)
+    draw_rate_state = _get_current_draw_rates(historical_df)
 
     rows = []
     for _, row in fixtures_df.iterrows():
@@ -515,6 +518,8 @@ def build_fixture_features(
             "league_D1": float(row.get("league", "") == "D1"),
             "league_SP1": float(row.get("league", "") == "SP1"),
             "h2h_home_win_rate": _h2h_rate(h2h_state, home, away),
+            "home_draw_rate": draw_rate_state.get(home, float("nan")),
+            "away_draw_rate": draw_rate_state.get(away, float("nan")),
         })
 
     if not rows:

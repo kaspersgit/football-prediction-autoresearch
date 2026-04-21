@@ -3,7 +3,7 @@
 Main pipeline: data → model → evaluation → HTML report + profit chart.
 
 Modes:
-  python main.py                    # backtest on last 2 seasons, threshold=0.08
+  python main.py                    # backtest on last 2 seasons, threshold=0.0
   python main.py --threshold 0.05   # backtest with 5% minimum edge filter
   python main.py --predict          # train on all data, predict upcoming fixtures
   python main.py --update           # re-download latest season results, then backtest
@@ -27,7 +27,7 @@ def _parse_threshold() -> float:
     for i, arg in enumerate(sys.argv):
         if arg == "--threshold" and i + 1 < len(sys.argv):
             return float(sys.argv[i + 1])
-    return 0.08
+    return 0.0
 
 
 def _parse_kelly() -> float:

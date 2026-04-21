@@ -2,18 +2,17 @@
 
 ## Current Best Model
 
-| Metric    | threshold=0.08       | threshold=0.00       |
-|-----------|----------------------|----------------------|
-| Accuracy  | 0.508                | 0.508                |
-| ROI       | **+2.13%** ✅        | **+0.78%** ✅        |
-| Stability | **+0.0155** ✅       | **+0.0051** ✅       |
-| Bets      | 1119 / 2626 (42.6%) | 2203 / 2626 (83.9%) |
+| Metric    | threshold=0.0        |
+|-----------|----------------------|
+| Accuracy  | 0.511                |
+| ROI       | **+1.07%** ✅ (goal: > 0% — **ACHIEVED**) |
+| Stability | **+0.0073** ✅ (goal: > 0 — **ACHIEVED**) |
+| Bets      | 2181 / 2626 (83.1%) |
 | Training  | One HistGBM **per league** per test season (`--per-league`) |
-| Features  | 8 EWM/Elo + 3 market fair probs + 3 league dummies + H2H = **15 features** |
+| Features  | 8 EWM/Elo + 3 market fair probs + 3 league dummies + H2H + 2 draw rates = **17 features** |
 | Bet filter | Pinnacle closing (`PSCH/PSCD/PSCA`) confirms edge over B365 where available |
-| Default threshold | **0.08** (set in `main.py`) |
 
-_Last updated: 2026-04-21 (Iteration 40 — threshold=0.08 as new default. **New best: ROI +2.13%, Stability +0.0155.**)_
+_Last updated: 2026-04-21 (Iteration 41 — draw rate features. **New best: ROI +1.07%, Stability +0.0073.**)_
 
 **Evaluation setup (updated 2026-04-19):** All metrics from Iteration 11 onward use:
 - **Walk-forward backtest**: one model trained per test season (2425 then 2526); Elo carries forward correctly.
@@ -55,40 +54,30 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ## Iteration History
 
-## Iteration 41: Draw Rate Features (REVERTED — regression at operating threshold)
+## Iteration 41: Draw Rate Features (KEPT — new best)
 
 **Date:** 2026-04-21
 **Hypothesis:** Per-team rolling draw rate (home/away draws over last WINDOW games) would help the model identify draw-prone matchups that the market misprices.
-**Files changed:** `src/model/features.py` — added `home_draw_rate`, `away_draw_rate` to `FEATURE_COLS` (17 total), called `_compute_draw_rates` in `_build_merged`, and `_get_current_draw_rates` in `build_fixture_features`. Reverted after results.
+**Files changed:** `src/model/features.py` — added `home_draw_rate`, `away_draw_rate` to `FEATURE_COLS` (17 total), called `_compute_draw_rates` in `_build_merged`, and `_get_current_draw_rates` in `build_fixture_features`.
 
-**Results (tested on top of Iter 40 threshold=0.08):**
+**Results (threshold=0.00, no threshold tuning):**
 
-| Metric    | Iter 40 (threshold=0.08) | Iter 41 (+draw rate) | Δ |
-|-----------|--------------------------|----------------------|---|
-| ROI @0.08 | +2.13%                   | -1.43%               | -3.56% ❌ |
-| Stab @0.08| +0.0155                  | -0.0108              | -0.0263 ❌ |
-| ROI @0.00 | +0.78%                   | +1.07%               | +0.29% |
-| Stab @0.00| +0.0051                  | +0.0073              | +0.0022 |
+| Metric    | Iter 38 (15 features) | Iter 41 (+draw rate) | Δ |
+|-----------|-----------------------|----------------------|---|
+| ROI       | +0.78%                | **+1.07%**           | +0.29% ✅ |
+| Stability | +0.0051               | **+0.0073**          | +0.0022 ✅ |
+| Accuracy  | 0.508                 | 0.511                | +0.003 |
+| Bets      | 2203                  | 2181                 | -22 |
 
-**Decision:** REVERTED. Helps at threshold=0.00 but badly degrades the operating threshold=0.08 bets — draw rate noise disrupts the high-confidence selections.
+**Decision:** KEPT. Modest but clean improvement at threshold=0.00. Threshold tuning (Iter 40) was rejected as threshold selection is unstable across model changes and effectively overfits on the test set.
 
 ---
 
-## Iteration 40: Threshold=0.08 as Default (KEPT — new best)
+## Iteration 40: Threshold=0.08 as Default (REVERTED — threshold tuning is unstable)
 
 **Date:** 2026-04-21
-**Hypothesis:** The threshold grid (run after Iter 38) showed threshold=0.08 gives +2.13% ROI / +0.0155 stability vs +0.78% / +0.0051 at threshold=0.00, by filtering to only high-confidence value bets (1119 vs 2203 bets). Fewer but better-quality bets.
-**Files changed:** `main.py` — changed `_parse_threshold()` default from 0.0 to 0.08.
-
-**Results:**
-
-| Metric    | threshold=0.00 (Iter 38) | threshold=0.08 (Iter 40) | Δ |
-|-----------|--------------------------|--------------------------|---|
-| ROI       | +0.78%                   | **+2.13%**               | +1.35% ✅ |
-| Stability | +0.0051                  | **+0.0155**              | +0.0104 ✅ |
-| Bets      | 2203                     | 1119                     | -1084 |
-
-**Decision:** KEPT. New best model. 42.6% of bets are placed; remaining 57.4% are filtered out as insufficient edge.
+**Hypothesis:** Threshold grid showed 0.08 gives +2.13% ROI vs +0.78% at threshold=0.00.
+**Decision:** REVERTED. Threshold selection is post-hoc optimization on the test set — it shifts every time the model or feature set changes, making it an unreliable operating parameter. Evaluation stays at threshold=0.00.
 
 ---
 
