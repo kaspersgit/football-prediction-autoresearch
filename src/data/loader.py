@@ -5,9 +5,11 @@ import pandas as pd
 RAW_DIR = Path("data/raw")
 
 REQUIRED_COLS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "B365H", "B365D", "B365A"]
+_OPTIONAL_COLS = ["PSCH", "PSCD", "PSCA", "HST", "AST"]  # Pinnacle closing odds + shots on target
 
 _LEAGUE_MAP = {"E0": "england", "D1": "germany", "SP1": "spain", "I1": "italy"}
 _FIXTURE_ODDS_COLS = ["B365H", "B365D", "B365A"]
+_FIXTURE_PINNACLE_COLS = ["PSH", "PSD", "PSA"]
 
 
 def _parse_filename(path: Path) -> tuple[str, str]:
@@ -25,7 +27,11 @@ def _load_file(path: Path) -> pd.DataFrame | None:
     missing = [c for c in REQUIRED_COLS if c not in df.columns]
     if missing:
         return None
-    df = df[REQUIRED_COLS].copy()
+    optional_present = [c for c in _OPTIONAL_COLS if c in df.columns]
+    df = df[REQUIRED_COLS + optional_present].copy()
+    for c in _OPTIONAL_COLS:
+        if c not in df.columns:
+            df[c] = float("nan")
     df = df.dropna(subset=["FTR", "FTHG", "FTAG", "B365H", "B365D", "B365A"])
     df = df[df["FTR"].isin(["H", "D", "A"])]
     league, season = _parse_filename(path)
@@ -54,7 +60,12 @@ def load_fixtures() -> pd.DataFrame:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=_FIXTURE_ODDS_COLS)
     df["league"] = df["Div"].map(_LEAGUE_MAP)
-    return df[["Date", "HomeTeam", "AwayTeam", "league", "Div"] + _FIXTURE_ODDS_COLS].reset_index(drop=True)
+    # Include pre-match Pinnacle odds when available (null-safe: filter skipped when absent)
+    pinnacle_present = [c for c in _FIXTURE_PINNACLE_COLS if c in df.columns]
+    for c in _FIXTURE_PINNACLE_COLS:
+        if c not in df.columns:
+            df[c] = float("nan")
+    return df[["Date", "HomeTeam", "AwayTeam", "league", "Div"] + _FIXTURE_ODDS_COLS + _FIXTURE_PINNACLE_COLS].reset_index(drop=True)
 
 
 def load_all_data() -> pd.DataFrame:

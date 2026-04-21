@@ -11,6 +11,7 @@ FEATURE_COLS = [
     "home_elo", "away_elo",
     "market_h", "market_d", "market_a",
     "league_E0", "league_D1", "league_SP1",  # I1 is the omitted reference category
+    "h2h_home_win_rate",
 ]
 
 
@@ -84,11 +85,199 @@ def _h2h_rate(state: dict, home: str, away: str) -> float:
     return home_wins / rec[2]
 
 
-def _compute_elo(df: pd.DataFrame) -> pd.DataFrame:
-    """Pre-match Elo ratings — updated after each match, no leakage."""
+def _compute_days_rest(df: pd.DataFrame) -> pd.DataFrame:
+    """Pre-match days since each team's last match. First appearance defaults to 7."""
+    df = df.sort_values("Date").reset_index(drop=True)
+    last_match: dict[str, pd.Timestamp] = {}
+    DEFAULT_REST = 7.0
+    home_rest, away_rest = [], []
+
+    for _, row in df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        date = row["Date"]
+        home_rest.append(float((date - last_match[home]).days) if home in last_match else DEFAULT_REST)
+        away_rest.append(float((date - last_match[away]).days) if away in last_match else DEFAULT_REST)
+        last_match[home] = date
+        last_match[away] = date
+
+    df = df.copy()
+    df["home_days_rest"] = home_rest
+    df["away_days_rest"] = away_rest
+    return df
+
+
+def _get_current_days_rest(df: pd.DataFrame) -> dict[str, pd.Timestamp]:
+    """Returns the date of each team's most recent match in df."""
+    df = df.sort_values("Date")
+    last_match: dict[str, pd.Timestamp] = {}
+    for _, row in df.iterrows():
+        last_match[row["HomeTeam"]] = row["Date"]
+        last_match[row["AwayTeam"]] = row["Date"]
+    return last_match
+
+
+def _compute_market_bias(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
+    """Pre-match rolling mean of (actual_result_share - market_fair_prob) per team.
+    Positive = team consistently beats market expectations; negative = over-valued by market."""
+    df = df.sort_values("Date").reset_index(drop=True)
+    total_imp = 1 / df["B365H"] + 1 / df["B365D"] + 1 / df["B365A"]
+    market_h_arr = ((1 / df["B365H"]) / total_imp).values
+    market_a_arr = ((1 / df["B365A"]) / total_imp).values
+
+    records = []
+    for i, row in df.iterrows():
+        actual_h = 1.0 if row["FTR"] == "H" else (0.5 if row["FTR"] == "D" else 0.0)
+        actual_a = 1.0 if row["FTR"] == "A" else (0.5 if row["FTR"] == "D" else 0.0)
+        records.append({"Date": row["Date"], "team": row["HomeTeam"], "bias": actual_h - market_h_arr[i]})
+        records.append({"Date": row["Date"], "team": row["AwayTeam"], "bias": actual_a - market_a_arr[i]})
+
+    bias_df = pd.DataFrame(records).sort_values("Date")
+    bias_df = bias_df.groupby("team", group_keys=True).apply(
+        lambda g: g.assign(
+            market_bias=g["bias"].shift(1).rolling(window, min_periods=window).mean()
+        )
+    )
+    if "team" not in bias_df.columns:
+        bias_df = bias_df.reset_index(level="team")
+    bias_df = bias_df[["Date", "team", "market_bias"]]
+
+    df = df.merge(
+        bias_df.rename(columns={"team": "HomeTeam", "market_bias": "home_market_bias"}),
+        on=["Date", "HomeTeam"], how="left",
+    )
+    df = df.merge(
+        bias_df.rename(columns={"team": "AwayTeam", "market_bias": "away_market_bias"}),
+        on=["Date", "AwayTeam"], how="left",
+    )
+    return df
+
+
+def _get_current_market_bias(df: pd.DataFrame, window: int = WINDOW) -> dict[str, float]:
+    """Return each team's current market-bias state (rolling mean over last window games)."""
+    df = df.sort_values("Date").reset_index(drop=True)
+    total_imp = 1 / df["B365H"] + 1 / df["B365D"] + 1 / df["B365A"]
+    market_h_arr = ((1 / df["B365H"]) / total_imp).values
+    market_a_arr = ((1 / df["B365A"]) / total_imp).values
+
+    records = []
+    for i, row in df.iterrows():
+        actual_h = 1.0 if row["FTR"] == "H" else (0.5 if row["FTR"] == "D" else 0.0)
+        actual_a = 1.0 if row["FTR"] == "A" else (0.5 if row["FTR"] == "D" else 0.0)
+        records.append({"Date": row["Date"], "team": row["HomeTeam"], "bias": actual_h - market_h_arr[i]})
+        records.append({"Date": row["Date"], "team": row["AwayTeam"], "bias": actual_a - market_a_arr[i]})
+
+    bias_df = pd.DataFrame(records).sort_values("Date")
+    result = {}
+    for team, group in bias_df.groupby("team"):
+        last_n = group.tail(window)
+        if len(last_n) >= window:
+            result[team] = float(last_n["bias"].mean())
+    return result
+
+
+def _compute_season_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """Pre-match cumulative season points and games played per team — no leakage."""
+    df = df.sort_values("Date").reset_index(drop=True)
+    stats: dict[tuple, list] = {}  # (team, season) -> [cumulative_pts, games_played]
+    home_pts, away_pts, home_gp, away_gp = [], [], [], []
+
+    for _, row in df.iterrows():
+        home, away, season = row["HomeTeam"], row["AwayTeam"], row["season"]
+        hk, ak = (home, season), (away, season)
+        hs = stats.get(hk, [0, 0])
+        as_ = stats.get(ak, [0, 0])
+        home_pts.append(float(hs[0]))
+        away_pts.append(float(as_[0]))
+        home_gp.append(float(hs[1]))
+        away_gp.append(float(as_[1]))
+
+        ftr = row["FTR"]
+        stats[hk] = [hs[0] + (3 if ftr == "H" else 1 if ftr == "D" else 0), hs[1] + 1]
+        stats[ak] = [as_[0] + (3 if ftr == "A" else 1 if ftr == "D" else 0), as_[1] + 1]
+
+    df = df.copy()
+    df["home_season_pts"] = home_pts
+    df["away_season_pts"] = away_pts
+    df["home_season_gp"] = home_gp
+    df["away_season_gp"] = away_gp
+    return df
+
+
+def _get_current_season_stats(df: pd.DataFrame) -> dict[str, dict]:
+    """Return current season cumulative pts and games played per team."""
+    df = df.sort_values("Date")
+    stats: dict[tuple, list] = {}
+    latest_season: dict[str, str] = {}
+
+    for _, row in df.iterrows():
+        home, away, season = row["HomeTeam"], row["AwayTeam"], row["season"]
+        for team in (home, away):
+            latest_season[team] = season
+        ftr = row["FTR"]
+        for team, key, h_pts, a_pts in [
+            (home, (home, season), 3 if ftr == "H" else 1 if ftr == "D" else 0, None),
+            (away, (away, season), None, 3 if ftr == "A" else 1 if ftr == "D" else 0),
+        ]:
+            pts = h_pts if h_pts is not None else a_pts
+            if key not in stats:
+                stats[key] = [0, 0]
+            stats[key][0] += pts
+            stats[key][1] += 1
+
+    return {
+        team: {"pts": float(stats.get((team, season), [0, 0])[0]),
+               "gp": float(stats.get((team, season), [0, 0])[1])}
+        for team, season in latest_season.items()
+    }
+
+
+def _compute_season_progress(df: pd.DataFrame) -> pd.DataFrame:
+    """Pre-match season progress as fraction of 38 games played, per team.
+    Normalises by league season length so early-season noise is identifiable regardless of month."""
+    df = df.sort_values("Date").reset_index(drop=True)
+    game_count: dict[tuple, int] = {}  # (team, season) -> games played so far
+    home_progress, away_progress = [], []
+
+    for _, row in df.iterrows():
+        home, away, season = row["HomeTeam"], row["AwayTeam"], row["season"]
+        hk, ak = (home, season), (away, season)
+        home_progress.append(min(game_count.get(hk, 0) / 38.0, 1.0))
+        away_progress.append(min(game_count.get(ak, 0) / 38.0, 1.0))
+        game_count[hk] = game_count.get(hk, 0) + 1
+        game_count[ak] = game_count.get(ak, 0) + 1
+
+    df = df.copy()
+    df["home_season_progress"] = home_progress
+    df["away_season_progress"] = away_progress
+    return df
+
+
+def _get_current_season_progress(df: pd.DataFrame) -> dict[str, float]:
+    """Return season progress fraction per team based on their most recent season in df."""
+    df = df.sort_values("Date")
+    game_count: dict[tuple, int] = {}
+    latest_season: dict[str, str] = {}
+
+    for _, row in df.iterrows():
+        home, away, season = row["HomeTeam"], row["AwayTeam"], row["season"]
+        for team in (home, away):
+            key = (team, season)
+            game_count[key] = game_count.get(key, 0) + 1
+            latest_season[team] = season
+
+    return {
+        team: min(game_count.get((team, latest_season[team]), 0) / 38.0, 1.0)
+        for team in latest_season
+    }
+
+
+def _compute_elo(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
+    """Pre-match Elo ratings and momentum (delta over last `window` games) — no leakage."""
     df = df.sort_values("Date").reset_index(drop=True)
     elo: dict[str, float] = {}
+    elo_history: dict[str, list] = {}
     home_elos, away_elos = [], []
+    home_deltas, away_deltas = [], []
 
     for _, row in df.iterrows():
         home, away = row["HomeTeam"], row["AwayTeam"]
@@ -97,18 +286,30 @@ def _compute_elo(df: pd.DataFrame) -> pd.DataFrame:
         home_elos.append(h_elo)
         away_elos.append(a_elo)
 
+        h_hist = elo_history.get(home, [])
+        a_hist = elo_history.get(away, [])
+        home_deltas.append(h_elo - h_hist[-window] if len(h_hist) >= window else 0.0)
+        away_deltas.append(a_elo - a_hist[-window] if len(a_hist) >= window else 0.0)
+
         expected_home = 1 / (1 + 10 ** ((a_elo - h_elo + ELO_HOME_ADV) / 400))
-        expected_away = 1 - expected_home
         ftr = row["FTR"]
         actual_home = 1.0 if ftr == "H" else (0.0 if ftr == "A" else 0.5)
-        actual_away = 1.0 - actual_home
 
         elo[home] = h_elo + ELO_K * (actual_home - expected_home)
-        elo[away] = a_elo + ELO_K * (actual_away - expected_away)
+        elo[away] = a_elo + ELO_K * ((1 - actual_home) - (1 - expected_home))
+
+        if home not in elo_history:
+            elo_history[home] = []
+        if away not in elo_history:
+            elo_history[away] = []
+        elo_history[home].append(h_elo)
+        elo_history[away].append(a_elo)
 
     df = df.copy()
     df["home_elo"] = home_elos
     df["away_elo"] = away_elos
+    df["home_elo_delta"] = home_deltas
+    df["away_elo_delta"] = away_deltas
     return df
 
 
@@ -124,9 +325,9 @@ def _team_rolling_stats(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
     team_df = pd.DataFrame(records).sort_values("Date")
     team_df = team_df.groupby("team", group_keys=True).apply(
         lambda g: g.assign(
-            form_pts=g["pts"].shift(1).rolling(window, min_periods=window).mean(),
-            form_gf=g["gf"].shift(1).rolling(window, min_periods=window).mean(),
-            form_ga=g["ga"].shift(1).rolling(window, min_periods=window).mean(),
+            form_pts=g["pts"].shift(1).ewm(span=window, min_periods=window).mean(),
+            form_gf=g["gf"].shift(1).ewm(span=window, min_periods=window).mean(),
+            form_ga=g["ga"].shift(1).ewm(span=window, min_periods=window).mean(),
         )
     )
     if "team" not in team_df.columns:
@@ -134,9 +335,55 @@ def _team_rolling_stats(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
     return team_df[["Date", "team", "form_pts", "form_gf", "form_ga"]]
 
 
+def _compute_draw_rates(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
+    """Pre-match rolling draw rate per team over last `window` games — no leakage."""
+    records = []
+    for _, row in df.sort_values("Date").iterrows():
+        is_draw = 1.0 if row["FTR"] == "D" else 0.0
+        records.append({"Date": row["Date"], "team": row["HomeTeam"], "is_draw": is_draw})
+        records.append({"Date": row["Date"], "team": row["AwayTeam"], "is_draw": is_draw})
+    dr_df = pd.DataFrame(records).sort_values("Date")
+    dr_df = dr_df.groupby("team", group_keys=True).apply(
+        lambda g: g.assign(
+            draw_rate=g["is_draw"].shift(1).rolling(window, min_periods=window).mean()
+        )
+    )
+    if "team" not in dr_df.columns:
+        dr_df = dr_df.reset_index(level="team")
+    dr_df = dr_df[["Date", "team", "draw_rate"]]
+
+    df = df.sort_values("Date").reset_index(drop=True)
+    df = df.merge(
+        dr_df.rename(columns={"team": "HomeTeam", "draw_rate": "home_draw_rate"}),
+        on=["Date", "HomeTeam"], how="left",
+    )
+    df = df.merge(
+        dr_df.rename(columns={"team": "AwayTeam", "draw_rate": "away_draw_rate"}),
+        on=["Date", "AwayTeam"], how="left",
+    )
+    return df
+
+
+def _get_current_draw_rates(df: pd.DataFrame, window: int = WINDOW) -> dict[str, float]:
+    """Return each team's draw rate over their last `window` completed games."""
+    records = []
+    for _, row in df.sort_values("Date").iterrows():
+        is_draw = 1.0 if row["FTR"] == "D" else 0.0
+        records.append({"Date": row["Date"], "team": row["HomeTeam"], "is_draw": is_draw})
+        records.append({"Date": row["Date"], "team": row["AwayTeam"], "is_draw": is_draw})
+    dr_df = pd.DataFrame(records).sort_values("Date")
+    result = {}
+    for team, group in dr_df.groupby("team"):
+        last_n = group.tail(window)
+        if len(last_n) >= window:
+            result[team] = float(last_n["is_draw"].mean())
+    return result
+
+
 def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("Date").reset_index(drop=True)
     df = _compute_elo(df)
+    df = _compute_h2h(df)
     stats = _team_rolling_stats(df)
 
     merged = df.merge(
@@ -175,6 +422,32 @@ def _get_current_elo_state(df: pd.DataFrame) -> dict[str, float]:
     return elo
 
 
+def _get_current_elo_delta_state(df: pd.DataFrame, window: int = WINDOW) -> dict[str, float]:
+    """Return each team's Elo delta (current Elo minus Elo `window` games ago)."""
+    df = df.sort_values("Date")
+    elo: dict[str, float] = {}
+    elo_history: dict[str, list] = {}
+    for _, row in df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        h_elo = elo.get(home, ELO_DEFAULT)
+        a_elo = elo.get(away, ELO_DEFAULT)
+        expected_home = 1 / (1 + 10 ** ((a_elo - h_elo + ELO_HOME_ADV) / 400))
+        ftr = row["FTR"]
+        actual_home = 1.0 if ftr == "H" else (0.0 if ftr == "A" else 0.5)
+        elo[home] = h_elo + ELO_K * (actual_home - expected_home)
+        elo[away] = a_elo + ELO_K * ((1 - actual_home) - (1 - expected_home))
+        for team, pre_elo in [(home, h_elo), (away, a_elo)]:
+            if team not in elo_history:
+                elo_history[team] = []
+            elo_history[team].append(pre_elo)
+
+    result = {}
+    for team, current in elo.items():
+        hist = elo_history.get(team, [])
+        result[team] = current - hist[-window] if len(hist) >= window else 0.0
+    return result
+
+
 def _get_current_team_form(df: pd.DataFrame, window: int = WINDOW) -> dict[str, dict]:
     """Return rolling form state per team based on their last `window` completed games."""
     records = []
@@ -187,12 +460,12 @@ def _get_current_team_form(df: pd.DataFrame, window: int = WINDOW) -> dict[str, 
     team_df = pd.DataFrame(records).sort_values("Date")
     form: dict[str, dict] = {}
     for team, group in team_df.groupby("team"):
-        last_n = group.tail(window)
-        if len(last_n) >= window:
+        if len(group) >= window:
+            ewm_vals = group[["pts", "gf", "ga"]].ewm(span=window, min_periods=window).mean().iloc[-1]
             form[team] = {
-                "form_pts": last_n["pts"].mean(),
-                "form_gf": last_n["gf"].mean(),
-                "form_ga": last_n["ga"].mean(),
+                "form_pts": ewm_vals["pts"],
+                "form_gf": ewm_vals["gf"],
+                "form_ga": ewm_vals["ga"],
             }
     return form
 
@@ -210,6 +483,7 @@ def build_fixture_features(
     """
     elo_state = _get_current_elo_state(historical_df)
     form_state = _get_current_team_form(historical_df)
+    h2h_state = _get_current_h2h_state(historical_df)
 
     rows = []
     for _, row in fixtures_df.iterrows():
@@ -217,6 +491,7 @@ def build_fixture_features(
         if home not in form_state or away not in form_state:
             continue
         hf, af = form_state[home], form_state[away]
+        total_imp = 1/row["B365H"] + 1/row["B365D"] + 1/row["B365A"]
         rows.append({
             "Date": row["Date"],
             "HomeTeam": home,
@@ -233,12 +508,13 @@ def build_fixture_features(
             "away_form_ga": af["form_ga"],
             "home_elo": elo_state.get(home, ELO_DEFAULT),
             "away_elo": elo_state.get(away, ELO_DEFAULT),
-            "market_h": (1/row["B365H"]) / (1/row["B365H"] + 1/row["B365D"] + 1/row["B365A"]),
-            "market_d": (1/row["B365D"]) / (1/row["B365H"] + 1/row["B365D"] + 1/row["B365A"]),
-            "market_a": (1/row["B365A"]) / (1/row["B365H"] + 1/row["B365D"] + 1/row["B365A"]),
+            "market_h": (1/row["B365H"]) / total_imp,
+            "market_d": (1/row["B365D"]) / total_imp,
+            "market_a": (1/row["B365A"]) / total_imp,
             "league_E0": float(row.get("league", "") == "E0"),
             "league_D1": float(row.get("league", "") == "D1"),
             "league_SP1": float(row.get("league", "") == "SP1"),
+            "h2h_home_win_rate": _h2h_rate(h2h_state, home, away),
         })
 
     if not rows:
@@ -257,5 +533,5 @@ def build_features_with_odds(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series,
     merged = _build_merged(df)
     X = merged[FEATURE_COLS]
     y = merged["FTR"]
-    odds = merged[["B365H", "B365D", "B365A", "Date", "HomeTeam", "AwayTeam", "league", "season"]]
+    odds = merged[["B365H", "B365D", "B365A", "PSCH", "PSCD", "PSCA", "Date", "HomeTeam", "AwayTeam", "league", "season"]]
     return X, y, odds

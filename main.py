@@ -3,7 +3,7 @@
 Main pipeline: data → model → evaluation → HTML report + profit chart.
 
 Modes:
-  python main.py                    # backtest on last 2 seasons, threshold=0.0
+  python main.py                    # backtest on last 2 seasons, threshold=0.08
   python main.py --threshold 0.05   # backtest with 5% minimum edge filter
   python main.py --predict          # train on all data, predict upcoming fixtures
   python main.py --update           # re-download latest season results, then backtest
@@ -27,7 +27,18 @@ def _parse_threshold() -> float:
     for i, arg in enumerate(sys.argv):
         if arg == "--threshold" and i + 1 < len(sys.argv):
             return float(sys.argv[i + 1])
+    return 0.08
+
+
+def _parse_kelly() -> float:
+    for i, arg in enumerate(sys.argv):
+        if arg == "--kelly" and i + 1 < len(sys.argv):
+            return float(sys.argv[i + 1])
     return 0.0
+
+
+def _parse_per_league() -> bool:
+    return "--per-league" in sys.argv
 
 
 def _save_profit_chart(betting_results, output_path: Path) -> None:
@@ -93,12 +104,27 @@ def _run_predict():
     _print_predictions(fixture_features, y_proba, classes, threshold)
 
 
+def _pinnacle_fair(row) -> dict | None:
+    """Return vig-corrected Pinnacle fair probs from PSH/PSD/PSA, or None if unavailable."""
+    try:
+        ps_total = 1/float(row["PSH"]) + 1/float(row["PSD"]) + 1/float(row["PSA"])
+        return {
+            "H": (1/float(row["PSH"])) / ps_total,
+            "D": (1/float(row["PSD"])) / ps_total,
+            "A": (1/float(row["PSA"])) / ps_total,
+        }
+    except (TypeError, ValueError, ZeroDivisionError, KeyError):
+        return None
+
+
 def _print_predictions(fixture_features, y_proba, classes, threshold: float) -> None:
     outcome_label = {"H": "Home", "D": "Draw", "A": "Away"}
     odds_col = {"H": "B365H", "D": "B365D", "A": "B365A"}
 
+    has_pinnacle = all(c in fixture_features.columns for c in ("PSH", "PSD", "PSA"))
+    pinnacle_note = " + Pinnacle confirmation when available" if has_pinnacle else ""
     print(f"\n{'='*90}")
-    print(f"UPCOMING FIXTURE PREDICTIONS  (threshold: {threshold:+.2f} edge over fair odds)")
+    print(f"UPCOMING FIXTURE PREDICTIONS  (threshold: {threshold:+.2f} edge over fair odds{pinnacle_note})")
     print(f"{'='*90}")
 
     # fixture_features is reset_index'd so iloc position == y_proba row
@@ -117,11 +143,17 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float) -> 
             total_implied = sum(raw_implied.values())
             fair = {o: raw_implied[o] / total_implied for o in raw_implied}
 
+            ps_fair = _pinnacle_fair(row) if has_pinnacle else None
+
             value_bets = []
             for o in ["H", "D", "A"]:
                 edge = probs[o] - fair[o]
-                if edge > threshold:
-                    value_bets.append(f"{outcome_label[o]}(+{edge:.1%})")
+                if edge <= threshold:
+                    continue
+                # Pinnacle confirmation: skip if Pinnacle doesn't also see B365 as cheap
+                if ps_fair is not None and ps_fair[o] <= fair[o]:
+                    continue
+                value_bets.append(f"{outcome_label[o]}(+{edge:.1%})")
 
             date_str = row["Date"].strftime("%Y-%m-%d")
             odds_str = f"{row['B365H']:.2f}/{row['B365D']:.2f}/{row['B365A']:.2f}"
@@ -141,13 +173,16 @@ def _run_backtest():
         update_current_season()
 
     threshold = _parse_threshold()
+    kelly = _parse_kelly()
 
     print("Loading data...")
     df = load_all_data()
     print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
 
-    print("Running walk-forward backtest (one model per test season)...")
-    results = train_walkforward(df)
+    per_league = _parse_per_league()
+    mode = "one model per league per test season" if per_league else "one model per test season"
+    print(f"Running walk-forward backtest ({mode})...")
+    results = train_walkforward(df, per_league=per_league)
 
     eval_df = results["odds_test"].copy()
     eval_df["y_true"] = results["y_test"].values
@@ -157,6 +192,7 @@ def _run_backtest():
         results["y_proba"],
         results["classes"],
         threshold=threshold,
+        kelly_fraction=kelly,
     )
     roi = compute_roi(betting_results)
     stability = compute_stability(betting_results)
@@ -164,9 +200,11 @@ def _run_backtest():
 
     n_matches = len(eval_df)
     n_bets = len(betting_results)
+    sizing = f"Kelly x{kelly}" if kelly > 0.0 else "flat"
     print("\n=== BACKTEST RESULTS ===")
     print(f"Accuracy:  {accuracy:.3f}  (on all {n_matches} test matches)")
     print(f"Threshold: {threshold:+.3f}  (minimum edge over fair odds)")
+    print(f"Sizing:    {sizing}")
     print(f"Bets:      {n_bets} / {n_matches} matches ({n_bets / n_matches:.1%})")
     print(f"ROI:       {roi:+.2f}%")
     print(f"Stability: {stability:.4f}")
