@@ -54,6 +54,41 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ## Iteration History
 
+## Iteration 43: Season Progress Features (REVERTED — flat)
+
+**Date:** 2026-04-21
+**Hypothesis:** `home_season_progress` / `away_season_progress` (games played / 38) would help the model account for early-season noise vs settled mid/late-season form.
+**Files changed:** `src/model/features.py` — added features + wiring. Reverted after results.
+
+**Results:**
+
+| Metric    | Iter 41 baseline | Iter 43 | Δ |
+|-----------|-----------------|---------|---|
+| ROI       | +1.07%          | +1.06%  | -0.01% |
+| Stability | +0.0073         | +0.0069 | -0.0004 |
+
+**Decision:** REVERTED — flat result, no meaningful signal added.
+
+---
+
+## Iteration 42: Elo Delta / Momentum (REVERTED — regression)
+
+**Date:** 2026-04-21
+**Hypothesis:** `home_elo_delta` / `away_elo_delta` (Elo change over last WINDOW games) captures trajectory distinct from absolute Elo.
+**Files changed:** `src/model/features.py` — added features + wiring. Reverted after results.
+
+**Results:**
+
+| Metric    | Iter 41 baseline | Iter 42 | Δ |
+|-----------|-----------------|---------|---|
+| Accuracy  | 0.511           | 0.489   | -0.022 ❌ |
+| ROI       | +1.07%          | +0.46%  | -0.61% ❌ |
+| Stability | +0.0073         | +0.0030 | -0.0043 ❌ |
+
+**Decision:** REVERTED — strong regression. Elo delta is highly collinear with recent form features, adding noise rather than signal.
+
+---
+
 ## Iteration 41: Draw Rate Features (KEPT — new best)
 
 **Date:** 2026-04-21
