@@ -33,6 +33,27 @@ _LEAGUES = ["E0", "D1", "SP1", "I1"]
 _CLASSES = np.array(["A", "D", "H"])  # canonical alphabetical order
 
 
+def _train_binary_models(X_train, y_train) -> dict[str, object]:
+    """Train one binary HistGBM per outcome (H/D/A). Returns {outcome: model}."""
+    models = {}
+    for outcome in _CLASSES:
+        y_bin = (y_train == outcome).astype(int)
+        m = HistGradientBoostingClassifier(**_MODEL_CFG)
+        m.fit(X_train, y_bin)
+        models[outcome] = m
+    return models
+
+
+def _binary_proba_matrix(models: dict, X) -> np.ndarray:
+    """Assemble (n, 3) proba matrix in [A, D, H] column order from binary models."""
+    cols = []
+    for outcome in _CLASSES:
+        p = models[outcome].predict_proba(X)
+        pos_idx = list(models[outcome].classes_).index(1)
+        cols.append(p[:, pos_idx])
+    return np.column_stack(cols)
+
+
 def _predict_per_league(full_X, full_y, full_odds, train_mask, test_mask):
     """Train one HistGBM per league; return predictions aligned to test_mask row order."""
     test_positions = np.where(test_mask)[0]
@@ -68,14 +89,45 @@ def _predict_per_league(full_X, full_y, full_odds, train_mask, test_mask):
     return y_pred_out, y_proba_out, y_true_out
 
 
+def _predict_per_league_binary(full_X, full_y, full_odds, train_mask, test_mask):
+    """Train 3 binary models per league (12 total); return predictions aligned to test_mask row order."""
+    test_positions = np.where(test_mask)[0]
+    pos_to_seq = {int(p): seq for seq, p in enumerate(test_positions)}
+
+    n_test = test_mask.sum()
+    y_pred_out = np.empty(n_test, dtype=object)
+    y_proba_out = np.zeros((n_test, 3))
+    y_true_out = full_y[test_mask].values
+
+    for league in _LEAGUES:
+        l_train = train_mask & (full_odds["league"] == league)
+        l_test = test_mask & (full_odds["league"] == league)
+        if l_test.sum() == 0:
+            continue
+
+        models = _train_binary_models(full_X[l_train], full_y[l_train])
+        y_proba_l = _binary_proba_matrix(models, full_X[l_test])
+        y_pred_l = _CLASSES[np.argmax(y_proba_l, axis=1)]
+
+        for i, pos in enumerate(np.where(l_test)[0]):
+            seq = pos_to_seq[int(pos)]
+            y_pred_out[seq] = y_pred_l[i]
+            y_proba_out[seq] = y_proba_l[i]
+
+    return y_pred_out, y_proba_out, y_true_out
+
+
 def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
-                      per_league: bool = False) -> dict:
+                      per_league: bool = False, binary_outcomes: bool = False) -> dict:
     """
     Season-level walk-forward backtest.
 
     Features are computed on the full dataset so Elo ratings carry forward
     from training seasons into each test season (no cold-start reset).
-    One model is trained per test season (or per league when per_league=True).
+
+    per_league=True:      one model per league per test season (4 models)
+    binary_outcomes=True: one binary classifier per outcome per test season (3 models)
+    both=True:            one binary classifier per outcome per league (12 models)
     """
     full_X, full_y, full_odds = build_features_with_odds(df)
     full_X = full_X.reset_index(drop=True)
@@ -93,7 +145,18 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
         train_mask = full_odds["season"].isin(train_seasons)
         test_mask = full_odds["season"] == test_season
 
-        if per_league:
+        if per_league and binary_outcomes:
+            y_pred, y_proba, y_true = _predict_per_league_binary(
+                full_X, full_y, full_odds, train_mask, test_mask
+            )
+            odds_test = full_odds[test_mask].reset_index(drop=True)
+            accuracy = (y_pred == y_true).mean()
+            print(f"  Season {test_season}: {train_mask.sum()} train / {test_mask.sum()} test — accuracy {accuracy:.3f}")
+            season_results.append({
+                "y_pred": y_pred, "y_proba": y_proba, "y_true": y_true,
+                "odds_test": odds_test, "classes": _CLASSES,
+            })
+        elif per_league:
             y_pred, y_proba, y_true = _predict_per_league(
                 full_X, full_y, full_odds, train_mask, test_mask
             )
@@ -106,6 +169,22 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
                 "y_true": y_true,
                 "odds_test": odds_test,
                 "classes": _CLASSES,
+            })
+        elif binary_outcomes:
+            X_train = full_X[train_mask]
+            y_train = full_y[train_mask]
+            X_test = full_X[test_mask]
+            y_test = full_y[test_mask]
+            odds_test = full_odds[test_mask]
+
+            models = _train_binary_models(X_train, y_train)
+            y_proba = _binary_proba_matrix(models, X_test)
+            y_pred = _CLASSES[np.argmax(y_proba, axis=1)]
+            accuracy = (y_pred == y_test.values).mean()
+            print(f"  Season {test_season}: {train_mask.sum()} train / {test_mask.sum()} test — accuracy {accuracy:.3f}")
+            season_results.append({
+                "y_pred": y_pred, "y_proba": y_proba, "y_true": y_test.values,
+                "odds_test": odds_test, "classes": _CLASSES,
             })
         else:
             X_train = full_X[train_mask]

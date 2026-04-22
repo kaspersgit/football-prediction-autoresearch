@@ -5,9 +5,9 @@
 | Metric    | threshold=0.0        |
 |-----------|----------------------|
 | Accuracy  | 0.515                |
-| ROI       | **+3.15%** ✅ |
-| Stability | **+0.0204** ✅ |
-| Bets      | 2180 / 2626 (83.0%) |
+| ROI       | **+2.64%** ✅ |
+| Stability | **+0.0172** ✅ |
+| Bets      | 2223 / 2655 (83.7%) |
 | Training  | One HistGBM **per league** per test season (`--per-league`) |
 | Features  | 8 EWM/Elo + 3 market fair probs + 3 league dummies + H2H + 2 draw rates + 2 market bias = **19 features** |
 | Model cfg | max_depth=4, min_samples_leaf=20, l2_regularization=0.1, lr=0.05, max_iter=300 |
@@ -54,6 +54,35 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Experiment: Binary Outcome Models (NOT ADOPTED — per-league multi-class remains best)
+
+**Date:** 2026-04-22
+**Hypothesis:** Training separate binary classifiers (one per outcome: H/D/A) instead of a single multi-class model would improve per-outcome calibration, especially for Home (-8.49% ROI) and Draw (-6.72% ROI) bets which lagged far behind Away (+4.23%) in the global model.
+
+**Variants tested:**
+
+| Mode | Models | Bets | ROI | Stability |
+|------|--------|------|-----|-----------|
+| Global multi-class (no flags) | 1 | 2380 | -4.57% | -0.031 |
+| **Per-league multi-class (baseline)** | **4** | **2223** | **+2.64%** | **+0.017** |
+| Binary outcomes — global (`--binary`) | 3 | 2450 | +0.29% | +0.002 |
+| Binary + per-league (`--binary --per-league`) | 12 | 2206 | +2.02% | +0.013 |
+
+Per-league breakdown:
+
+| League | Per-league baseline | Binary global | Binary+per-league |
+|--------|---------------------|---------------|-------------------|
+| England | +12.45% | +1.64% | +6.99% |
+| Germany | +0.38% | +3.36% | +2.35% |
+| Spain | -6.09% | -3.12% | -1.68% |
+| Italy | +3.44% | -0.56% | +0.68% |
+
+**Analysis:** Binary models do not improve over the per-league multi-class baseline. The global binary setup fixes Italy and Germany but badly hurts England (+12.45% → +1.64%), which is the model's strongest league. The combined binary+per-league (12 models) is a middle ground but still weaker than the 4-model baseline — smaller training sets per binary model add variance without meaningful calibration gain. The per-league multi-class model (4 models, one per league) remains the best configuration. Note: the +3.15% ROI from the last commit vs +2.64% now reflects the 2525-26 season accumulating more data since the experiment was recorded.
+
+**Decision:** NOT ADOPTED. Per-league multi-class (`--per-league`) remains default.
+
+---
 
 ## Iteration 43: Season Progress Features (REVERTED — flat)
 

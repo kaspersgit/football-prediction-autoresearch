@@ -43,6 +43,10 @@ def _parse_per_league() -> bool:
     return "--per-league" in sys.argv
 
 
+def _parse_binary() -> bool:
+    return "--binary" in sys.argv
+
+
 def _save_profit_chart(betting_results, output_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(12, 4))
     ax.plot(betting_results["Date"], betting_results["cumulative_profit"],
@@ -67,10 +71,12 @@ def _save_profit_chart(betting_results, output_path: Path) -> None:
 
 
 def _run_predict():
+    from datetime import datetime
     from src.data.download import download_fixtures, update_current_season
     from src.data.loader import load_fixtures
 
     threshold = _parse_threshold()
+    fetched_at = datetime.now()
 
     print("Updating latest season results...")
     update_current_season()
@@ -103,7 +109,8 @@ def _run_predict():
     y_proba = model.predict_proba(X_fix)
     classes = list(model.classes_)
 
-    _print_predictions(fixture_features, y_proba, classes, threshold)
+    _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at)
+    _save_predictions_csv(fixture_features, y_proba, classes, threshold, fetched_at)
 
 
 def _pinnacle_fair(row) -> dict | None:
@@ -119,53 +126,118 @@ def _pinnacle_fair(row) -> dict | None:
         return None
 
 
-def _print_predictions(fixture_features, y_proba, classes, threshold: float) -> None:
-    outcome_label = {"H": "Home", "D": "Draw", "A": "Away"}
+def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float) -> list[dict]:
+    """Build a list of per-fixture prediction dicts (used by both print and CSV export)."""
     odds_col = {"H": "B365H", "D": "B365D", "A": "B365A"}
+    has_pinnacle = all(c in fixture_features.columns for c in ("PSH", "PSD", "PSA"))
+    fixture_features = fixture_features.reset_index(drop=True)
+    rows = []
+    for i, row in fixture_features.iterrows():
+        probs = {c: float(y_proba[i, j]) for j, c in enumerate(classes)}
+        raw_implied = {o: 1.0 / float(row[odds_col[o]]) for o in ["H", "D", "A"]}
+        total_implied = sum(raw_implied.values())
+        fair = {o: raw_implied[o] / total_implied for o in raw_implied}
+        ps_fair = _pinnacle_fair(row) if has_pinnacle else None
+
+        value_bets = []
+        for o in ["H", "D", "A"]:
+            edge = probs[o] - fair[o]
+            if edge <= threshold:
+                continue
+            if ps_fair is not None and ps_fair[o] <= fair[o]:
+                continue
+            value_bets.append((o, edge))
+
+        rows.append({
+            "Date": row["Date"],
+            "League": row["league"],
+            "HomeTeam": row["HomeTeam"],
+            "AwayTeam": row["AwayTeam"],
+            "B365H": float(row["B365H"]),
+            "B365D": float(row["B365D"]),
+            "B365A": float(row["B365A"]),
+            "ModelH": probs["H"],
+            "ModelD": probs["D"],
+            "ModelA": probs["A"],
+            "FairH": fair["H"],
+            "FairD": fair["D"],
+            "FairA": fair["A"],
+            "ValueBets": value_bets,
+        })
+    return rows
+
+
+def _print_predictions(fixture_features, y_proba, classes, threshold: float, fetched_at=None) -> None:
+    from datetime import datetime
+    outcome_label = {"H": "Home", "D": "Draw", "A": "Away"}
 
     has_pinnacle = all(c in fixture_features.columns for c in ("PSH", "PSD", "PSA"))
-    pinnacle_note = " + Pinnacle confirmation when available" if has_pinnacle else ""
-    print(f"\n{'='*90}")
-    print(f"UPCOMING FIXTURE PREDICTIONS  (threshold: {threshold:+.2f} edge over fair odds{pinnacle_note})")
-    print(f"{'='*90}")
+    pinnacle_note = " + Pinnacle filter" if has_pinnacle else ""
+    fetch_str = fetched_at.strftime("%Y-%m-%d %H:%M") if fetched_at else "unknown"
 
-    # fixture_features is reset_index'd so iloc position == y_proba row
-    fixture_features = fixture_features.reset_index(drop=True)
+    W = 100
+    print(f"\n{'='*W}")
+    print(f"UPCOMING FIXTURE PREDICTIONS")
+    print(f"Odds fetched: {fetch_str}  |  threshold: {threshold:+.2f}{pinnacle_note}")
+    print(f"⚠  Verify odds are still current before placing any bet")
+    print(f"{'='*W}")
 
-    by_league = fixture_features.groupby("league")
-    for league, group in by_league:
+    pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold)
+
+    by_league: dict[str, list] = {}
+    for r in pred_rows:
+        by_league.setdefault(r["League"], []).append(r)
+
+    for league, rows in sorted(by_league.items()):
         print(f"\n--- {league.upper()} ---")
-        print(f"{'Date':<12} {'Home':<22} {'Away':<22} {'H%':>5} {'D%':>5} {'A%':>5}  {'Odds H/D/A':>14}  Value bets")
-        print("-" * 90)
+        print(f"{'Date':<12} {'Home':<22} {'Away':<22} {'H%/D%/A%':>11}  {'B365 H / D / A (fetched)':>26}  Value bets")
+        print("-" * W)
+        for r in rows:
+            date_str = r["Date"].strftime("%Y-%m-%d")
+            prob_str = f"{r['ModelH']:.0%}/{r['ModelD']:.0%}/{r['ModelA']:.0%}"
+            odds_str = f"{r['B365H']:.2f} / {r['B365D']:.2f} / {r['B365A']:.2f}"
+            if r["ValueBets"]:
+                vb_parts = [f"{outcome_label[o]}(+{e:.1%})" for o, e in r["ValueBets"]]
+                value_str = ", ".join(vb_parts)
+            else:
+                value_str = "-"
+            print(f"{date_str:<12} {r['HomeTeam']:<22} {r['AwayTeam']:<22} {prob_str:>11}  {odds_str:>26}  {value_str}")
 
-        for i, row in group.iterrows():
-            probs = {c: float(y_proba[i, j]) for j, c in enumerate(classes)}
+    print(f"\n{'='*W}")
+    value_count = sum(1 for r in pred_rows if r["ValueBets"])
+    print(f"Value bets found: {value_count} / {len(pred_rows)} fixtures")
+    print(f"{'='*W}\n")
 
-            raw_implied = {o: 1.0 / float(row[odds_col[o]]) for o in ["H", "D", "A"]}
-            total_implied = sum(raw_implied.values())
-            fair = {o: raw_implied[o] / total_implied for o in raw_implied}
 
-            ps_fair = _pinnacle_fair(row) if has_pinnacle else None
-
-            value_bets = []
-            for o in ["H", "D", "A"]:
-                edge = probs[o] - fair[o]
-                if edge <= threshold:
-                    continue
-                # Pinnacle confirmation: skip if Pinnacle doesn't also see B365 as cheap
-                if ps_fair is not None and ps_fair[o] <= fair[o]:
-                    continue
-                value_bets.append(f"{outcome_label[o]}(+{edge:.1%})")
-
-            date_str = row["Date"].strftime("%Y-%m-%d")
-            odds_str = f"{row['B365H']:.2f}/{row['B365D']:.2f}/{row['B365A']:.2f}"
-            value_str = ", ".join(value_bets) if value_bets else "-"
-
-            print(f"{date_str:<12} {row['HomeTeam']:<22} {row['AwayTeam']:<22} "
-                  f"{probs['H']:>5.0%} {probs['D']:>5.0%} {probs['A']:>5.0%}  "
-                  f"{odds_str:>14}  {value_str}")
-
-    print(f"\n{'='*90}")
+def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, fetched_at) -> None:
+    """Save a timestamped CSV of all fixtures + odds + model probs for pre-bet verification."""
+    pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold)
+    records = []
+    for r in pred_rows:
+        value_labels = "+".join(o for o, _ in r["ValueBets"]) if r["ValueBets"] else ""
+        records.append({
+            "fetched_at": fetched_at.strftime("%Y-%m-%d %H:%M"),
+            "Date": r["Date"].strftime("%Y-%m-%d"),
+            "League": r["League"],
+            "HomeTeam": r["HomeTeam"],
+            "AwayTeam": r["AwayTeam"],
+            "B365H": r["B365H"],
+            "B365D": r["B365D"],
+            "B365A": r["B365A"],
+            "ModelH": round(r["ModelH"], 4),
+            "ModelD": round(r["ModelD"], 4),
+            "ModelA": round(r["ModelA"], 4),
+            "FairH": round(r["FairH"], 4),
+            "FairD": round(r["FairD"], 4),
+            "FairA": round(r["FairA"], 4),
+            "ValueBets": value_labels,
+        })
+    out = pd.DataFrame(records)
+    ts = fetched_at.strftime("%Y%m%d_%H%M")
+    path = Path(f"reports/predictions_{ts}.csv")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(path, index=False)
+    print(f"Predictions saved to {path}  (compare B365 odds before placing bets)")
 
 
 def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame) -> None:
@@ -250,9 +322,17 @@ def _run_backtest():
     print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
 
     per_league = _parse_per_league()
-    mode = "one model per league per test season" if per_league else "one model per test season"
+    binary = _parse_binary()
+    if per_league and binary:
+        mode = "3 binary models × 4 leagues = 12 models per test season"
+    elif per_league:
+        mode = "one multi-class model per league per test season (4 models)"
+    elif binary:
+        mode = "3 binary models per test season (one per outcome)"
+    else:
+        mode = "one multi-class model per test season"
     print(f"Running walk-forward backtest ({mode})...")
-    results = train_walkforward(df, per_league=per_league)
+    results = train_walkforward(df, per_league=per_league, binary_outcomes=binary)
 
     eval_df = results["odds_test"].copy()
     eval_df["y_true"] = results["y_test"].values
