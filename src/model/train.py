@@ -231,6 +231,68 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
     }
 
 
+def train_walkforward_monthly(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS) -> dict:
+    """
+    Monthly walk-forward backtest (per-league).
+
+    Retrains one model per league at the start of every calendar month, using all
+    data strictly before that month. Each model then predicts only that month's matches.
+    This keeps the model calibrated to in-season form changes rather than going stale
+    after a single pre-season fit.
+    """
+    full_X, full_y, full_odds = build_features_with_odds(df)
+    full_X = full_X.reset_index(drop=True)
+    full_y = full_y.reset_index(drop=True)
+    full_odds = full_odds.reset_index(drop=True)
+
+    dates = pd.to_datetime(full_odds["Date"])
+    seasons = sorted(full_odds["season"].unique())
+    test_seasons = set(seasons[-n_test_seasons:])
+
+    # All months that fall in the test period
+    test_mask_all = full_odds["season"].isin(test_seasons)
+    test_months = sorted(dates[test_mask_all].dt.to_period("M").unique())
+
+    month_results = []
+    for month in test_months:
+        month_start = month.to_timestamp()
+        train_mask = dates < month_start
+        test_mask  = (dates.dt.to_period("M") == month) & test_mask_all
+
+        if train_mask.sum() == 0 or test_mask.sum() == 0:
+            continue
+
+        y_pred_m, y_proba_m, y_true_m = _predict_per_league(
+            full_X, full_y, full_odds, train_mask, test_mask
+        )
+        odds_m = full_odds[test_mask].reset_index(drop=True)
+        accuracy_m = (y_pred_m == y_true_m).mean()
+        print(f"  {month}: {train_mask.sum():>5} train / {test_mask.sum():>4} test — accuracy {accuracy_m:.3f}")
+        month_results.append({
+            "y_pred": y_pred_m,
+            "y_proba": y_proba_m,
+            "y_true": y_true_m,
+            "odds_test": odds_m,
+            "classes": _CLASSES,
+        })
+
+    y_pred_all  = np.concatenate([r["y_pred"]  for r in month_results])
+    y_proba_all = np.vstack(      [r["y_proba"] for r in month_results])
+    y_true_all  = np.concatenate([r["y_true"]  for r in month_results])
+    odds_all    = pd.concat(      [r["odds_test"] for r in month_results]).reset_index(drop=True)
+    accuracy    = (y_pred_all == y_true_all).mean()
+    print(f"Combined test accuracy: {accuracy:.3f}")
+
+    return {
+        "y_pred": y_pred_all,
+        "y_proba": y_proba_all,
+        "y_test": pd.Series(y_true_all),
+        "classes": _CLASSES,
+        "odds_test": odds_all,
+        "accuracy": accuracy,
+    }
+
+
 def train_on_all_data(df: pd.DataFrame):
     """Train on the full dataset (no holdout) for live fixture prediction."""
     X, y, _ = build_features_with_odds(df)

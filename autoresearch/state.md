@@ -55,6 +55,33 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ## Iteration History
 
+## Experiment: Monthly Retraining + Long Market Bias Window (NOT ADOPTED — both regress)
+
+**Date:** 2026-04-23
+**Hypothesis:** Two ideas to reduce large month-to-month ROI swings:
+- C: Add 20-game market bias feature alongside existing 5-game version — captures sustained mis-pricing beyond short-term noise.
+- A: Retrain per-league models monthly on all data up to that point, rather than once per season.
+
+**Results:**
+
+| Mode | Bets | ROI | Stability | Monthly ROI std |
+|------|------|-----|-----------|-----------------|
+| **Per-league seasonal (baseline)** | **2223** | **+2.64%** | **+0.0172** | **9.48pp** |
+| Long market bias (window=20) | 2125 | -1.80% | -0.0124 | — |
+| Monthly retrain (`--monthly`) | 2237 | +0.03% | +0.0002 | 10.24pp |
+
+**Analysis:**
+
+- **Long market bias (window=20):** Regression of -4.44pp ROI. The 20-game `min_periods` requirement drops 116 test rows early in each season (NaN from `dropna`), shrinking the test set. Also, a 20-game window means the last ~half-season of data — by which point the 5-game window already captures the same signal more noisily. The feature adds correlated information that dilutes tree budget without independent signal. Reverted.
+
+- **Monthly retraining:** Regression of -2.61pp ROI. Monthly variance increased slightly (std 10.24pp vs 9.48pp). The root cause: monthly variance is **irreducible statistical noise** — with ~100 bets/month at ~2.5 average odds, the expected ROI std is ±12% just from sampling. No retraining schedule can fix this. Monthly retraining also creates a minor information leak risk: with only 4–5 months of in-season data by mid-season, the per-league model trains on ~3800 rows instead of ~15000, reducing model quality. The seasonal model wins because it has richer training data.
+
+**Key finding:** Monthly ROI swings are sampling noise, not model drift. The path to lower variance is more bets per month (more leagues) or accepting the noise and evaluating on 6-month+ windows. Both options reverted.
+
+**Decision:** NOT ADOPTED. Per-league seasonal retrain (`--per-league`) remains default.
+
+---
+
 ## Experiment: Binary Outcome Models (NOT ADOPTED — per-league multi-class remains best)
 
 **Date:** 2026-04-22

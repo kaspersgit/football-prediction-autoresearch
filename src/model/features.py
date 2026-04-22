@@ -419,7 +419,9 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = _compute_elo(df)
     df = _compute_h2h(df)
     df = _compute_draw_rates(df)
+
     df = _compute_market_bias(df)
+
     stats = _team_rolling_stats(df)
 
     merged = df.merge(

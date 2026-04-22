@@ -22,7 +22,7 @@ from src.data.loader import load_all_data
 from src.evaluation.metrics import compute_roi, compute_stability, compute_value_betting_results
 from src.evaluation.report import generate_report
 from src.model.features import FEATURE_COLS, build_features_with_odds, build_fixture_features
-from src.model.train import split_by_season, train_on_all_data, train_walkforward
+from src.model.train import split_by_season, train_on_all_data, train_walkforward, train_walkforward_monthly
 
 
 def _parse_threshold() -> float:
@@ -45,6 +45,10 @@ def _parse_per_league() -> bool:
 
 def _parse_binary() -> bool:
     return "--binary" in sys.argv
+
+
+def _parse_monthly() -> bool:
+    return "--monthly" in sys.argv
 
 
 def _save_profit_chart(betting_results, output_path: Path) -> None:
@@ -323,16 +327,22 @@ def _run_backtest():
 
     per_league = _parse_per_league()
     binary = _parse_binary()
-    if per_league and binary:
-        mode = "3 binary models × 4 leagues = 12 models per test season"
-    elif per_league:
-        mode = "one multi-class model per league per test season (4 models)"
-    elif binary:
-        mode = "3 binary models per test season (one per outcome)"
+    monthly = _parse_monthly()
+
+    if monthly:
+        print("Running monthly walk-forward backtest (per-league, retrained each month)...")
+        results = train_walkforward_monthly(df)
     else:
-        mode = "one multi-class model per test season"
-    print(f"Running walk-forward backtest ({mode})...")
-    results = train_walkforward(df, per_league=per_league, binary_outcomes=binary)
+        if per_league and binary:
+            mode = "3 binary models × 4 leagues = 12 models per test season"
+        elif per_league:
+            mode = "one multi-class model per league per test season (4 models)"
+        elif binary:
+            mode = "3 binary models per test season (one per outcome)"
+        else:
+            mode = "one multi-class model per test season"
+        print(f"Running walk-forward backtest ({mode})...")
+        results = train_walkforward(df, per_league=per_league, binary_outcomes=binary)
 
     eval_df = results["odds_test"].copy()
     eval_df["y_true"] = results["y_test"].values
