@@ -2,11 +2,15 @@
 """
 Main pipeline: data → model → evaluation → HTML report + profit chart.
 
+Leagues: England (E0), Germany (D1), Spain (SP1), Italy (I1), France (F1), Netherlands (N1), Portugal (P1)
+
 Modes:
   python main.py                    # backtest on last 2 seasons, threshold=0.0
+  python main.py --per-league       # one model per league (default recommended)
   python main.py --threshold 0.05   # backtest with 5% minimum edge filter
   python main.py --predict          # train on all data, predict upcoming fixtures
   python main.py --update           # re-download latest season results, then backtest
+  python main.py --monthly          # monthly walk-forward retrain (experimental)
 """
 import sys
 from pathlib import Path
@@ -273,7 +277,8 @@ def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame
     bets["home_tier"] = bets["HomeTeam"].map(tiers)
     bets["away_tier"] = bets["AwayTeam"].map(tiers)
 
-    LG = {"E0": "England", "D1": "Germany", "SP1": "Spain", "I1": "Italy"}
+    LG = {"E0": "England", "D1": "Germany", "SP1": "Spain", "I1": "Italy",
+          "F1": "France", "N1": "Netherlands", "P1": "Portugal"}
 
     def _roi(sub): return sub["profit"].sum() / len(sub) * 100 if len(sub) else float("nan")
 

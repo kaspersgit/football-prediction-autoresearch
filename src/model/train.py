@@ -29,7 +29,7 @@ def split_by_season(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return train, test
 
 
-_LEAGUES = ["E0", "D1", "SP1", "I1"]
+_LEAGUES = ["E0", "D1", "SP1", "I1", "F1", "N1", "P1"]
 _CLASSES = np.array(["A", "D", "H"])  # canonical alphabetical order
 
 

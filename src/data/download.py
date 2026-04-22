@@ -8,6 +8,9 @@ LEAGUES = {
     "germany": "D1",
     "spain": "SP1",
     "italy": "I1",
+    "france": "F1",
+    "netherlands": "N1",
+    "portugal": "P1",
 }
 
 BASE_URL = "https://www.football-data.co.uk/mmz4281"

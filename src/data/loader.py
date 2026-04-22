@@ -7,7 +7,10 @@ RAW_DIR = Path("data/raw")
 REQUIRED_COLS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "B365H", "B365D", "B365A"]
 _OPTIONAL_COLS = ["PSCH", "PSCD", "PSCA", "HST", "AST"]  # Pinnacle closing odds + shots on target
 
-_LEAGUE_MAP = {"E0": "england", "D1": "germany", "SP1": "spain", "I1": "italy"}
+_LEAGUE_MAP = {
+    "E0": "england", "D1": "germany", "SP1": "spain", "I1": "italy",
+    "F1": "france", "N1": "netherlands", "P1": "portugal",
+}
 _FIXTURE_ODDS_COLS = ["B365H", "B365D", "B365A"]
 _FIXTURE_PINNACLE_COLS = ["PSH", "PSD", "PSA"]
 

@@ -10,7 +10,7 @@ FEATURE_COLS = [
     "away_form_pts", "away_form_gf", "away_form_ga",
     "home_elo", "away_elo",
     "market_h", "market_d", "market_a",
-    "league_E0", "league_D1", "league_SP1",  # I1 is the omitted reference category
+    "league_E0", "league_D1", "league_SP1", "league_F1", "league_N1", "league_P1",  # I1 is omitted reference
     "h2h_home_win_rate",
     "home_draw_rate", "away_draw_rate",
     "home_market_bias", "away_market_bias",
@@ -438,7 +438,7 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     merged["market_h"] = (1/merged["B365H"]) / total_imp
     merged["market_d"] = (1/merged["B365D"]) / total_imp
     merged["market_a"] = (1/merged["B365A"]) / total_imp
-    for lc in ["E0", "D1", "SP1"]:
+    for lc in ["E0", "D1", "SP1", "F1", "N1", "P1"]:
         merged[f"league_{lc}"] = (merged["league"] == lc).astype(float)
     merged = merged.dropna(subset=FEATURE_COLS).reset_index(drop=True)
     return merged
@@ -578,6 +578,9 @@ def build_fixture_features(
             "league_E0": float(row.get("league", "") == "E0"),
             "league_D1": float(row.get("league", "") == "D1"),
             "league_SP1": float(row.get("league", "") == "SP1"),
+            "league_F1": float(row.get("league", "") == "F1"),
+            "league_N1": float(row.get("league", "") == "N1"),
+            "league_P1": float(row.get("league", "") == "P1"),
             "h2h_home_win_rate": _h2h_rate(h2h_state, home, away),
             "home_draw_rate": draw_rate_state.get(home, float("nan")),
             "away_draw_rate": draw_rate_state.get(away, float("nan")),

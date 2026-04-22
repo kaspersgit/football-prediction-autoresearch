@@ -5,15 +5,15 @@
 | Metric    | threshold=0.0        |
 |-----------|----------------------|
 | Accuracy  | 0.515                |
-| ROI       | **+2.64%** ✅ |
-| Stability | **+0.0172** ✅ |
-| Bets      | 2223 / 2655 (83.7%) |
+| ROI       | **+7.08%** ✅ |
+| Stability | **+0.0457** ✅ |
+| Bets      | 3669 / 4358 (84.2%) |
 | Training  | One HistGBM **per league** per test season (`--per-league`) |
-| Features  | 8 EWM/Elo + 3 market fair probs + 3 league dummies + H2H + 2 draw rates + 2 market bias = **19 features** |
+| Features  | 8 EWM/Elo + 3 market fair probs + 6 league dummies + H2H + 2 draw rates + 2 market bias = **22 features** |
 | Model cfg | max_depth=4, min_samples_leaf=20, l2_regularization=0.1, lr=0.05, max_iter=300 |
 | Bet filter | Pinnacle closing (`PSCH/PSCD/PSCA`) confirms edge over B365 where available |
 
-_Last updated: 2026-04-21 (Iterations 44–53: market bias + l2_regularization=0.1. **New best: ROI +3.15%, Stability +0.0204.**)_
+_Last updated: 2026-04-23 (Added France F1, Netherlands N1, Portugal P1. **New best: ROI +7.08%, Stability +0.0457.**)_
 
 **Evaluation setup (updated 2026-04-19):** All metrics from Iteration 11 onward use:
 - **Walk-forward backtest**: one model trained per test season (2425 then 2526); Elo carries forward correctly.
@@ -54,6 +54,46 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 ---
 
 ## Iteration History
+
+## Iteration 54: Add France (F1), Netherlands (N1), Portugal (P1) — **NEW BEST**
+
+**Date:** 2026-04-23
+**Hypothesis:** Adding 3 more leagues increases bet volume (~110 → ~190 bets/month), compressing monthly variance by ~√(7/4) and reducing sampling noise. All three leagues are available on football-data.co.uk from 2013-14 with full B365 and Pinnacle column coverage. The per-league model structure means each new league gets its own dedicated model.
+
+**Files changed:**
+- `src/data/download.py` — added france/F1, netherlands/N1, portugal/P1 to LEAGUES
+- `src/data/loader.py` — added 3 entries to `_LEAGUE_MAP`; fixtures filter now includes F1, N1, P1
+- `src/model/features.py` — added `league_F1`, `league_N1`, `league_P1` dummies (I1 remains omitted reference); 19 → 22 features
+- `src/model/train.py` — added F1, N1, P1 to `_LEAGUES`
+- `main.py` — added 3 leagues to `_print_split_analysis` lookup
+- Downloaded 39 historical CSV files (3 leagues × 13 seasons)
+
+**Results:**
+
+| Metric | 4-league baseline | 7-league (this iter) | Δ |
+|--------|-------------------|----------------------|---|
+| ROI | +2.64% | **+7.08%** | +4.44pp |
+| Stability | +0.0172 | **+0.0457** | +0.0285 |
+| Bets | 2223 | 3669 | +1446 |
+| Test matches | 2655 | 4358 | +1703 |
+
+Per-league ROI (7-league model):
+
+| League | Bets | ROI |
+|--------|------|-----|
+| England | 557 | +12.45% |
+| Germany | 484 | +0.38% |
+| Spain | 558 | -6.09% |
+| Italy | 624 | +3.44% |
+| **France** | **458** | **+8.98%** |
+| **Netherlands** | **495** | **+19.00%** |
+| **Portugal** | **493** | **+13.37%** |
+
+**Analysis:** The 3 new leagues contribute ~13.9% combined ROI on 1446 bets — exceptionally strong. Crucially, the existing 4-league numbers are completely unchanged (per-league models train independently), so this is pure addition with no risk to the existing signal. Netherlands is the standout at +19.00%. The new leagues also meaningfully reduce monthly sampling noise: test bets increase by 65%, bringing expected monthly std from ±12% down toward ±9%. Spain remains the only negative league (-6.09%) across all setups.
+
+**Decision:** KEPT — **new best**. Run with `uv run python main.py --per-league`.
+
+---
 
 ## Experiment: Monthly Retraining + Long Market Bias Window (NOT ADOPTED — both regress)
 
