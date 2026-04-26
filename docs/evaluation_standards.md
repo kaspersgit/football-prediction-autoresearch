@@ -28,7 +28,7 @@ ROI = average of N noisy outcomes, so its standard error = `std_per_bet / √N`.
 
 ---
 
-## 3. The stability metric is a t-statistic proxy
+## 3. The t-statistic — report it every iteration
 
 `stability = mean_profit / std_profit`
 
@@ -38,17 +38,26 @@ The true t-statistic for "ROI ≠ 0" is:
 t = stability × √(N_bets)
 ```
 
-Need `|t| > 2` for 95% confidence.
+**The t-stat is printed automatically by `python main.py` — always include it when recording an iteration result.**
 
-Current state example: `t = −0.009 × √4025 ≈ −0.57` — far from significant.
+Need `|t| > 2` for 95% confidence. Milestones to track:
 
-To detect a genuine edge at our current ROI and stability, we would need ≈ 49,000 bets.
-This means **our backtest ROI of −1.33% is statistically indistinguishable from zero.**
-We have not proven edge yet; iterations are moving the distribution in the right direction.
+| t-stat | Meaning |
+|---|---|
+| \|t\| < 1 | No signal — ROI indistinct from zero |
+| 1 < \|t\| < 2 | Suggestive but not significant |
+| \|t\| > 2 | 95% confident ROI ≠ 0 |
+| \|t\| > 3 | 99% confident |
 
-To reach significance at threshold=0.0 we need:
-- Either ROI/stability to improve substantially (primary goal)
-- Or a longer test period (more seasons, more leagues — secondary, slower path)
+Current state (2026-04-26): `t = −0.009 × √4025 ≈ −0.57` — no signal yet.
+
+To detect a genuine edge at current stability, ≈ 49,000 bets would be needed.
+**Our backtest ROI of −1.33% is statistically indistinguishable from zero.**
+Iterations are moving the distribution in the right direction; the goal is to push t toward −2 or beyond (positive side).
+
+To reach significance at threshold=0.0:
+- Primary: improve ROI/stability substantially (each +0.001 in stability moves t by +0.06 at current N)
+- Secondary: more seasons/leagues increase N (slower path)
 
 ---
 

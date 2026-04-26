@@ -5,7 +5,7 @@ Main pipeline: data → model → evaluation → HTML report + profit chart.
 Leagues: England (E0), Germany (D1), Spain (SP1), Italy (I1), France (F1), Netherlands (N1), Portugal (P1)
 
 Modes:
-  python main.py                    # backtest on last 2 seasons, threshold=0.0
+  python main.py                    # backtest on last 2 seasons, threshold=0.0 (all bets)
   python main.py --per-league       # one model per league (default recommended)
   python main.py --threshold 0.05   # backtest with 5% minimum edge filter
   python main.py --predict          # train on all data, predict upcoming fixtures
@@ -211,9 +211,31 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
                 value_str = "-"
             print(f"{date_str:<12} {r['HomeTeam']:<22} {r['AwayTeam']:<22} {prob_str:>11}  {odds_str:>26}  {value_str}")
 
+    # --- Top picks summary ---
+    all_bets: list[dict] = []
+    for r in pred_rows:
+        for outcome, edge in r["ValueBets"]:
+            odds_map = {"H": r["B365H"], "D": r["B365D"], "A": r["B365A"]}
+            all_bets.append({
+                "Date": r["Date"].strftime("%Y-%m-%d"),
+                "League": r["League"],
+                "Home": r["HomeTeam"],
+                "Away": r["AwayTeam"],
+                "Bet": outcome_label[outcome],
+                "Edge": edge,
+                "Odds": odds_map[outcome],
+            })
+    all_bets.sort(key=lambda x: x["Edge"], reverse=True)
+    top = all_bets[:10]
+
     print(f"\n{'='*W}")
     value_count = sum(1 for r in pred_rows if r["ValueBets"])
-    print(f"Value bets found: {value_count} / {len(pred_rows)} fixtures")
+    print(f"Value bets found: {value_count} / {len(pred_rows)} fixtures  |  total individual bets: {len(all_bets)}")
+    print(f"\n{'TOP 10 VALUE BETS (by edge)'}")
+    print(f"{'#':<3} {'Date':<12} {'League':<5} {'Home':<22} {'Away':<22} {'Bet':<5} {'Edge':>6}  {'Odds':>6}")
+    print("-" * W)
+    for i, b in enumerate(top, 1):
+        print(f"{i:<3} {b['Date']:<12} {b['League'].upper():<5} {b['Home']:<22} {b['Away']:<22} {b['Bet']:<5} {b['Edge']:>+5.1%}  {b['Odds']:>6.2f}")
     print(f"{'='*W}\n")
 
 
@@ -366,6 +388,7 @@ def _run_backtest():
     n_matches = len(eval_df)
     n_bets = len(betting_results)
     sizing = f"Kelly x{kelly}" if kelly > 0.0 else "flat"
+    t_stat = stability * (n_bets ** 0.5)
     print("\n=== BACKTEST RESULTS ===")
     print(f"Accuracy:  {accuracy:.3f}  (on all {n_matches} test matches)")
     print(f"Threshold: {threshold:+.3f}  (minimum edge over fair odds)")
@@ -373,6 +396,7 @@ def _run_backtest():
     print(f"Bets:      {n_bets} / {n_matches} matches ({n_bets / n_matches:.1%})")
     print(f"ROI:       {roi:+.2f}%")
     print(f"Stability: {stability:.4f}")
+    print(f"t-stat:    {t_stat:+.2f}  (need |t| > 2 for significance; ROI indistinct from 0 until then)")
 
     _print_split_analysis(betting_results, eval_df)
 
@@ -389,9 +413,144 @@ def _run_backtest():
     print("Done. Open reports/evaluation_report.html to view results.")
 
 
+def _run_compare_vig():
+    """Run the walk-forward backtest twice and print a side-by-side comparison:
+    'fair' baseline (vig-stripped, current default) vs 'raw' baseline (1/odds, EV-correct)."""
+    threshold = _parse_threshold()
+
+    print("Loading data...")
+    df = load_all_data()
+    print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
+    print("Running walk-forward backtest (one model per test season)...")
+    results = train_walkforward(df, per_league=False)
+
+    eval_df = results["odds_test"].copy()
+    eval_df["y_true"] = results["y_test"].values
+
+    fair_bets = compute_value_betting_results(
+        eval_df, results["y_proba"], results["classes"],
+        threshold=threshold, edge_baseline="fair",
+    )
+    raw_bets = compute_value_betting_results(
+        eval_df, results["y_proba"], results["classes"],
+        threshold=threshold, edge_baseline="raw",
+    )
+
+    n_matches = len(eval_df)
+    W = 72
+
+    def _stats(bets):
+        if bets.empty:
+            return {"n": 0, "roi": float("nan"), "stab": float("nan"), "profit": 0.0}
+        return {
+            "n": len(bets),
+            "roi": compute_roi(bets),
+            "stab": compute_stability(bets),
+            "profit": bets["profit"].sum(),
+        }
+
+    fs, rs = _stats(fair_bets), _stats(raw_bets)
+
+    print(f"\n{'='*W}")
+    print(f"VIG BASELINE COMPARISON  |  threshold: {threshold:+.2f}  |  test matches: {n_matches}")
+    print(f"{'='*W}")
+    print(f"{'Metric':<22}  {'fair (vig-stripped)':>20}  {'raw (1/odds)':>20}")
+    print("-" * W)
+    print(f"{'Bets placed':<22}  {fs['n']:>20}  {rs['n']:>20}")
+    print(f"{'Bet rate':<22}  {fs['n']/n_matches:>19.1%}  {rs['n']/n_matches:>19.1%}")
+    print(f"{'Total profit (units)':<22}  {fs['profit']:>+20.2f}  {rs['profit']:>+20.2f}")
+    print(f"{'ROI':<22}  {fs['roi']:>+19.2f}%  {rs['roi']:>+19.2f}%")
+    print(f"{'Stability':<22}  {fs['stab']:>20.4f}  {rs['stab']:>20.4f}")
+    print(f"{'='*W}")
+
+    # Per-threshold sweep to show breakeven point
+    print(f"\n{'THRESHOLD SWEEP — ROI at each minimum-edge cutoff'}")
+    print(f"{'Threshold':<12}  {'fair bets':>10}  {'fair ROI':>10}  {'raw bets':>10}  {'raw ROI':>10}")
+    print("-" * 58)
+    for t in [0.00, 0.01, 0.02, 0.03, 0.04, 0.05, 0.07, 0.10]:
+        fb = compute_value_betting_results(
+            eval_df, results["y_proba"], results["classes"],
+            threshold=t, edge_baseline="fair",
+        )
+        rb = compute_value_betting_results(
+            eval_df, results["y_proba"], results["classes"],
+            threshold=t, edge_baseline="raw",
+        )
+        f_roi = f"{compute_roi(fb):+.2f}%" if not fb.empty else "  n/a"
+        r_roi = f"{compute_roi(rb):+.2f}%" if not rb.empty else "  n/a"
+        print(f"{t:>+.2f}{'':8}  {len(fb):>10}  {f_roi:>10}  {len(rb):>10}  {r_roi:>10}")
+
+    print(f"\nNote: 'raw' bets ⊆ 'fair' bets — raw is strictly more conservative.\n"
+          f"Bets flagged by 'fair' but not 'raw' are negative-EV at these actual odds.")
+
+    # --- Per-league breakdown at base threshold ---
+    LG = {"E0": "England", "D1": "Germany", "SP1": "Spain", "I1": "Italy",
+          "F1": "France", "N1": "Netherlands", "P1": "Portugal"}
+
+    def _league_roi(bets, eval_df):
+        if bets.empty:
+            return {}
+        merged = bets.merge(
+            eval_df[["HomeTeam", "AwayTeam", "Date", "league"]],
+            on=["HomeTeam", "AwayTeam", "Date"], how="left",
+        )
+        out = {}
+        for lc, ln in LG.items():
+            sub = merged[merged["league"] == lc]
+            if len(sub) == 0:
+                continue
+            out[ln] = (len(sub), sub["profit"].sum() / len(sub) * 100)
+        return out
+
+    fair_lg = _league_roi(fair_bets, eval_df)
+    raw_lg = _league_roi(raw_bets, eval_df)
+    all_leagues = sorted(set(list(fair_lg.keys()) + list(raw_lg.keys())))
+
+    print(f"\nPER-LEAGUE ROI  (threshold: {threshold:+.2f})")
+    print(f"{'League':<14}  {'fair bets':>10}  {'fair ROI':>10}  {'raw bets':>10}  {'raw ROI':>10}")
+    print("-" * 60)
+    for ln in all_leagues:
+        fn, fr = fair_lg.get(ln, (0, float("nan")))
+        rn, rr = raw_lg.get(ln, (0, float("nan")))
+        f_roi = f"{fr:>+.2f}%" if fn else "   n/a"
+        r_roi = f"{rr:>+.2f}%" if rn else "   n/a"
+        print(f"{ln:<14}  {fn:>10}  {f_roi:>10}  {rn:>10}  {r_roi:>10}")
+
+    # --- Side-by-side profit charts ---
+    fig, axes = plt.subplots(1, 2, figsize=(16, 4), sharey=False)
+    for ax, bets, label, colour in [
+        (axes[0], fair_bets, "fair (vig-stripped)", "#1565c0"),
+        (axes[1], raw_bets,  "raw (1/odds)",        "#6a1b9a"),
+    ]:
+        if bets.empty:
+            ax.set_title(f"{label} — no bets")
+            continue
+        ax.plot(bets["Date"], bets["cumulative_profit"], color=colour, linewidth=1.5)
+        ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+        ax.fill_between(bets["Date"], bets["cumulative_profit"], 0,
+                        where=bets["cumulative_profit"] >= 0, alpha=0.15, color="#43a047")
+        ax.fill_between(bets["Date"], bets["cumulative_profit"], 0,
+                        where=bets["cumulative_profit"] < 0, alpha=0.15, color="#e53935")
+        roi_val = compute_roi(bets)
+        ax.set_title(f"{label}  |  {len(bets)} bets  |  ROI {roi_val:+.2f}%")
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Cumulative profit (units)")
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle(f"Vig baseline comparison  (threshold {threshold:+.2f})", fontsize=13)
+    fig.tight_layout()
+    chart_path = Path("reports/vig_comparison.png")
+    chart_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(chart_path, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\nProfit charts saved to {chart_path}")
+
+
 def run_pipeline():
     if "--predict" in sys.argv:
         _run_predict()
+    elif "--compare-vig" in sys.argv:
+        _run_compare_vig()
     else:
         _run_backtest()
 
