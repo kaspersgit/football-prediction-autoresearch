@@ -8,7 +8,10 @@ ELO_DEFAULT = 1500
 FEATURE_COLS = [
     "home_form_pts", "home_form_gf", "home_form_ga",
     "away_form_pts", "away_form_gf", "away_form_ga",
+    "home_vform_pts", "home_vform_gf", "home_vform_ga",
+    "away_vform_pts", "away_vform_gf", "away_vform_ga",
     "home_elo", "away_elo",
+    "home_elo_delta", "away_elo_delta",
     "market_h", "market_d", "market_a",
     "league_E0", "league_D1", "league_SP1", "league_F1", "league_N1", "league_P1",  # I1 is omitted reference
     "h2h_home_win_rate",
@@ -423,6 +426,7 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = _compute_market_bias(df)
 
     stats = _team_rolling_stats(df)
+    home_vstats, away_vstats = _team_venue_rolling_stats(df)
 
     merged = df.merge(
         stats.rename(columns={"team": "HomeTeam", "form_pts": "home_form_pts",
@@ -432,6 +436,16 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     merged = merged.merge(
         stats.rename(columns={"team": "AwayTeam", "form_pts": "away_form_pts",
                                "form_gf": "away_form_gf", "form_ga": "away_form_ga"}),
+        on=["Date", "AwayTeam"], how="left",
+    )
+    merged = merged.merge(
+        home_vstats.rename(columns={"team": "HomeTeam", "vform_pts": "home_vform_pts",
+                                    "vform_gf": "home_vform_gf", "vform_ga": "home_vform_ga"}),
+        on=["Date", "HomeTeam"], how="left",
+    )
+    merged = merged.merge(
+        away_vstats.rename(columns={"team": "AwayTeam", "vform_pts": "away_vform_pts",
+                                    "vform_gf": "away_vform_gf", "vform_ga": "away_vform_ga"}),
         on=["Date", "AwayTeam"], how="left",
     )
     total_imp = 1/merged["B365H"] + 1/merged["B365D"] + 1/merged["B365A"]
@@ -544,7 +558,9 @@ def build_fixture_features(
     Returns a DataFrame with FEATURE_COLS plus match metadata columns.
     """
     elo_state = _get_current_elo_state(historical_df)
+    elo_delta_state = _get_current_elo_delta_state(historical_df)
     form_state = _get_current_team_form(historical_df)
+    home_vform_state, away_vform_state = _get_current_venue_form(historical_df)
     h2h_state = _get_current_h2h_state(historical_df)
     draw_rate_state = _get_current_draw_rates(historical_df)
     market_bias_state = _get_current_market_bias(historical_df)
@@ -570,8 +586,16 @@ def build_fixture_features(
             "away_form_pts": af["form_pts"],
             "away_form_gf": af["form_gf"],
             "away_form_ga": af["form_ga"],
+            "home_vform_pts": home_vform_state.get(home, {}).get("vform_pts", float("nan")),
+            "home_vform_gf": home_vform_state.get(home, {}).get("vform_gf", float("nan")),
+            "home_vform_ga": home_vform_state.get(home, {}).get("vform_ga", float("nan")),
+            "away_vform_pts": away_vform_state.get(away, {}).get("vform_pts", float("nan")),
+            "away_vform_gf": away_vform_state.get(away, {}).get("vform_gf", float("nan")),
+            "away_vform_ga": away_vform_state.get(away, {}).get("vform_ga", float("nan")),
             "home_elo": elo_state.get(home, ELO_DEFAULT),
             "away_elo": elo_state.get(away, ELO_DEFAULT),
+            "home_elo_delta": elo_delta_state.get(home, 0.0),
+            "away_elo_delta": elo_delta_state.get(away, 0.0),
             "market_h": (1/row["B365H"]) / total_imp,
             "market_d": (1/row["B365D"]) / total_imp,
             "market_a": (1/row["B365A"]) / total_imp,
