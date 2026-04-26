@@ -2,22 +2,13 @@
 
 ## Evaluation Standards (established 2026-04-26)
 
-### Experiment review protocol
-Every iteration must be evaluated against **all 7 leagues individually**, not just the aggregate ROI.
-An improvement is only trusted if:
-1. Total ROI improves (primary), AND
-2. Stability improves or is neutral, AND
-3. A majority of leagues improve — ideally all 7, but accept 5+/7 if no single league regresses badly.
-
-A total ROI gain driven by 1–2 outlier leagues while others regress is a red flag for noise.
-
-### Data-reduction caution
-Any feature that requires a per-venue or per-context warm-up period (e.g. venue-specific form, per-league sub-windows) **reduces the number of usable training and test rows**. This is a known failure mode:
-
-- Iteration 1 (Iter 1 in state.md): venue-split form → bets dropped from 2643 → 2379 (−10%), all metrics worsened.
-- Iteration 18 (state.md): venue-split form re-test → regression again ("halved sample size per window").
-
-**Rule:** before adding a data-reducing feature, explicitly count the expected row loss and require a clear ROI gain that outweighs the reduction. If the improvement disappears when you account for the smaller sample, the feature is not adding signal.
+See **[docs/evaluation_standards.md](evaluation_standards.md)** for the full reference including:
+- Per-league review protocol (mandatory per iteration)
+- Statistical noise model and confidence intervals by sample size
+- The stability metric as a t-statistic proxy
+- What to trust vs ignore (rules of thumb table)
+- Data-reduction caution and the known-bad feature list
+- Why cross-iteration consistency is the real signal
 
 ---
 
