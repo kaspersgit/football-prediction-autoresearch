@@ -416,12 +416,38 @@ def _get_current_draw_rates(df: pd.DataFrame, window: int = WINDOW) -> dict[str,
     return result
 
 
+_LEAGUE_HWR_WINDOW = 20
+
+
+def _compute_league_home_win_rate(df: pd.DataFrame) -> pd.DataFrame:
+    """Rolling home win rate per league over last _LEAGUE_HWR_WINDOW matches — no leakage."""
+    df = df.sort_values("Date").reset_index(drop=True)
+    home_win = (df["FTR"] == "H").astype(float)
+    parts = []
+    for league, grp in df.groupby("league", sort=False):
+        idx = grp.index
+        rolled = home_win.loc[idx].shift(1).rolling(_LEAGUE_HWR_WINDOW, min_periods=_LEAGUE_HWR_WINDOW).mean()
+        parts.append(rolled)
+    df = df.copy()
+    df["league_home_win_rate"] = pd.concat(parts).sort_index()
+    return df
+
+
+def _get_current_league_home_win_rate(df: pd.DataFrame) -> dict[str, float]:
+    """Return each league's home win rate over their last _LEAGUE_HWR_WINDOW matches."""
+    result = {}
+    for league, group in df.groupby("league"):
+        last_n = group.sort_values("Date").tail(_LEAGUE_HWR_WINDOW)
+        if len(last_n) >= _LEAGUE_HWR_WINDOW:
+            result[league] = float((last_n["FTR"] == "H").mean())
+    return result
+
+
 def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("Date").reset_index(drop=True)
     df = _compute_elo(df)
     df = _compute_h2h(df)
     df = _compute_draw_rates(df)
-
     df = _compute_market_bias(df)
 
     stats = _team_rolling_stats(df)
