@@ -1,6 +1,7 @@
 import pandas as pd
 
 WINDOW = 5
+MARKET_BIAS_WINDOW = 20
 ELO_K = 30
 ELO_HOME_ADV = 100
 ELO_DEFAULT = 1500
@@ -16,6 +17,7 @@ FEATURE_COLS = [
     "h2h_home_win_rate",
     "home_draw_rate", "away_draw_rate",
     "home_market_bias", "away_market_bias",
+    "match_balance",
 ]
 
 
@@ -120,7 +122,7 @@ def _get_current_days_rest(df: pd.DataFrame) -> dict[str, pd.Timestamp]:
     return last_match
 
 
-def _compute_market_bias(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
+def _compute_market_bias(df: pd.DataFrame, window: int = MARKET_BIAS_WINDOW) -> pd.DataFrame:
     """Pre-match rolling mean of (actual_result_share - market_fair_prob) per team.
     Positive = team consistently beats market expectations; negative = over-valued by market."""
     df = df.sort_values("Date").reset_index(drop=True)
@@ -156,7 +158,7 @@ def _compute_market_bias(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame
     return df
 
 
-def _get_current_market_bias(df: pd.DataFrame, window: int = WINDOW) -> dict[str, float]:
+def _get_current_market_bias(df: pd.DataFrame, window: int = MARKET_BIAS_WINDOW) -> dict[str, float]:
     """Return each team's current market-bias state (rolling mean over last window games)."""
     df = df.sort_values("Date").reset_index(drop=True)
     total_imp = 1 / df["B365H"] + 1 / df["B365D"] + 1 / df["B365A"]
@@ -467,6 +469,7 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     merged["market_d"] = (1/merged["B365D"]) / total_imp
     merged["market_a"] = (1/merged["B365A"]) / total_imp
     merged["market_overround"] = total_imp - 1.0
+    merged["match_balance"] = 1.0 - (merged["market_h"] - merged["market_a"]).abs()
     for lc in ["E0", "D1", "SP1", "F1", "N1", "P1"]:
         merged[f"league_{lc}"] = (merged["league"] == lc).astype(float)
     merged = merged.dropna(subset=FEATURE_COLS).reset_index(drop=True)
@@ -608,6 +611,7 @@ def build_fixture_features(
             "market_d": (1/row["B365D"]) / total_imp,
             "market_a": (1/row["B365A"]) / total_imp,
             "market_overround": total_imp - 1.0,
+            "match_balance": 1.0 - abs((1/row["B365H"]) / total_imp - (1/row["B365A"]) / total_imp),
             "league_E0": float(row.get("league", "") == "E0"),
             "league_D1": float(row.get("league", "") == "D1"),
             "league_SP1": float(row.get("league", "") == "SP1"),
