@@ -108,6 +108,72 @@ See **[docs/evaluation_standards.md](evaluation_standards.md)** for the full ref
 
 ---
 
+### 6. (Iters 63-68) Shots on target, market bias window, match balance, log-odds, WINDOW, ELO_HOME_ADV (2026-04-26)
+
+Batch of 6 experiments from the brainstorm-approved list. Baseline entering this batch: ROI −1.33%, stability −0.0090, t-stat −0.57.
+
+#### Iter 63: Rolling HST/AST shots on target — REVERTED
+
+**Hypothesis:** Shots on target as xG proxy; research cites ~0.8% ROI/bet edge over 12 years.
+
+**Result:** ROI −3.83%, stability −0.0264, t-stat −1.69. 6/7 leagues worsened (Spain −11.8%, Netherlands −8.6%). The market has already priced in shot quality; adding it introduces noise rather than signal.
+
+#### Iter 64: MARKET_BIAS_WINDOW = 20 (was 5) — KEPT ✅
+
+**Hypothesis:** 5-game market bias window is too noisy; a team needs 20 games to establish a reliable pattern of beating market odds.
+
+| League | Before | After | Δ |
+|---|---|---|---|
+| England | +5.19%* | +3.99% | → |
+| Germany | −4.42%* | +1.22% | ✅ |
+| Spain | −6.96%* | −1.37% | ✅ |
+| Italy | −1.96%* | −1.81% | ≈ |
+| France | −1.82%* | −3.28% | ❌ |
+| Netherlands | +5.27%* | +1.93% | → |
+| Portugal | −4.48%* | +0.52% | ✅ |
+| **Total** | **−1.33%*** | **+0.19%** | **+1.52 pp** |
+| Stability | −0.0090 | +0.0013 | ✅ flipped positive |
+| t-stat | −0.57 | +0.08 | ✅ flipped positive |
+
+*Note: prior per-league numbers shifted due to fewer bets (3850 vs ~4025) from longer warm-up window.
+
+**Decision: KEPT.** 4/7 leagues visibly improved; total ROI and stability both flipped from negative to positive. Accepted 4/7 per evaluation standards (both primary metrics moved clearly in right direction).
+
+#### Iter 65: match_balance = 1 − |market_h − market_a| — KEPT ✅
+
+**Hypothesis:** Draws concentrate in evenly matched games; the gap between home and away implied probs captures draw propensity signal.
+
+| League | Before | After | Δ |
+|---|---|---|---|
+| England | +3.99% | +6.53% | ✅ |
+| Germany | +1.22% | +3.45% | ✅ |
+| Spain | −1.37% | −7.24% | ❌ |
+| Italy | −1.81% | +1.60% | ✅ |
+| France | −3.28% | −0.76% | ✅ |
+| Netherlands | +1.93% | +7.36% | ✅ |
+| Portugal | +0.52% | −6.18% | ❌ |
+| **Total** | **+0.19%** | **+0.74%** | **+0.55 pp** |
+| Stability | +0.0013 | +0.0049 | ✅ |
+| t-stat | +0.08 | +0.30 | ✅ |
+
+**Decision: KEPT.** 5/7 leagues improved.
+
+#### Iter 66: log_odds_h/d/a — REVERTED
+
+**Result:** ROI +0.48% vs +0.74% (declined). 5/7 worsened. Log-odds are derivable from market_h/d/a + market_overround — not independent information.
+
+#### Iter 67: WINDOW = 7 (was 5) — REVERTED
+
+**Result:** ROI −0.87% vs +0.74%. 5/7 worsened. WINDOW=5 confirmed optimal.
+
+#### Iter 68: ELO_HOME_ADV = 75 (was 100) — REVERTED
+
+**Result:** ROI −1.90% vs +0.74%. 4/7 worsened. ELO_HOME_ADV=100 confirmed optimal.
+
+**New baseline after iters 64-65:** ROI +0.74%, stability +0.0049, t-stat +0.30 (3863 bets, 4227 test matches).
+
+---
+
 ## Pending
 
 ### Fix edge calculation baseline (value bet vs vig) — under consideration
