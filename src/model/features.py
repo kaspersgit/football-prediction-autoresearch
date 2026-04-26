@@ -8,11 +8,10 @@ ELO_DEFAULT = 1500
 FEATURE_COLS = [
     "home_form_pts", "home_form_gf", "home_form_ga",
     "away_form_pts", "away_form_gf", "away_form_ga",
-    "home_vform_pts", "home_vform_gf", "home_vform_ga",
-    "away_vform_pts", "away_vform_gf", "away_vform_ga",
     "home_elo", "away_elo",
     "home_elo_delta", "away_elo_delta",
     "market_h", "market_d", "market_a",
+    "market_overround",
     "league_E0", "league_D1", "league_SP1", "league_F1", "league_N1", "league_P1",  # I1 is omitted reference
     "h2h_home_win_rate",
     "home_draw_rate", "away_draw_rate",
@@ -360,9 +359,9 @@ def _team_venue_rolling_stats(df: pd.DataFrame, window: int = WINDOW) -> tuple[p
         tdf = pd.DataFrame(records).sort_values("Date")
         tdf = tdf.groupby("team", group_keys=True).apply(
             lambda g: g.assign(
-                vform_pts=g["pts"].shift(1).ewm(span=window, min_periods=1).mean(),
-                vform_gf=g["gf"].shift(1).ewm(span=window, min_periods=1).mean(),
-                vform_ga=g["ga"].shift(1).ewm(span=window, min_periods=1).mean(),
+                vform_pts=g["pts"].shift(1).ewm(span=window, min_periods=window).mean(),
+                vform_gf=g["gf"].shift(1).ewm(span=window, min_periods=window).mean(),
+                vform_ga=g["ga"].shift(1).ewm(span=window, min_periods=window).mean(),
             )
         )
         if "team" not in tdf.columns:
@@ -426,7 +425,6 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = _compute_market_bias(df)
 
     stats = _team_rolling_stats(df)
-    home_vstats, away_vstats = _team_venue_rolling_stats(df)
 
     merged = df.merge(
         stats.rename(columns={"team": "HomeTeam", "form_pts": "home_form_pts",
@@ -438,20 +436,11 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
                                "form_gf": "away_form_gf", "form_ga": "away_form_ga"}),
         on=["Date", "AwayTeam"], how="left",
     )
-    merged = merged.merge(
-        home_vstats.rename(columns={"team": "HomeTeam", "vform_pts": "home_vform_pts",
-                                    "vform_gf": "home_vform_gf", "vform_ga": "home_vform_ga"}),
-        on=["Date", "HomeTeam"], how="left",
-    )
-    merged = merged.merge(
-        away_vstats.rename(columns={"team": "AwayTeam", "vform_pts": "away_vform_pts",
-                                    "vform_gf": "away_vform_gf", "vform_ga": "away_vform_ga"}),
-        on=["Date", "AwayTeam"], how="left",
-    )
     total_imp = 1/merged["B365H"] + 1/merged["B365D"] + 1/merged["B365A"]
     merged["market_h"] = (1/merged["B365H"]) / total_imp
     merged["market_d"] = (1/merged["B365D"]) / total_imp
     merged["market_a"] = (1/merged["B365A"]) / total_imp
+    merged["market_overround"] = total_imp - 1.0
     for lc in ["E0", "D1", "SP1", "F1", "N1", "P1"]:
         merged[f"league_{lc}"] = (merged["league"] == lc).astype(float)
     merged = merged.dropna(subset=FEATURE_COLS).reset_index(drop=True)
@@ -560,7 +549,6 @@ def build_fixture_features(
     elo_state = _get_current_elo_state(historical_df)
     elo_delta_state = _get_current_elo_delta_state(historical_df)
     form_state = _get_current_team_form(historical_df)
-    home_vform_state, away_vform_state = _get_current_venue_form(historical_df)
     h2h_state = _get_current_h2h_state(historical_df)
     draw_rate_state = _get_current_draw_rates(historical_df)
     market_bias_state = _get_current_market_bias(historical_df)
@@ -586,12 +574,6 @@ def build_fixture_features(
             "away_form_pts": af["form_pts"],
             "away_form_gf": af["form_gf"],
             "away_form_ga": af["form_ga"],
-            "home_vform_pts": home_vform_state.get(home, {}).get("vform_pts", float("nan")),
-            "home_vform_gf": home_vform_state.get(home, {}).get("vform_gf", float("nan")),
-            "home_vform_ga": home_vform_state.get(home, {}).get("vform_ga", float("nan")),
-            "away_vform_pts": away_vform_state.get(away, {}).get("vform_pts", float("nan")),
-            "away_vform_gf": away_vform_state.get(away, {}).get("vform_gf", float("nan")),
-            "away_vform_ga": away_vform_state.get(away, {}).get("vform_ga", float("nan")),
             "home_elo": elo_state.get(home, ELO_DEFAULT),
             "away_elo": elo_state.get(away, ELO_DEFAULT),
             "home_elo_delta": elo_delta_state.get(home, 0.0),
@@ -599,6 +581,7 @@ def build_fixture_features(
             "market_h": (1/row["B365H"]) / total_imp,
             "market_d": (1/row["B365D"]) / total_imp,
             "market_a": (1/row["B365A"]) / total_imp,
+            "market_overround": total_imp - 1.0,
             "league_E0": float(row.get("league", "") == "E0"),
             "league_D1": float(row.get("league", "") == "D1"),
             "league_SP1": float(row.get("league", "") == "SP1"),

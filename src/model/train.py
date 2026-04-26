@@ -16,7 +16,7 @@ _MODEL_CFG = dict(
     learning_rate=0.05,
     max_depth=4,
     min_samples_leaf=20,
-    l2_regularization=0.1,
+    l2_regularization=0.05,
     random_state=42,
 )
 
