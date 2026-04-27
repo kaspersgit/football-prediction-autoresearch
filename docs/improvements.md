@@ -174,6 +174,79 @@ Batch of 6 experiments from the brainstorm-approved list. Baseline entering this
 
 ---
 
+### 7. (Iters 69–73) Tier-1 algorithm research batch (2026-04-27)
+
+Baseline entering this batch: ROI +0.74%, stability +0.0049, t-stat +0.30 (3863 bets, 4227 test matches).
+
+#### Iter 69: Goal-margin Elo — REVERTED
+
+**Hypothesis:** Updating Elo by goal margin (logistic sigmoid on goal diff: `1 / (1 + 10^(-gd/4))`) gives faster signal than binary W/L/D.
+
+**Result:** ROI −0.25%, stability −0.0017, t-stat −0.10. Only 2/7 leagues improved (Netherlands, Portugal). England, Germany, Spain, Italy, France all regressed. The market already prices in scoreline information; making Elo track goal margins just tracks what the bookmaker already knows, adding noise.
+
+**Decision: REVERTED.**
+
+---
+
+#### Iter 70: Isotonic Calibration (manual IsotonicRegression per class) — REVERTED
+
+**Hypothesis:** HistGBM probabilities overfit extremes; isotonic calibration on 20% held-out training data would improve value bet detection.
+
+**Note:** `CalibratedClassifierCV(cv='prefit')` is not supported in sklearn 1.8.0. Implemented manually via `IsotonicRegression` per class.
+
+**Result:** ROI −3.84%, stability −0.0282, t-stat −1.77. Only 2/7 leagues improved (Germany, Netherlands). The calibration set (20% of training data, ~5k rows) is too small to fit a reliable isotonic transformation for a 3-class problem. The HGBM is already reasonably calibrated via log-loss; adding a noisy isotonic layer distorts probabilities.
+
+**Decision: REVERTED.**
+
+---
+
+#### Iter 71: Attack/Defense Rating Features — KEPT ✅
+
+**Hypothesis:** Two teams with identical Elo can have opposite styles (high-scoring-but-leaky vs low-scoring-but-solid). EWM(goals_scored, span=10) and EWM(goals_conceded, span=10) per team give 4 new features orthogonal to Elo (which only sees W/L/D).
+
+**Implementation:** Added `_compute_dc_ratings` and `_get_current_dc_ratings` in `features.py`. Features: `home_attack`, `home_defense`, `away_attack`, `away_defense` (span=10, min_periods=10). Wired into `_build_merged` and `build_fixture_features`. 4 new features added to `FEATURE_COLS`.
+
+| League | Baseline | +DC ratings | Δ |
+|---|---|---|---|
+| England | +6.53% | +5.78% | −0.75 pp ❌ |
+| Germany | +3.45% | +4.65% | +1.20 pp ✅ |
+| Spain | −7.24% | −5.17% | +2.07 pp ✅ |
+| Italy | +1.60% | +0.98% | −0.62 pp ❌ |
+| France | −0.76% | −3.98% | −3.22 pp ❌ |
+| Netherlands | +7.36% | +9.61% | +2.25 pp ✅ |
+| Portugal | −6.18% | −0.12% | +6.06 pp ✅ |
+| **Total** | **+0.74%** | **+1.63%** | **+0.89 pp** |
+| Stability | +0.0049 | +0.0108 | +0.0059 ✅ |
+| t-stat | +0.30 | +0.67 | ✅ |
+
+**Decision: KEPT.** 4/7 leagues improved; total ROI and stability both clearly improved. France is the main regression (−3.22 pp); Portugal the biggest gain (+6.06 pp).
+
+---
+
+#### Iter 72: Time-Weighted Training (λ=0.5) — REVERTED
+
+**Hypothesis:** Matches from 2013-14 involve different squads; exponential decay sample weights (half-life ~2 years) would reduce noise from stale data.
+
+**Result:** ROI −3.55%, stability −0.0238, t-stat −1.47. Only 2/7 leagues improved (France slightly, Portugal). Spain −11.7pp, Italy −10.6pp, Netherlands −9.2pp were catastrophic. Older data is informative — de-weighting it with λ=0.5 destroys signal rather than reducing noise.
+
+**Decision: REVERTED.**
+
+---
+
+#### Iter 73: Season-Start Elo Partial Reset (ELO_CARRY=0.8) — REVERTED
+
+**Hypothesis:** At each season start, apply `elo = 0.8*elo + 0.2*1500` to reduce stale carry-over from pre-transfer-window squads.
+
+**Result:** ROI −2.58%, stability −0.0174, t-stat −1.09. 0/7 leagues improved. The reset degrades Elo accuracy for early games in each season, and with 13 seasons × 7 leagues × many teams, the distortion accumulates significantly.
+
+**Decision: REVERTED.**
+
+---
+
+**New baseline after iter 71:** ROI +1.63%, stability +0.0108, t-stat +0.67 (3871 bets, 4227 test matches).
+
+---
+
 ## Pending
 
 ### Fix edge calculation baseline (value bet vs vig) — under consideration
