@@ -3,6 +3,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from lightgbm import LGBMClassifier
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import HistGradientBoostingClassifier
 
@@ -18,6 +19,16 @@ _MODEL_CFG = dict(
     min_samples_leaf=20,
     l2_regularization=0.05,
     random_state=42,
+)
+
+_LGBM_CFG = dict(
+    n_estimators=300,
+    learning_rate=0.05,
+    num_leaves=31,
+    min_child_samples=20,
+    reg_lambda=0.05,
+    random_state=42,
+    verbosity=-1,
 )
 
 
@@ -193,11 +204,14 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
             y_test = full_y[test_mask]
             odds_test = full_odds[test_mask]
 
-            model = HistGradientBoostingClassifier(**_MODEL_CFG)
+            model = LGBMClassifier(**_LGBM_CFG)
             model.fit(X_train, y_train)
 
             y_pred = model.predict(X_test)
             y_proba = model.predict_proba(X_test)
+            classes = np.array(sorted(model.classes_))
+            col_order = [list(model.classes_).index(c) for c in classes]
+            y_proba = y_proba[:, col_order]
             accuracy = (y_pred == y_test.values).mean()
             print(f"  Season {test_season}: {train_mask.sum()} train / {test_mask.sum()} test — accuracy {accuracy:.3f}")
 
@@ -206,7 +220,7 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
                 "y_proba": y_proba,
                 "y_true": y_test.values,
                 "odds_test": odds_test,
-                "classes": model.classes_,
+                "classes": classes,
             })
 
     if not per_league:
