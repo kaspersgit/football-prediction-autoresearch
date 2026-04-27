@@ -117,8 +117,10 @@ def _run_predict():
     y_proba = model.predict_proba(X_fix)
     classes = list(model.classes_)
 
+    pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold)
     _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at)
     _save_predictions_csv(fixture_features, y_proba, classes, threshold, fetched_at)
+    _save_predictions_html(pred_rows, threshold, fetched_at)
 
 
 def _pinnacle_fair(row) -> dict | None:
@@ -268,6 +270,14 @@ def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, 
     path.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(path, index=False)
     print(f"Predictions saved to {path}  (compare B365 odds before placing bets)")
+
+
+def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at) -> None:
+    from src.evaluation.predictions_report import save_predictions_html
+    ts = fetched_at.strftime("%Y%m%d_%H%M")
+    path = Path(f"reports/predictions_{ts}.html")
+    save_predictions_html(pred_rows, threshold, fetched_at, path)
+    print(f"HTML report saved to {path}")
 
 
 def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame) -> None:
