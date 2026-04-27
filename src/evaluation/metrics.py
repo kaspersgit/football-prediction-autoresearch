@@ -60,18 +60,20 @@ def compute_value_betting_results(
     classes,
     threshold: float = 0.0,
     kelly_fraction: float = 0.0,
+    edge_baseline: str = "fair",
 ) -> pd.DataFrame:
     """
-    Multi-outcome value betting with vig-corrected implied probabilities.
+    Multi-outcome value betting.
 
-    For each match, normalise bookmaker implied probs to sum to 1.0 (removing vig),
-    then bet any outcome where model_prob > fair_implied_prob + threshold.
+    edge_baseline:
+      "fair" (default) — compare model_prob against vig-stripped fair implied prob.
+                         Flags more bets; edge numbers are inflated vs true EV.
+      "raw"            — compare model_prob against raw 1/odds implied prob.
+                         Correct EV definition: only bets with model_prob > 1/odds
+                         have positive expected value at those actual odds.
 
     threshold: minimum edge required to place a bet (e.g. 0.05 = need 5% extra edge).
     kelly_fraction: 0.0 = flat 1-unit staking; >0 = fractional Kelly sizing.
-        Stake per bet = kelly_fraction * full_kelly, where
-        full_kelly = model_prob - (1 - model_prob) / (odds - 1).
-        Quarter-Kelly (0.25) is a common conservative choice.
 
     df must have: y_true, B365H, B365D, B365A, Date (index aligned with y_proba rows)
     y_proba: 2D array shape (n_matches, 3)
@@ -115,14 +117,14 @@ def compute_value_betting_results(
 
         for j, outcome in enumerate(outcomes):
             model_prob = float(y_proba[i, j])
-            fair_implied_prob = fair[outcome]
+            baseline_prob = raw[outcome] if edge_baseline == "raw" else fair[outcome]
 
             # Pinnacle confirmation: only bet when Pinnacle also thinks B365 underprices this outcome.
             # When Pinnacle data is missing for this row, the filter is skipped (no data = no veto).
-            if pinnacle_fair is not None and pinnacle_fair[outcome] <= fair_implied_prob:
+            if pinnacle_fair is not None and pinnacle_fair[outcome] <= fair[outcome]:
                 continue
 
-            if model_prob > fair_implied_prob + threshold:
+            if model_prob > baseline_prob + threshold:
                 odds = float(row[_ODDS_COL[outcome]])
                 if kelly_fraction > 0.0:
                     # Full Kelly fraction: f* = p - (1-p)/(odds-1)
@@ -140,7 +142,7 @@ def compute_value_betting_results(
                     "y_pred": outcome,
                     "odds": odds,
                     "model_prob": model_prob,
-                    "implied_prob": fair_implied_prob,
+                    "implied_prob": baseline_prob,
                     "stake": stake,
                     "profit": profit,
                 })

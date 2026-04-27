@@ -247,6 +247,65 @@ Baseline entering this batch: ROI +0.74%, stability +0.0049, t-stat +0.30 (3863 
 
 ---
 
+### 8. (Iters 74–76) Tier-2 algorithm swap batch (2026-04-27)
+
+Baseline entering this batch: ROI +1.63%, stability +0.0108, t-stat +0.67 (3871 bets, 4227 test matches). Model: HistGradientBoostingClassifier + DC ratings.
+
+#### Iter 74: XGBoost drop-in replacement — REVERTED
+
+**Hypothesis:** XGBoost's exact split-finding and L1 regularization may generalise better than HistGBM's approximate histogram splits on this dataset.
+
+**Implementation:** Replaced `HistGradientBoostingClassifier` with `XGBClassifier`. Tested 3 hyperparameter configurations (default, tuned depth/estimators, tuned reg). Required label encoding because XGBoost 3.x rejects string class labels.
+
+**Result:** ROI consistently below baseline across all 3 configs. No config improved both total ROI and stability; majority of leagues regressed.
+
+**Decision: REVERTED.** XGBoost adds complexity (label encoding, slower training) with no measurable gain over HistGBM on this dataset.
+
+---
+
+#### Iter 75: LightGBM leaf-wise growth — KEPT ✅
+
+**Hypothesis:** LightGBM's leaf-wise (best-first) tree growth focuses splits on the highest-gain leaves, which may capture non-linear market inefficiencies better than HistGBM's level-wise growth.
+
+**Implementation:** Replaced `HistGradientBoostingClassifier` with `LGBMClassifier` (`n_estimators=300, learning_rate=0.05, num_leaves=31, min_child_samples=20, reg_lambda=0.05`). DART mode tested within the same iteration and rejected.
+
+| League | DC baseline | LightGBM | Δ |
+|---|---|---|---|
+| England | +5.78% | -0.94% | -6.72 pp ❌ |
+| Germany | +4.65% | +6.76% | +2.11 pp ✅ |
+| Spain | -5.17% | +0.23% | +5.40 pp ✅ |
+| Italy | +0.98% | -3.19% | -4.17 pp ❌ |
+| France | -3.98% | +0.18% | +4.16 pp ✅ |
+| Netherlands | +9.61% | +11.57% | +1.96 pp ✅ |
+| Portugal | -0.12% | +10.52% | +10.64 pp ✅ |
+| **Total** | **+1.63%** | **+3.20%** | **+1.57 pp** |
+| Stability | +0.0108 | +0.0215 | +0.0107 ✅ |
+| t-stat | +0.67 | +1.31 | ✅ |
+
+**Decision: KEPT.** 5/7 leagues improved; total ROI and stability both clearly improved. England (−6.72 pp) and Italy (−4.17 pp) are the main regressions. Portugal (+10.64 pp) and Spain (+5.40 pp) are the biggest gains.
+
+---
+
+#### Iter 76: RandomForest blend — REVERTED
+
+**Hypothesis:** Blending LightGBM with a RandomForest (bagging-based, low correlation) would reduce variance and improve calibration.
+
+**Tested:** Two blend ratios — 70% LightGBM / 30% RF, and 90% LightGBM / 10% RF.
+
+| Config | ROI | Stability | vs LightGBM |
+|---|---|---|---|
+| LightGBM pure | +3.20% | +0.0215 | baseline |
+| 70/30 blend | +2.48% | +0.0168 | −0.72 pp ❌ |
+| 90/10 blend | +2.52% | +0.0170 | −0.68 pp ❌ |
+
+**Decision: REVERTED.** RF consistently dilutes the LightGBM signal at both blend ratios. RF likely captures in-bag noise that cancels LightGBM's learned edge. Pure LightGBM is retained.
+
+---
+
+**New baseline after iter 75:** ROI +3.20%, stability +0.0215, t-stat +1.31 (3686 bets, 4227 test matches). Model: LightGBM + DC ratings.
+
+---
+
 ## Pending
 
 ### Fix edge calculation baseline (value bet vs vig) — under consideration

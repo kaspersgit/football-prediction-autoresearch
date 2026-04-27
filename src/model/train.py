@@ -4,7 +4,6 @@ import joblib
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
-from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import HistGradientBoostingClassifier
 
 from src.model.features import build_features_with_odds
@@ -206,12 +205,10 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
 
             model = LGBMClassifier(**_LGBM_CFG)
             model.fit(X_train, y_train)
-
-            y_pred = model.predict(X_test)
-            y_proba = model.predict_proba(X_test)
             classes = np.array(sorted(model.classes_))
             col_order = [list(model.classes_).index(c) for c in classes]
-            y_proba = y_proba[:, col_order]
+            y_proba = model.predict_proba(X_test)[:, col_order]
+            y_pred = classes[np.argmax(y_proba, axis=1)]
             accuracy = (y_pred == y_test.values).mean()
             print(f"  Season {test_season}: {train_mask.sum()} train / {test_mask.sum()} test — accuracy {accuracy:.3f}")
 
