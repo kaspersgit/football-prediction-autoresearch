@@ -1,6 +1,7 @@
 import pandas as pd
 
 WINDOW = 5
+DC_SPAN = 10
 MARKET_BIAS_WINDOW = 20
 ELO_K = 30
 ELO_HOME_ADV = 100
@@ -18,6 +19,7 @@ FEATURE_COLS = [
     "home_draw_rate", "away_draw_rate",
     "home_market_bias", "away_market_bias",
     "match_balance",
+    "home_attack", "home_defense", "away_attack", "away_defense",
 ]
 
 
@@ -341,6 +343,44 @@ def _team_rolling_stats(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
     return team_df[["Date", "team", "form_pts", "form_gf", "form_ga"]]
 
 
+def _compute_dc_ratings(df: pd.DataFrame, span: int = DC_SPAN) -> pd.DataFrame:
+    """Long-window EWM attack/defense ratings per team (span=DC_SPAN, min_periods=1).
+    Uses raw goals to separate offensive quality from defensive quality independently of Elo W/L/D."""
+    records = []
+    for _, row in df.iterrows():
+        for team, is_home in [(row["HomeTeam"], True), (row["AwayTeam"], False)]:
+            gf = row["FTHG"] if is_home else row["FTAG"]
+            ga = row["FTAG"] if is_home else row["FTHG"]
+            records.append({"Date": row["Date"], "team": team, "gf": gf, "ga": ga})
+    team_df = pd.DataFrame(records).sort_values("Date")
+    team_df = team_df.groupby("team", group_keys=True).apply(
+        lambda g: g.assign(
+            attack=g["gf"].shift(1).ewm(span=span, min_periods=span).mean(),
+            defense=g["ga"].shift(1).ewm(span=span, min_periods=span).mean(),
+        )
+    )
+    if "team" not in team_df.columns:
+        team_df = team_df.reset_index(level="team")
+    return team_df[["Date", "team", "attack", "defense"]]
+
+
+def _get_current_dc_ratings(df: pd.DataFrame, span: int = DC_SPAN) -> dict[str, dict]:
+    """Return each team's current attack/defense rating from their last completed games."""
+    records = []
+    for _, row in df.iterrows():
+        for team, is_home in [(row["HomeTeam"], True), (row["AwayTeam"], False)]:
+            gf = row["FTHG"] if is_home else row["FTAG"]
+            ga = row["FTAG"] if is_home else row["FTHG"]
+            records.append({"Date": row["Date"], "team": team, "gf": gf, "ga": ga})
+    team_df = pd.DataFrame(records).sort_values("Date")
+    result = {}
+    for team, group in team_df.groupby("team"):
+        if len(group) >= span:
+            ewm_vals = group[["gf", "ga"]].ewm(span=span, min_periods=span).mean().iloc[-1]
+            result[team] = {"attack": float(ewm_vals["gf"]), "defense": float(ewm_vals["ga"])}
+    return result
+
+
 def _team_venue_rolling_stats(df: pd.DataFrame, window: int = WINDOW) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Rolling form split by venue: home-game form for each team, away-game form for each team.
     Uses min_periods=1 so no NaN — early estimates are noisy but HistGBM handles it.
@@ -453,6 +493,7 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = _compute_market_bias(df)
 
     stats = _team_rolling_stats(df)
+    dc = _compute_dc_ratings(df)
 
     merged = df.merge(
         stats.rename(columns={"team": "HomeTeam", "form_pts": "home_form_pts",
@@ -462,6 +503,14 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     merged = merged.merge(
         stats.rename(columns={"team": "AwayTeam", "form_pts": "away_form_pts",
                                "form_gf": "away_form_gf", "form_ga": "away_form_ga"}),
+        on=["Date", "AwayTeam"], how="left",
+    )
+    merged = merged.merge(
+        dc.rename(columns={"team": "HomeTeam", "attack": "home_attack", "defense": "home_defense"}),
+        on=["Date", "HomeTeam"], how="left",
+    )
+    merged = merged.merge(
+        dc.rename(columns={"team": "AwayTeam", "attack": "away_attack", "defense": "away_defense"}),
         on=["Date", "AwayTeam"], how="left",
     )
     total_imp = 1/merged["B365H"] + 1/merged["B365D"] + 1/merged["B365A"]
@@ -581,6 +630,7 @@ def build_fixture_features(
     h2h_state = _get_current_h2h_state(historical_df)
     draw_rate_state = _get_current_draw_rates(historical_df)
     market_bias_state = _get_current_market_bias(historical_df)
+    dc_state = _get_current_dc_ratings(historical_df)
 
     rows = []
     for _, row in fixtures_df.iterrows():
@@ -611,7 +661,6 @@ def build_fixture_features(
             "market_d": (1/row["B365D"]) / total_imp,
             "market_a": (1/row["B365A"]) / total_imp,
             "market_overround": total_imp - 1.0,
-            "match_balance": 1.0 - abs((1/row["B365H"]) / total_imp - (1/row["B365A"]) / total_imp),
             "league_E0": float(row.get("league", "") == "E0"),
             "league_D1": float(row.get("league", "") == "D1"),
             "league_SP1": float(row.get("league", "") == "SP1"),
@@ -623,6 +672,11 @@ def build_fixture_features(
             "away_draw_rate": draw_rate_state.get(away, float("nan")),
             "home_market_bias": market_bias_state.get(home, float("nan")),
             "away_market_bias": market_bias_state.get(away, float("nan")),
+            "match_balance": 1.0 - abs((1/row["B365H"]) / total_imp - (1/row["B365A"]) / total_imp),
+            "home_attack": dc_state.get(home, {}).get("attack", float("nan")),
+            "home_defense": dc_state.get(home, {}).get("defense", float("nan")),
+            "away_attack": dc_state.get(away, {}).get("attack", float("nan")),
+            "away_defense": dc_state.get(away, {}).get("defense", float("nan")),
         })
 
     if not rows:
