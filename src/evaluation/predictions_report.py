@@ -56,7 +56,16 @@ def _top_bets_html(all_bets: list[dict]) -> str:
     return "\n".join(rows)
 
 
-def _league_section_html(league: str, rows: list[dict]) -> str:
+def _bfe_cell(bfe: dict | None, outcome: str) -> str:
+    if not bfe:
+        return '<td class="odds-cell bfe-cell muted">—</td>'
+    val = bfe.get(outcome)
+    if val is None:
+        return '<td class="odds-cell bfe-cell muted">—</td>'
+    return f'<td class="odds-cell bfe-cell">{val:.2f}</td>'
+
+
+def _league_section_html(league: str, rows: list[dict], betfair_odds: dict = {}) -> str:
     league_name = _LEAGUE_NAMES.get(league, league)
     n_value = sum(1 for r in rows if r["ValueBets"])
     fixture_rows = []
@@ -80,6 +89,9 @@ def _league_section_html(league: str, rows: list[dict]) -> str:
             else:
                 odds_cells += f'<td class="odds-cell">{odds_val:.2f}</td>'
 
+        bfe = betfair_odds.get((r["HomeTeam"], r["AwayTeam"]))
+        bfe_cells = _bfe_cell(bfe, "H") + _bfe_cell(bfe, "D") + _bfe_cell(bfe, "A")
+
         fixture_rows.append(
             f'<tr class="{row_class}">'
             f'<td class="date-cell">{date_str}</td>'
@@ -88,9 +100,12 @@ def _league_section_html(league: str, rows: list[dict]) -> str:
             f'<td class="team-cell">{r["AwayTeam"]}</td>'
             f'<td class="prob-cell">{_prob_bar(r["ModelH"], r["ModelD"], r["ModelA"])}</td>'
             f'{odds_cells}'
+            f'{bfe_cells}'
             f'</tr>'
         )
 
+    has_bfe = bool(betfair_odds)
+    bfe_headers = "<th>BFE H</th><th>BFE D</th><th>BFE A</th>" if has_bfe else ""
     badge = f'<span class="value-count">{n_value} value bet{"s" if n_value != 1 else ""}</span>' if n_value else ""
     return f"""
 <div class="league-section">
@@ -103,7 +118,8 @@ def _league_section_html(league: str, rows: list[dict]) -> str:
       <tr>
         <th>Date</th><th colspan="3">Fixture</th>
         <th>Model probs (H/D/A)</th>
-        <th>H odds</th><th>D odds</th><th>A odds</th>
+        <th>B365 H</th><th>B365 D</th><th>B365 A</th>
+        {bfe_headers}
       </tr>
     </thead>
     <tbody>
@@ -113,7 +129,7 @@ def _league_section_html(league: str, rows: list[dict]) -> str:
 </div>"""
 
 
-def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_at: datetime) -> str:
+def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_at: datetime, betfair_odds: dict = {}) -> str:
     outcome_label = {"H": "Home", "D": "Draw", "A": "Away"}
 
     all_bets = []
@@ -137,7 +153,7 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
 
     league_order = ["E0", "D1", "SP1", "I1", "F1", "N1", "P1"]
     league_html = "\n".join(
-        _league_section_html(lg, by_league[lg])
+        _league_section_html(lg, by_league[lg], betfair_odds)
         for lg in league_order
         if lg in by_league
     )
@@ -318,6 +334,10 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
   }}
   .value-odds small {{ display: block; font-weight: 700; }}
 
+  /* Betfair Exchange odds column */
+  .bfe-cell {{ background: #f0f7ff; font-weight: 600; color: #1565c0; }}
+  .bfe-cell.muted {{ color: #ccc; background: transparent; font-weight: 400; }}
+
   /* Footer */
   .page-footer {{
     text-align: center; color: #aaa; font-size: .82em; margin-top: 32px;
@@ -365,8 +385,8 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
 </html>"""
 
 
-def save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at: datetime, output_path: Path) -> Path:
-    html = generate_predictions_html(pred_rows, threshold, fetched_at)
+def save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at: datetime, output_path: Path, betfair_odds: dict = {}) -> Path:
+    html = generate_predictions_html(pred_rows, threshold, fetched_at, betfair_odds)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
     return output_path

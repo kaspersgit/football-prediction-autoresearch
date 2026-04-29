@@ -118,9 +118,23 @@ def _run_predict():
     classes = list(model.classes_)
 
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold)
-    _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at)
+
+    # Fetch Betfair Exchange prices if credentials are available
+    betfair_odds: dict = {}
+    from pathlib import Path as _Path
+    if _Path("config/betfair_credentials.json").exists():
+        try:
+            from src.data.betfair import fetch_betfair_odds
+            fixtures_list = [(r["HomeTeam"], r["AwayTeam"]) for r in pred_rows]
+            print("Fetching Betfair Exchange prices...")
+            betfair_odds = fetch_betfair_odds(fixtures_list)
+            print(f"  Matched {len(betfair_odds)}/{len(fixtures_list)} fixtures on Betfair")
+        except Exception as e:
+            print(f"  Betfair fetch failed: {e}")
+
+    _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at, betfair_odds)
     _save_predictions_csv(fixture_features, y_proba, classes, threshold, fetched_at)
-    _save_predictions_html(pred_rows, threshold, fetched_at)
+    _save_predictions_html(pred_rows, threshold, fetched_at, betfair_odds)
 
 
 def _pinnacle_fair(row) -> dict | None:
@@ -177,9 +191,10 @@ def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float)
     return rows
 
 
-def _print_predictions(fixture_features, y_proba, classes, threshold: float, fetched_at=None) -> None:
+def _print_predictions(fixture_features, y_proba, classes, threshold: float, fetched_at=None, betfair_odds: dict | None = None) -> None:
     from datetime import datetime
     outcome_label = {"H": "Home", "D": "Draw", "A": "Away"}
+    betfair_odds = betfair_odds or {}
 
     has_pinnacle = all(c in fixture_features.columns for c in ("PSH", "PSD", "PSA"))
     pinnacle_note = " + Pinnacle filter" if has_pinnacle else ""
@@ -198,20 +213,30 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
     for r in pred_rows:
         by_league.setdefault(r["League"], []).append(r)
 
+    has_bfe = bool(betfair_odds)
     for league, rows in sorted(by_league.items()):
         print(f"\n--- {league.upper()} ---")
-        print(f"{'Date':<12} {'Home':<22} {'Away':<22} {'H%/D%/A%':>11}  {'B365 H / D / A (fetched)':>26}  Value bets")
+        hdr = f"{'Date':<12} {'Home':<22} {'Away':<22} {'H%/D%/A%':>11}  {'B365 H/D/A':>16}"
+        if has_bfe:
+            hdr += f"  {'BFE H/D/A':>16}"
+        hdr += "  Value bets"
+        print(hdr)
         print("-" * W)
         for r in rows:
             date_str = r["Date"].strftime("%Y-%m-%d")
             prob_str = f"{r['ModelH']:.0%}/{r['ModelD']:.0%}/{r['ModelA']:.0%}"
-            odds_str = f"{r['B365H']:.2f} / {r['B365D']:.2f} / {r['B365A']:.2f}"
+            odds_str = f"{r['B365H']:.2f}/{r['B365D']:.2f}/{r['B365A']:.2f}"
+            line = f"{date_str:<12} {r['HomeTeam']:<22} {r['AwayTeam']:<22} {prob_str:>11}  {odds_str:>16}"
+            if has_bfe:
+                bfe = betfair_odds.get((r["HomeTeam"], r["AwayTeam"]))
+                bfe_str = f"{bfe['H']:.2f}/{bfe['D']:.2f}/{bfe['A']:.2f}" if bfe else "  —  "
+                line += f"  {bfe_str:>16}"
             if r["ValueBets"]:
                 vb_parts = [f"{outcome_label[o]}(+{e:.1%})" for o, e in r["ValueBets"]]
-                value_str = ", ".join(vb_parts)
+                line += "  " + ", ".join(vb_parts)
             else:
-                value_str = "-"
-            print(f"{date_str:<12} {r['HomeTeam']:<22} {r['AwayTeam']:<22} {prob_str:>11}  {odds_str:>26}  {value_str}")
+                line += "  -"
+            print(line)
 
     # --- Top picks summary ---
     all_bets: list[dict] = []
@@ -272,11 +297,11 @@ def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, 
     print(f"Predictions saved to {path}  (compare B365 odds before placing bets)")
 
 
-def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at) -> None:
+def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at, betfair_odds: dict | None = None) -> None:
     from src.evaluation.predictions_report import save_predictions_html
     ts = fetched_at.strftime("%Y%m%d_%H%M")
     path = Path(f"reports/predictions_{ts}.html")
-    save_predictions_html(pred_rows, threshold, fetched_at, path)
+    save_predictions_html(pred_rows, threshold, fetched_at, path, betfair_odds or {})
     print(f"HTML report saved to {path}")
 
 
