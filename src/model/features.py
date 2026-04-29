@@ -239,46 +239,6 @@ def _get_current_season_stats(df: pd.DataFrame) -> dict[str, dict]:
     }
 
 
-def _compute_season_progress(df: pd.DataFrame) -> pd.DataFrame:
-    """Pre-match season progress as fraction of 38 games played, per team.
-    Normalises by league season length so early-season noise is identifiable regardless of month."""
-    df = df.sort_values("Date").reset_index(drop=True)
-    game_count: dict[tuple, int] = {}  # (team, season) -> games played so far
-    home_progress, away_progress = [], []
-
-    for _, row in df.iterrows():
-        home, away, season = row["HomeTeam"], row["AwayTeam"], row["season"]
-        hk, ak = (home, season), (away, season)
-        home_progress.append(min(game_count.get(hk, 0) / 38.0, 1.0))
-        away_progress.append(min(game_count.get(ak, 0) / 38.0, 1.0))
-        game_count[hk] = game_count.get(hk, 0) + 1
-        game_count[ak] = game_count.get(ak, 0) + 1
-
-    df = df.copy()
-    df["home_season_progress"] = home_progress
-    df["away_season_progress"] = away_progress
-    return df
-
-
-def _get_current_season_progress(df: pd.DataFrame) -> dict[str, float]:
-    """Return season progress fraction per team based on their most recent season in df."""
-    df = df.sort_values("Date")
-    game_count: dict[tuple, int] = {}
-    latest_season: dict[str, str] = {}
-
-    for _, row in df.iterrows():
-        home, away, season = row["HomeTeam"], row["AwayTeam"], row["season"]
-        for team in (home, away):
-            key = (team, season)
-            game_count[key] = game_count.get(key, 0) + 1
-            latest_season[team] = season
-
-    return {
-        team: min(game_count.get((team, latest_season[team]), 0) / 38.0, 1.0)
-        for team in latest_season
-    }
-
-
 def _compute_elo(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
     """Pre-match Elo ratings and momentum (delta over last `window` games) — no leakage."""
     df = df.sort_values("Date").reset_index(drop=True)
