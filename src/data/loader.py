@@ -7,6 +7,11 @@ RAW_DIR = Path("data/raw")
 REQUIRED_COLS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "B365H", "B365D", "B365A"]
 _OPTIONAL_COLS = ["PSCH", "PSCD", "PSCA", "HST", "AST"]  # Pinnacle closing odds + shots on target
 
+# All non-Betfair bookmaker columns used for CustomMax computation (BFE* excluded)
+_BK_COLS_H = ["B365H", "BFDH", "BMGMH", "BVH", "BWH", "CLH", "LBH", "PSH", "WHH", "VCH", "SJH", "IWH", "GBH", "SBH"]
+_BK_COLS_D = ["B365D", "BFDD", "BMGMD", "BVD", "BWD", "CLD", "LBD", "PSD", "WHD", "VCD", "SJD", "IWD", "GBD", "SBD"]
+_BK_COLS_A = ["B365A", "BFDA", "BMGMA", "BVA", "BWA", "CLA", "LBA", "PSA", "WHA", "VCA", "SJA", "IWA", "GBA", "SBA"]
+
 _LEAGUE_MAP = {
     "E0": "england", "D1": "germany", "SP1": "spain", "I1": "italy",
     "F1": "france", "N1": "netherlands", "P1": "portugal",
@@ -31,7 +36,23 @@ def _load_file(path: Path) -> pd.DataFrame | None:
     if missing:
         return None
     optional_present = [c for c in _OPTIONAL_COLS if c in df.columns]
-    df = df[REQUIRED_COLS + optional_present].copy()
+
+    # Compute CustomMax{H/D/A}: best available non-BFE odds per row
+    custom_parts = {}
+    for bk_cols, custom_col in [
+        (_BK_COLS_H, "CustomMaxH"),
+        (_BK_COLS_D, "CustomMaxD"),
+        (_BK_COLS_A, "CustomMaxA"),
+    ]:
+        avail = [c for c in bk_cols if c in df.columns]
+        if avail:
+            custom_parts[custom_col] = df[avail].apply(pd.to_numeric, errors="coerce").max(axis=1)
+        else:
+            custom_parts[custom_col] = float("nan")
+
+    custom_df = pd.DataFrame(custom_parts, index=df.index)
+    custom_cols = list(custom_parts.keys())
+    df = pd.concat([df[REQUIRED_COLS + optional_present], custom_df], axis=1)
     for c in _OPTIONAL_COLS:
         if c not in df.columns:
             df[c] = float("nan")

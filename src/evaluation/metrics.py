@@ -125,7 +125,12 @@ def compute_value_betting_results(
                 continue
 
             if model_prob > baseline_prob + threshold:
-                odds = float(row[_ODDS_COL[outcome]])
+                custom_col = f"CustomMax{outcome}"
+                custom_val = row.get(custom_col)
+                try:
+                    odds = float(custom_val) if custom_val is not None and not pd.isna(custom_val) else float(row[_ODDS_COL[outcome]])
+                except (TypeError, ValueError):
+                    odds = float(row[_ODDS_COL[outcome]])
                 if kelly_fraction > 0.0:
                     # Full Kelly fraction: f* = p - (1-p)/(odds-1)
                     # Always positive when model_prob > 1/odds (guaranteed by edge > 0 over fair)

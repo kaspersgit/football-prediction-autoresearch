@@ -703,5 +703,7 @@ def build_features_with_odds(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series,
     merged = _build_merged(df)
     X = merged[FEATURE_COLS]
     y = merged["FTR"]
-    odds = merged[["B365H", "B365D", "B365A", "PSCH", "PSCD", "PSCA", "Date", "HomeTeam", "AwayTeam", "league", "season"]]
+    base_odds_cols = ["B365H", "B365D", "B365A", "PSCH", "PSCD", "PSCA", "Date", "HomeTeam", "AwayTeam", "league", "season"]
+    custom_max_cols = [c for c in ["CustomMaxH", "CustomMaxD", "CustomMaxA"] if c in merged.columns]
+    odds = merged[base_odds_cols + custom_max_cols]
     return X, y, odds
