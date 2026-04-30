@@ -524,7 +524,139 @@ Baseline entering this batch: ROI +2.95%, stability +0.0198, t-stat +1.22 (3769 
 
 ---
 
+### 13. (Iters 88–92) Distinct re-test batch — all reverted (2026-05-01)
+
+Baseline: ROI +2.92%, stability +0.0196, t-stat +1.21 (3770 bets, 4288 test matches). Five maximally distinct experiments spanning early-era ideas and new angles, all tested under LightGBM + 7 leagues for the first time.
+
+#### Iter 88: Days rest — REVERTED
+
+**Hypothesis:** `home_days_rest` / `away_days_rest` (days since team's last match, default 7) captures fatigue from fixture congestion.  
+**Previously tested:** Iter 23 on 4 leagues — reverted. Re-tested here on 7 leagues + LightGBM.  
+**Implementation:** Wired `_compute_days_rest` into `_build_merged`; `_get_current_days_rest` into `build_fixture_features`.
+
+| League | Baseline | +Days rest | Δ |
+|---|---|---|---|
+| England | −0.91% | +4.27% | +5.18 pp ✅ |
+| Germany | +4.24% | −0.99% | −5.23 pp ❌ |
+| Spain | −1.47% | +1.43% | +2.90 pp ✅ |
+| Italy | −3.00% | −6.97% | −3.97 pp ❌ |
+| France | +0.60% | −2.85% | −3.45 pp ❌ |
+| Netherlands | +12.08% | +4.04% | −8.04 pp ❌ |
+| Portugal | +11.76% | +5.40% | −6.36 pp ❌ |
+| **Total** | **+2.92%** | **+0.55%** | **−2.37 pp** |
+| Stability | +0.0196 | +0.0038 | ❌ |
+
+**Decision: REVERTED.** 2/7 improved. Netherlands −8pp, Portugal −6pp. Result mirrors the Iter 23 failure — rest days are already priced in by bookmakers for prominent congestion periods (European nights etc.), adding noise elsewhere.
+
+---
+
+#### Iter 89: ELO_K = 20 (was 30) — REVERTED
+
+**Hypothesis:** More stable Elo ratings (less reactive to individual results) give a better long-run strength estimate. K=30 may overfit to recent scorelines already captured by the market.
+
+| League | Baseline | K=20 | Δ |
+|---|---|---|---|
+| England | −0.91% | +7.88% | +8.79 pp ✅ |
+| Germany | +4.24% | +5.42% | +1.18 pp ✅ |
+| Spain | −1.47% | −5.82% | −4.35 pp ❌ |
+| Italy | −3.00% | −1.48% | +1.52 pp ✅ |
+| France | +0.60% | +2.97% | +2.37 pp ✅ |
+| Netherlands | +12.08% | +2.94% | −9.14 pp ❌ |
+| Portugal | +11.76% | +9.34% | −2.42 pp ❌ |
+| **Total** | **+2.92%** | **+2.67%** | **−0.25 pp** |
+| Stability | +0.0196 | +0.0178 | ❌ |
+
+**Decision: REVERTED.** 4/7 improved but Netherlands −9.14pp dominates. K=30 confirmed optimal.
+
+---
+
+#### Iter 90: Cumulative season points — REVERTED
+
+**Hypothesis:** `home_season_pts` / `away_season_pts` (pre-match cumulative league points) captures current table position — early relegation battles, title races, and remaining-season motivation the model can't infer from recent form alone.  
+**Previously tested:** Iter 28 on 4 leagues — reverted as "flat". Re-tested here on 7 leagues + LightGBM.
+
+| League | Baseline | +Season pts | Δ |
+|---|---|---|---|
+| England | −0.91% | +0.92% | +1.83 pp ✅ |
+| Germany | +4.24% | −0.37% | −4.61 pp ❌ |
+| Spain | −1.47% | −7.09% | −5.62 pp ❌ |
+| Italy | −3.00% | −3.76% | −0.76 pp ❌ |
+| France | +0.60% | +3.87% | +3.27 pp ✅ |
+| Netherlands | +12.08% | +9.99% | −2.09 pp ❌ |
+| Portugal | +11.76% | +11.25% | −0.51 pp ≈ |
+| **Total** | **+2.92%** | **+1.72%** | **−1.20 pp** |
+| Stability | +0.0196 | +0.0118 | ❌ |
+
+**Decision: REVERTED.** 2/7 improved. Germany −4.61pp, Spain −5.62pp. Season points may be collinear with Elo (which already tracks cumulative quality) — adding both creates redundancy.
+
+---
+
+#### Iter 91: Strength of schedule (mean recent opponent Elo) — REVERTED
+
+**Hypothesis:** A new feature `home_opp_elo` / `away_opp_elo` — mean Elo of each team's last WINDOW opponents — captures whether form was built against strong or weak competition.  
+**Inspired by:** Iter 35 (opponent-quality-adjusted form) — reverted on old dataset.
+
+| League | Baseline | +Opp Elo | Δ |
+|---|---|---|---|
+| England | −0.91% | +2.77% | +3.68 pp ✅ |
+| Germany | +4.24% | +3.38% | −0.86 pp ❌ |
+| Spain | −1.47% | −12.02% | −10.55 pp ❌ |
+| Italy | −3.00% | −4.84% | −1.84 pp ❌ |
+| France | +0.60% | +0.53% | −0.07 pp ≈ |
+| Netherlands | +12.08% | +5.30% | −6.78 pp ❌ |
+| Portugal | +11.76% | +2.92% | −8.84 pp ❌ |
+| **Total** | **+2.92%** | **−0.74%** | **−3.66 pp** |
+| Stability | +0.0196 | −0.0052 | ❌ flipped negative |
+
+**Decision: REVERTED.** Spain −10.55pp, Portugal −8.84pp. Opponent Elo is largely encoded in Elo ratings themselves — teams that face strong opposition regularly have their Elo calibrated accordingly. The feature adds collinear noise.
+
+---
+
+#### Iter 92: min_child_samples = 10 (was 20) — REVERTED
+
+**Hypothesis:** Allowing splits on smaller leaf samples (10 vs 20) lets LightGBM capture finer patterns in league-specific data.
+
+| League | Baseline | mcs=10 | Δ |
+|---|---|---|---|
+| England | −0.91% | −1.99% | −1.08 pp ❌ |
+| Germany | +4.24% | −3.07% | −7.31 pp ❌ |
+| Spain | −1.47% | −2.48% | −1.01 pp ❌ |
+| Italy | −3.00% | −4.96% | −1.96 pp ❌ |
+| France | +0.60% | −1.47% | −2.07 pp ❌ |
+| Netherlands | +12.08% | +6.17% | −5.91 pp ❌ |
+| Portugal | +11.76% | +11.50% | −0.26 pp ≈ |
+| **Total** | **+2.92%** | **+0.23%** | **−2.69 pp** |
+| Stability | +0.0196 | +0.0016 | ❌ |
+
+**Decision: REVERTED.** 0/7 improved. Overfits in the same pattern as num_leaves=63 (iter 80) — the model is at its regularisation optimum at mcs=20. Trying mcs=40 not pursued; consistent direction of overfitting suggests the model needs more regularisation, not less.
+
+**Conclusion from iters 88–92:** All five reverted across completely different dimensions (scheduling, Elo calibration, table context, strength of schedule, model capacity). The consistent pattern is that the model's current feature set and LightGBM config have reached a genuine local optimum within the information available in this data. The baseline stays at ROI +2.92%, stability +0.0196.
+
+---
+
 ## Pending
+
+### xG (expected goals) integration — blocked on data access (logged 2026-05-01)
+
+**Hypothesis:** Replace or augment DC attack/defense ratings (currently EWM of raw goals) with xG-based equivalents. xG is a noise-reduced measure of shot quality; a team scoring above their xG will regress while goals-based ratings stay high. The specific signal is `xg_surplus = rolling_goals − rolling_xG` as a market-lag indicator.
+
+**Why deferred:** Data access is harder than expected across all candidate sources:
+- **Understat**: only 5/7 leagues (no Eredivisie, no Primeira Liga). Now JS-rendered — all Python packages (`understat`, `understatapi`) are broken as of 2026-05.
+- **FBref**: covers all 7 leagues from 2013-14 but blocks plain HTTP (403). Requires Playwright/Selenium headless browser + system GTK libs (`libatk-bridge2.0-0` etc.) not present in WSL2.
+- **StatsBomb open data**: spotty seasonal coverage, missing N1/P1 entirely.
+- **Shots on target (HST/AST)** — closest available proxy — already tested in Iter 63 and Iter 39, both strongly reverted. Reason: bookmakers already price in shot quality, so adding it duplicates market signal with noise.
+
+**To unblock:** `sudo apt install -y libatk-bridge2.0-0 libatk1.0-0 libgbm1 libnss3 libxss1` in WSL2, then configure soccerdata custom leagues:
+```json
+// ~/.soccerdata/config/league_dict.json
+{"NED-Eredivisie": {"FBref": "Eredivisie", "MatchHistory": "N1", "season_start": "Aug", "season_end": "May"},
+ "POR-Primeira Liga": {"FBref": "Primeira Liga", "MatchHistory": "P1", "season_start": "Aug", "season_end": "May"}}
+```
+~350 FBref page fetches at 3s spacing (~18 min one-time download). Cache locally as `data/raw/xg_{league}_{season}.csv`.
+
+**Note:** Even if unblocked, signal value is uncertain — bookmakers already incorporate xG into pricing. The targeted experiment should be `xg_surplus` (goals-minus-xG divergence), not raw xG level.
+
+---
 
 ### Fix edge calculation baseline (value bet vs vig) — under consideration
 

@@ -445,6 +445,54 @@ def _get_current_league_home_win_rate(df: pd.DataFrame) -> dict[str, float]:
     return result
 
 
+def _compute_opp_elo(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
+    """Pre-match mean Elo of each team's last `window` opponents — strength of schedule."""
+    df = df.sort_values("Date").reset_index(drop=True)
+    opp_elo_hist: dict[str, list] = {}
+    home_opp, away_opp = [], []
+
+    for _, row in df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        h_elo = row["home_elo"]
+        a_elo = row["away_elo"]
+
+        h_hist = opp_elo_hist.get(home, [])
+        a_hist = opp_elo_hist.get(away, [])
+        home_opp.append(sum(h_hist[-window:]) / len(h_hist[-window:]) if len(h_hist) >= window else float("nan"))
+        away_opp.append(sum(a_hist[-window:]) / len(a_hist[-window:]) if len(a_hist) >= window else float("nan"))
+
+        opp_elo_hist.setdefault(home, []).append(a_elo)
+        opp_elo_hist.setdefault(away, []).append(h_elo)
+
+    df = df.copy()
+    df["home_opp_elo"] = home_opp
+    df["away_opp_elo"] = away_opp
+    return df
+
+
+def _get_current_opp_elo(df: pd.DataFrame, window: int = WINDOW) -> dict[str, float]:
+    """Return mean Elo of each team's last `window` opponents, using pre-match Elo."""
+    df = df.sort_values("Date")
+    elo: dict[str, float] = {}
+    opp_elo_hist: dict[str, list] = {}
+    for _, row in df.iterrows():
+        home, away = row["HomeTeam"], row["AwayTeam"]
+        h_elo = elo.get(home, ELO_DEFAULT)
+        a_elo = elo.get(away, ELO_DEFAULT)
+        opp_elo_hist.setdefault(home, []).append(a_elo)
+        opp_elo_hist.setdefault(away, []).append(h_elo)
+        expected_home = 1 / (1 + 10 ** ((a_elo - h_elo + ELO_HOME_ADV) / 400))
+        ftr = row["FTR"]
+        actual_home = 1.0 if ftr == "H" else (0.0 if ftr == "A" else 0.5)
+        elo[home] = h_elo + ELO_K * (actual_home - expected_home)
+        elo[away] = a_elo + ELO_K * ((1 - actual_home) - (1 - expected_home))
+    return {
+        team: sum(hist[-window:]) / len(hist[-window:])
+        for team, hist in opp_elo_hist.items()
+        if len(hist) >= window
+    }
+
+
 def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("Date").reset_index(drop=True)
     df = _compute_elo(df)
