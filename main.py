@@ -5,12 +5,18 @@ Main pipeline: data → model → evaluation → HTML report + profit chart.
 Leagues: England (E0), Germany (D1), Spain (SP1), Italy (I1), France (F1), Netherlands (N1), Portugal (P1)
 
 Modes:
-  python main.py                    # backtest on last 2 seasons, threshold=0.0 (all bets)
+  python main.py                    # backtest on last 2 seasons (default settings)
   python main.py --per-league       # one model per league (default recommended)
-  python main.py --threshold 0.05   # backtest with 5% minimum edge filter
+  python main.py --threshold 0.05   # override minimum edge filter (default: 0.03)
+  python main.py --max-odds 5.0     # override max B365 odds filter (default: 4.0)
   python main.py --predict          # train on all data, predict upcoming fixtures
   python main.py --update           # re-download latest season results, then backtest
   python main.py --monthly          # monthly walk-forward retrain (experimental)
+
+Default staking (validated config — see docs/improvements.md):
+  stake = max(3, 20 / B365_odds)   — inverse-odds staking
+  Threshold: 0.03  (3% minimum edge over B365 fair price)
+  Max odds:  4.0   (B365 >= 4.0 excluded; model signal degrades above this)
 """
 import sys
 from pathlib import Path
@@ -33,7 +39,14 @@ def _parse_threshold() -> float:
     for i, arg in enumerate(sys.argv):
         if arg == "--threshold" and i + 1 < len(sys.argv):
             return float(sys.argv[i + 1])
-    return 0.0
+    return 0.03  # validated default: 3% minimum edge
+
+
+def _parse_max_odds() -> float:
+    for i, arg in enumerate(sys.argv):
+        if arg == "--max-odds" and i + 1 < len(sys.argv):
+            return float(sys.argv[i + 1])
+    return 4.0  # validated default: model signal weakens above B365 4.0
 
 
 def _parse_kelly() -> float:
@@ -119,9 +132,15 @@ def _run_predict():
 
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold)
 
+    # Load historical backtest bets for the monthly performance table in the report
+    historical_bets = None
+    bets_path = Path("reports/backtest_bets.csv")
+    if bets_path.exists():
+        historical_bets = pd.read_csv(bets_path, parse_dates=["Date"])
+
     _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at)
     _save_predictions_csv(fixture_features, y_proba, classes, threshold, fetched_at)
-    _save_predictions_html(pred_rows, threshold, fetched_at)
+    _save_predictions_html(pred_rows, threshold, fetched_at, historical_bets=historical_bets)
 
 
 def _pinnacle_fair(row) -> dict | None:
@@ -285,13 +304,15 @@ def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, 
     print(f"Predictions saved to {path}  (compare B365 odds before placing bets)")
 
 
-def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at) -> None:
+def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at,
+                            historical_bets=None) -> None:
     from src.evaluation.predictions_report import save_predictions_html
     ts = fetched_at.strftime("%Y%m%d_%H%M")
     path = Path(f"reports/predictions_{ts}.html")
     profit_curve = Path("reports/profit_curve.png")
     save_predictions_html(pred_rows, threshold, fetched_at, path,
-                          profit_curve_path=profit_curve if profit_curve.exists() else None)
+                          profit_curve_path=profit_curve if profit_curve.exists() else None,
+                          historical_bets=historical_bets)
     print(f"HTML report saved to {path}")
 
 
@@ -371,7 +392,8 @@ def _run_backtest():
         update_current_season()
 
     threshold = _parse_threshold()
-    kelly = _parse_kelly()
+    kelly     = _parse_kelly()
+    max_odds  = _parse_max_odds()
 
     print("Loading data...")
     df = load_all_data()
@@ -399,12 +421,20 @@ def _run_backtest():
     eval_df = results["odds_test"].copy()
     eval_df["y_true"] = results["y_test"].values
 
+    # Staking: inverse-odds (stake = max(3, 20/odds)) — validated best config.
+    # Kelly and flat staking remain available via --kelly flag.
+    inv_odds_factor = 0.0 if kelly > 0.0 else 20.0
+    min_stake       = 1.0 if kelly > 0.0 else 3.0
+
     betting_results = compute_value_betting_results(
         eval_df,
         results["y_proba"],
         results["classes"],
         threshold=threshold,
         kelly_fraction=kelly,
+        inv_odds_factor=inv_odds_factor,
+        min_stake=min_stake,
+        max_odds=max_odds,
     )
     roi = compute_roi(betting_results)
     stability = compute_stability(betting_results)
@@ -412,12 +442,14 @@ def _run_backtest():
 
     n_matches = len(eval_df)
     n_bets = len(betting_results)
-    sizing = f"Kelly x{kelly}" if kelly > 0.0 else "flat"
+    if kelly > 0.0:
+        sizing = f"Kelly x{kelly}"
+    else:
+        sizing = f"20/odds (floor {min_stake:.0f} units)"
     t_stat = stability * (n_bets ** 0.5)
     print("\n=== BACKTEST RESULTS ===")
     print(f"Accuracy:  {accuracy:.3f}  (on all {n_matches} test matches)")
-    print(f"Threshold: {threshold:+.3f}  (minimum edge over fair odds)")
-    print(f"Sizing:    {sizing}")
+    print(f"Threshold: {threshold:+.3f}  |  Max odds: {max_odds:.1f}  |  Staking: {sizing}")
     print(f"Bets:      {n_bets} / {n_matches} matches ({n_bets / n_matches:.1%})")
     print(f"ROI:       {roi:+.2f}%")
     print(f"Stability: {stability:.4f}")
@@ -426,6 +458,16 @@ def _run_backtest():
     _print_split_analysis(betting_results, eval_df)
 
     _save_profit_chart(betting_results, Path("reports/profit_curve.png"))
+
+    # Save per-bet results with league info for use in prediction reports
+    league_lookup = eval_df[["Date", "HomeTeam", "AwayTeam", "league"]].drop_duplicates()
+    bets_with_league = betting_results.merge(
+        league_lookup, on=["Date", "HomeTeam", "AwayTeam"], how="left"
+    )
+    bets_path = Path("reports/backtest_bets.csv")
+    bets_path.parent.mkdir(parents=True, exist_ok=True)
+    bets_with_league.to_csv(bets_path, index=False)
+    print(f"Backtest bets saved to {bets_path}")
 
     print("\nGenerating report...")
     generate_report(

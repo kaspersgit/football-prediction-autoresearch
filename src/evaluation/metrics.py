@@ -61,19 +61,30 @@ def compute_value_betting_results(
     threshold: float = 0.0,
     kelly_fraction: float = 0.0,
     edge_baseline: str = "fair",
+    inv_odds_factor: float = 0.0,
+    min_stake: float = 1.0,
+    max_odds: float = float("inf"),
 ) -> pd.DataFrame:
     """
     Multi-outcome value betting.
 
+    Staking (in priority order):
+      inv_odds_factor > 0  — stake = max(min_stake, factor / B365_odds)
+                             Bets proportionally to win-likelihood; reduces longshot variance.
+                             Validated config: factor=20, min_stake=3 (see docs/improvements.md).
+      kelly_fraction > 0   — fractional Kelly sizing; ROI% identical to flat but scales
+                             absolute bankroll growth.
+      default (both = 0)   — flat 1-unit staking.
+
     edge_baseline:
       "fair" (default) — compare model_prob against vig-stripped fair implied prob.
-                         Flags more bets; edge numbers are inflated vs true EV.
-      "raw"            — compare model_prob against raw 1/odds implied prob.
-                         Correct EV definition: only bets with model_prob > 1/odds
-                         have positive expected value at those actual odds.
+      "raw"            — compare model_prob against raw 1/odds implied prob (true EV).
 
-    threshold: minimum edge required to place a bet (e.g. 0.05 = need 5% extra edge).
-    kelly_fraction: 0.0 = flat 1-unit staking; >0 = fractional Kelly sizing.
+    max_odds: skip bets whose B365 odds exceed this value (filter by market odds,
+              not execution odds; validated cutoff = 4.0, above which model signal weakens).
+
+    threshold:   minimum edge over fair prob required to place a bet.
+    kelly_fraction, inv_odds_factor, min_stake: staking size controls (see above).
 
     df must have: y_true, B365H, B365D, B365A, Date (index aligned with y_proba rows)
     y_proba: 2D array shape (n_matches, 3)
@@ -124,16 +135,27 @@ def compute_value_betting_results(
             if pinnacle_fair is not None and pinnacle_fair[outcome] <= fair[outcome]:
                 continue
 
+            b365_odds = float(row[_ODDS_COL[outcome]])
+            if b365_odds > max_odds:
+                continue
+
             if model_prob > baseline_prob + threshold:
+                # Execution odds: best available (CustomMax) or fall back to B365
                 custom_col = f"CustomMax{outcome}"
                 custom_val = row.get(custom_col)
                 try:
-                    odds = float(custom_val) if custom_val is not None and not pd.isna(custom_val) else float(row[_ODDS_COL[outcome]])
+                    odds = float(custom_val) if custom_val is not None and not pd.isna(custom_val) else b365_odds
                 except (TypeError, ValueError):
-                    odds = float(row[_ODDS_COL[outcome]])
-                if kelly_fraction > 0.0:
+                    odds = b365_odds
+
+                if inv_odds_factor > 0.0:
+                    # Inverse-odds staking: bet more on short-price certainties, less on longshots.
+                    # stake = factor / B365_odds, floored at min_stake.
+                    # Uses B365 (not CustomMax) so stake size reflects market assessment,
+                    # not the best execution price we managed to find.
+                    stake = max(min_stake, inv_odds_factor / b365_odds)
+                elif kelly_fraction > 0.0:
                     # Full Kelly fraction: f* = p - (1-p)/(odds-1)
-                    # Always positive when model_prob > 1/odds (guaranteed by edge > 0 over fair)
                     full_kelly = model_prob - (1.0 - model_prob) / (odds - 1.0)
                     stake = kelly_fraction * max(full_kelly, 0.0)
                 else:
