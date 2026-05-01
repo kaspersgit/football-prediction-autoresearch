@@ -19,6 +19,18 @@ _LEAGUE_MAP = {
 _FIXTURE_ODDS_COLS = ["B365H", "B365D", "B365A"]
 _FIXTURE_PINNACLE_COLS = ["PSH", "PSD", "PSA"]
 
+# Column → readable bookmaker name (BFE* excluded throughout)
+_BK_COL_TO_NAME: dict[str, str] = {}
+for _suffix, _name in [
+    ("B365", "Bet365"), ("BFD", "Betfair"), ("BMGM", "BetMGM"), ("BV", "Bwin"),
+    ("BW", "Betway"), ("CL", "Coral"), ("LB", "Ladbrokes"), ("PS", "Pinnacle"),
+    ("WH", "Wm Hill"), ("VC", "VC Bet"), ("SJ", "Stan James"),
+    ("IW", "Interwetten"), ("GB", "Gamebookers"), ("SB", "Sportingbet"),
+]:
+    _BK_COL_TO_NAME[f"{_suffix}H"] = _name
+    _BK_COL_TO_NAME[f"{_suffix}D"] = _name
+    _BK_COL_TO_NAME[f"{_suffix}A"] = _name
+
 
 def _parse_filename(path: Path) -> tuple[str, str]:
     # filename like E0_2324.csv → league=E0, season=2324
@@ -85,11 +97,29 @@ def load_fixtures() -> pd.DataFrame:
     df = df.dropna(subset=_FIXTURE_ODDS_COLS)
     df["league"] = df["Div"].map(_LEAGUE_MAP)
     # Include pre-match Pinnacle odds when available (null-safe: filter skipped when absent)
-    pinnacle_present = [c for c in _FIXTURE_PINNACLE_COLS if c in df.columns]
     for c in _FIXTURE_PINNACLE_COLS:
         if c not in df.columns:
             df[c] = float("nan")
-    return df[["Date", "HomeTeam", "AwayTeam", "league", "Div"] + _FIXTURE_ODDS_COLS + _FIXTURE_PINNACLE_COLS].reset_index(drop=True)
+
+    # Compute CustomMax{H/D/A} and which bookmaker offers that best price
+    custom_parts: dict[str, pd.Series] = {}
+    for bk_cols, val_col, bk_col in [
+        (_BK_COLS_H, "CustomMaxH", "CustomMaxBkH"),
+        (_BK_COLS_D, "CustomMaxD", "CustomMaxBkD"),
+        (_BK_COLS_A, "CustomMaxA", "CustomMaxBkA"),
+    ]:
+        avail = [c for c in bk_cols if c in df.columns]
+        if avail:
+            numeric = df[avail].apply(pd.to_numeric, errors="coerce")
+            custom_parts[val_col] = numeric.max(axis=1)
+            custom_parts[bk_col] = numeric.idxmax(axis=1).map(_BK_COL_TO_NAME).fillna("")
+        else:
+            custom_parts[val_col] = float("nan")
+            custom_parts[bk_col] = ""
+
+    custom_df = pd.DataFrame(custom_parts, index=df.index)
+    keep_cols = ["Date", "HomeTeam", "AwayTeam", "league", "Div"] + _FIXTURE_ODDS_COLS + _FIXTURE_PINNACLE_COLS
+    return pd.concat([df[keep_cols], custom_df], axis=1).reset_index(drop=True)
 
 
 def load_all_data() -> pd.DataFrame:

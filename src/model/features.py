@@ -685,6 +685,13 @@ def build_fixture_features(
             "home_defense": dc_state.get(home, {}).get("defense", float("nan")),
             "away_attack": dc_state.get(away, {}).get("attack", float("nan")),
             "away_defense": dc_state.get(away, {}).get("defense", float("nan")),
+            # Best-odds metadata (pass-through, not ML features)
+            "CustomMaxH": row.get("CustomMaxH", float("nan")),
+            "CustomMaxD": row.get("CustomMaxD", float("nan")),
+            "CustomMaxA": row.get("CustomMaxA", float("nan")),
+            "CustomMaxBkH": row.get("CustomMaxBkH", ""),
+            "CustomMaxBkD": row.get("CustomMaxBkD", ""),
+            "CustomMaxBkA": row.get("CustomMaxBkA", ""),
         })
 
     if not rows:

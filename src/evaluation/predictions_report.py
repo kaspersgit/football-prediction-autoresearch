@@ -1,14 +1,21 @@
+import base64
+import math
 from datetime import datetime
 from pathlib import Path
 
 
 _LEAGUE_NAMES = {
+    # short codes (historical data)
     "E0": "England", "D1": "Germany", "SP1": "Spain",
     "I1": "Italy", "F1": "France", "N1": "Netherlands", "P1": "Portugal",
+    # full-name keys from load_fixtures() _LEAGUE_MAP
+    "england": "England", "germany": "Germany", "spain": "Spain",
+    "italy": "Italy", "france": "France", "netherlands": "Netherlands", "portugal": "Portugal",
 }
 
-_OUTCOME_LABEL = {"H": "Home", "D": "Draw", "A": "Away"}
+_LEAGUE_ORDER = ["england", "germany", "spain", "italy", "france", "netherlands", "portugal"]
 
+_OUTCOME_LABEL = {"H": "Home", "D": "Draw", "A": "Away"}
 _OUTCOME_COLOR = {"H": "#1565c0", "D": "#616161", "A": "#e65100"}
 
 
@@ -28,6 +35,31 @@ def _prob_bar(h: float, d: float, a: float) -> str:
     )
 
 
+def _odds_cell(b365: float, cmax: float, bk: str, outcome: str, edge: float | None) -> str:
+    color = _OUTCOME_COLOR[outcome]
+    has_max = not math.isnan(cmax) and bk
+    max_better = has_max and cmax > b365 + 0.005
+
+    if edge is not None:
+        b365_html = f'<span class="b365-val value-price" style="color:{color}">{b365:.2f}</span>'
+        edge_html = f'<span class="edge-chip" style="background:{color}">+{edge:.1%}</span>'
+    else:
+        b365_html = f'<span class="b365-val">{b365:.2f}</span>'
+        edge_html = ""
+
+    if max_better:
+        max_html = f'<span class="max-odds">↑ {cmax:.2f} <em>{bk}</em></span>'
+    else:
+        max_html = ""
+
+    css_extra = f' value-odds" style="border-color:{color}' if edge is not None else ""
+    return (
+        f'<td class="odds-cell{css_extra}">'
+        f'{b365_html}{edge_html}{max_html}'
+        f'</td>'
+    )
+
+
 def _top_bets_html(all_bets: list[dict]) -> str:
     if not all_bets:
         return "<p>No value bets found at this threshold.</p>"
@@ -36,6 +68,13 @@ def _top_bets_html(all_bets: list[dict]) -> str:
         color = _OUTCOME_COLOR[b["outcome"]]
         edge_pct = f'+{b["edge"]:.1%}'
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"#{i}")
+        cmax = b.get("max_odds", float("nan"))
+        bk = b.get("max_bk", "")
+        has_max = not math.isnan(cmax) and bk
+        max_cell = (
+            f'<td class="odds-val">{cmax:.2f} <span class="bk-tag">{bk}</span></td>'
+            if has_max else '<td class="odds-val">—</td>'
+        )
         rows.append(
             f'<tr>'
             f'<td class="rank">{medal}</td>'
@@ -45,7 +84,8 @@ def _top_bets_html(all_bets: list[dict]) -> str:
             f'<td><span class="bet-outcome" style="color:{color};border-color:{color}">'
             f'{_OUTCOME_LABEL[b["outcome"]]}</span></td>'
             f'<td><span class="edge-val" style="color:{color}">{edge_pct}</span></td>'
-            f'<td class="odds-val">{b["odds"]:.2f}</td>'
+            f'<td class="odds-val">{b["b365_odds"]:.2f}</td>'
+            f'{max_cell}'
             f'</tr>'
         )
     return "\n".join(rows)
@@ -59,20 +99,15 @@ def _league_section_html(league: str, rows: list[dict]) -> str:
         date_str = r["Date"].strftime("%a %b %d")
         has_value = bool(r["ValueBets"])
         row_class = "value-row" if has_value else ""
+        edge_map = {o: e for o, e in r["ValueBets"]}
 
         odds_cells = ""
         for outcome in ["H", "D", "A"]:
-            odds_val = r[f"B365{outcome}"]
-            edge = next((e for o, e in r["ValueBets"] if o == outcome), None)
-            if edge is not None:
-                color = _OUTCOME_COLOR[outcome]
-                odds_cells += (
-                    f'<td class="odds-cell value-odds" style="border-color:{color}">'
-                    f'<span style="color:{color}">{odds_val:.2f}</span>'
-                    f'<br><small style="color:{color}">+{edge:.1%}</small></td>'
-                )
-            else:
-                odds_cells += f'<td class="odds-cell">{odds_val:.2f}</td>'
+            b365 = r[f"B365{outcome}"]
+            cmax = r.get(f"CustomMax{outcome}", float("nan"))
+            bk = r.get(f"CustomMaxBk{outcome}", "")
+            edge = edge_map.get(outcome)
+            odds_cells += _odds_cell(b365, cmax, bk, outcome, edge)
 
         fixture_rows.append(
             f'<tr class="{row_class}">'
@@ -99,6 +134,10 @@ def _league_section_html(league: str, rows: list[dict]) -> str:
         <th>Model probs (H/D/A)</th>
         <th>B365 H</th><th>B365 D</th><th>B365 A</th>
       </tr>
+      <tr class="subheader">
+        <th colspan="5"></th>
+        <th colspan="3" style="color:#888;font-size:.7em;font-weight:500">↑ best available odds + bookmaker</th>
+      </tr>
     </thead>
     <tbody>
       {"".join(fixture_rows)}
@@ -107,11 +146,31 @@ def _league_section_html(league: str, rows: list[dict]) -> str:
 </div>"""
 
 
-def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_at: datetime) -> str:
+def _profit_curve_html(path: Path | None) -> str:
+    if path is None or not path.exists():
+        return ""
+    data = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"""
+<div class="top-bets-card" style="margin-bottom:24px">
+  <div class="card-header">
+    Backtest Profit Curve
+    <span style="font-size:.8em;font-weight:400;color:#888;margin-left:8px">last 2 seasons walk-forward</span>
+  </div>
+  <div style="padding:16px 24px">
+    <img src="data:image/png;base64,{data}" style="width:100%;max-width:900px;display:block;margin:0 auto" alt="Profit curve">
+  </div>
+</div>"""
+
+
+def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_at: datetime,
+                               profit_curve_path: Path | None = None) -> str:
     all_bets = []
     for r in pred_rows:
         for outcome, edge in r["ValueBets"]:
-            odds_map = {"H": r["B365H"], "D": r["B365D"], "A": r["B365A"]}
+            cmax_key = f"CustomMax{outcome}"
+            bk_key = f"CustomMaxBk{outcome}"
+            cmax = r.get(cmax_key, float("nan"))
+            bk = r.get(bk_key, "")
             all_bets.append({
                 "date": r["Date"].strftime("%a %b %d"),
                 "league": r["League"],
@@ -119,7 +178,9 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
                 "away": r["AwayTeam"],
                 "outcome": outcome,
                 "edge": edge,
-                "odds": odds_map[outcome],
+                "b365_odds": r[f"B365{outcome}"],
+                "max_odds": cmax if not math.isnan(cmax) else float("nan"),
+                "max_bk": bk,
             })
     all_bets.sort(key=lambda x: x["edge"], reverse=True)
 
@@ -127,16 +188,16 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
     for r in pred_rows:
         by_league.setdefault(r["League"], []).append(r)
 
-    league_order = ["E0", "D1", "SP1", "I1", "F1", "N1", "P1"]
     league_html = "\n".join(
         _league_section_html(lg, by_league[lg])
-        for lg in league_order
+        for lg in _LEAGUE_ORDER
         if lg in by_league
     )
 
     fetch_str = fetched_at.strftime("%d %b %Y, %H:%M")
     total_fixtures = len(pred_rows)
     total_value = len(all_bets)
+    profit_html = _profit_curve_html(profit_curve_path)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -174,9 +235,7 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
     font-size: .85em;
     display: inline-block;
   }}
-  .stats-row {{
-    display: flex; gap: 16px; margin-top: 20px;
-  }}
+  .stats-row {{ display: flex; gap: 16px; margin-top: 20px; }}
   .stat-pill {{
     background: rgba(255,255,255,.18);
     border-radius: 20px;
@@ -185,7 +244,7 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
     font-weight: 600;
   }}
 
-  /* Value bets card */
+  /* Cards */
   .top-bets-card {{
     background: white;
     border-radius: 12px;
@@ -230,57 +289,42 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
   .top-bets-card tr:hover td {{ background: #fafbff; }}
   .rank {{ font-size: 1.1em; text-align: center !important; width: 40px; }}
   .league-tag {{
-    background: #e8eaf6;
-    color: #3949ab;
-    border-radius: 4px;
-    padding: 2px 8px;
-    font-size: .8em;
-    font-weight: 600;
+    background: #e8eaf6; color: #3949ab;
+    border-radius: 4px; padding: 2px 8px;
+    font-size: .8em; font-weight: 600;
   }}
   .bet-outcome {{
-    border: 1.5px solid;
-    border-radius: 4px;
-    padding: 2px 8px;
-    font-size: .82em;
-    font-weight: 700;
+    border: 1.5px solid; border-radius: 4px;
+    padding: 2px 8px; font-size: .82em; font-weight: 700;
   }}
   .edge-val {{ font-weight: 700; font-size: 1em; }}
   .odds-val {{ font-weight: 600; color: #333; }}
+  .bk-tag {{ font-size:.78em; color:#666; font-weight:400; }}
 
   /* League sections */
   .league-section {{
-    background: white;
-    border-radius: 12px;
+    background: white; border-radius: 12px;
     box-shadow: 0 2px 12px rgba(0,0,0,.08);
-    margin-bottom: 20px;
-    overflow: hidden;
+    margin-bottom: 20px; overflow: hidden;
   }}
   .league-header {{
-    padding: 14px 24px;
-    border-bottom: 1px solid #eee;
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    padding: 14px 24px; border-bottom: 1px solid #eee;
+    display: flex; align-items: center; gap: 12px;
   }}
   .league-name {{ font-weight: 700; font-size: 1.05em; color: #1a237e; }}
   .value-count {{
-    background: #e8f5e9;
-    color: #2e7d32;
-    border-radius: 12px;
-    padding: 2px 10px;
-    font-size: .8em;
-    font-weight: 600;
+    background: #e8f5e9; color: #2e7d32;
+    border-radius: 12px; padding: 2px 10px;
+    font-size: .8em; font-weight: 600;
   }}
   .fixture-table {{ width: 100%; border-collapse: collapse; font-size: .88em; }}
   .fixture-table th {{
-    background: #f5f6fa;
-    color: #888;
-    font-weight: 600;
-    text-transform: uppercase;
-    font-size: .72em;
-    letter-spacing: .4px;
-    padding: 8px 12px;
-    text-align: left;
+    background: #f5f6fa; color: #888; font-weight: 600;
+    text-transform: uppercase; font-size: .72em; letter-spacing: .4px;
+    padding: 8px 12px; text-align: left;
+  }}
+  .fixture-table .subheader th {{
+    background: #fafafa; padding: 2px 12px; border-bottom: 1px solid #eee;
   }}
   .fixture-table td {{ padding: 10px 12px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }}
   .fixture-table tr:last-child td {{ border-bottom: none; }}
@@ -294,26 +338,26 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
 
   /* Prob bar */
   .prob-cell {{ width: 200px; }}
-  .prob-bar {{
-    display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; margin-bottom: 4px;
-  }}
+  .prob-bar {{ display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; margin-bottom: 4px; }}
   .prob-bar div {{ border-radius: 4px; }}
-  .prob-labels {{
-    display: flex; justify-content: space-between; font-size: .75em; font-weight: 600;
-  }}
+  .prob-labels {{ display: flex; justify-content: space-between; font-size: .75em; font-weight: 600; }}
 
   /* Odds cells */
-  .odds-cell {{ text-align: center; width: 72px; font-weight: 600; color: #444; }}
-  .value-odds {{
-    border-left: 3px solid;
-    background: rgba(255,255,255,.6);
+  .odds-cell {{ text-align: center; width: 82px; font-weight: 600; color: #444; vertical-align: middle; }}
+  .value-odds {{ border-left: 3px solid; }}
+  .b365-val {{ display: block; font-size: .92em; }}
+  .value-price {{ font-weight: 700; }}
+  .edge-chip {{
+    display: inline-block; color: white; border-radius: 3px;
+    padding: 1px 5px; font-size: .72em; font-weight: 700; margin-top: 2px;
   }}
-  .value-odds small {{ display: block; font-weight: 700; }}
+  .max-odds {{
+    display: block; font-size: .75em; color: #2e7d32; font-weight: 500; margin-top: 3px;
+  }}
+  .max-odds em {{ font-style: normal; color: #555; }}
 
   /* Footer */
-  .page-footer {{
-    text-align: center; color: #aaa; font-size: .82em; margin-top: 32px;
-  }}
+  .page-footer {{ text-align: center; color: #aaa; font-size: .82em; margin-top: 32px; }}
 </style>
 </head>
 <body>
@@ -338,7 +382,7 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
       <thead>
         <tr>
           <th>#</th><th>Date</th><th>League</th><th>Fixture</th>
-          <th>Bet</th><th>Edge</th><th>Odds</th>
+          <th>Bet</th><th>Edge</th><th>B365 Odds</th><th>Best Odds</th>
         </tr>
       </thead>
       <tbody>
@@ -346,6 +390,8 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
       </tbody>
     </table>
   </div>
+
+  {profit_html}
 
   {league_html}
 
@@ -357,8 +403,10 @@ def generate_predictions_html(pred_rows: list[dict], threshold: float, fetched_a
 </html>"""
 
 
-def save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at: datetime, output_path: Path) -> Path:
-    html = generate_predictions_html(pred_rows, threshold, fetched_at)
+def save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at: datetime,
+                           output_path: Path, profit_curve_path: Path | None = None) -> Path:
+    html = generate_predictions_html(pred_rows, threshold, fetched_at,
+                                      profit_curve_path=profit_curve_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
     return output_path

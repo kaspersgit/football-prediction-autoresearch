@@ -159,6 +159,10 @@ def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float)
                 continue
             value_bets.append((o, edge))
 
+        def _safe_float(v):
+            try: return float(v)
+            except (TypeError, ValueError): return float("nan")
+
         rows.append({
             "Date": row["Date"],
             "League": row["league"],
@@ -167,6 +171,12 @@ def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float)
             "B365H": float(row["B365H"]),
             "B365D": float(row["B365D"]),
             "B365A": float(row["B365A"]),
+            "CustomMaxH": _safe_float(row.get("CustomMaxH")),
+            "CustomMaxD": _safe_float(row.get("CustomMaxD")),
+            "CustomMaxA": _safe_float(row.get("CustomMaxA")),
+            "CustomMaxBkH": row.get("CustomMaxBkH", ""),
+            "CustomMaxBkD": row.get("CustomMaxBkD", ""),
+            "CustomMaxBkA": row.get("CustomMaxBkA", ""),
             "ModelH": probs["H"],
             "ModelD": probs["D"],
             "ModelA": probs["A"],
@@ -279,7 +289,9 @@ def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at) 
     from src.evaluation.predictions_report import save_predictions_html
     ts = fetched_at.strftime("%Y%m%d_%H%M")
     path = Path(f"reports/predictions_{ts}.html")
-    save_predictions_html(pred_rows, threshold, fetched_at, path)
+    profit_curve = Path("reports/profit_curve.png")
+    save_predictions_html(pred_rows, threshold, fetched_at, path,
+                          profit_curve_path=profit_curve if profit_curve.exists() else None)
     print(f"HTML report saved to {path}")
 
 
