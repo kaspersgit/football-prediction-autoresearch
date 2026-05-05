@@ -472,10 +472,8 @@ def _run_backtest():
     # Build all_predictions: one row per (match × outcome) for embedding in the eval report.
     y_proba = results["y_proba"]
     classes = list(results["classes"])
-    odds_cols = {"H": "B365H", "D": "B365D", "A": "B365A"}
-    eval_df_reset = eval_df.reset_index(drop=True)
     pred_rows = []
-    for i, row in eval_df_reset.iterrows():
+    for i, row in eval_df.iterrows():
         b365h = float(row["B365H"])
         b365d = float(row["B365D"])
         b365a = float(row["B365A"])
