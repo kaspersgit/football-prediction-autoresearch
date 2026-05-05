@@ -143,6 +143,9 @@ function applyFilters() {{
   var minOdds = parseFloat(document.getElementById('filter-min-odds').value);
   var maxOdds = parseFloat(document.getElementById('filter-max-odds').value);
 
+  if (maxEdge < minEdge) maxEdge = minEdge;
+  if (maxOdds < minOdds) maxOdds = minOdds;
+
   filteredBets = ALL_BETS.filter(function(b) {{
     if (b.edge < minEdge || b.edge > maxEdge) return false;
     if (b.odds < minOdds || b.odds > maxOdds) return false;
@@ -380,7 +383,7 @@ function rebuildEdgeBuckets(bets) {{
     var barY = pt + barGap + i * (barH + barGap);
     var barW = Math.abs(sx(d.roi) - x0);
     var barX = d.roi >= 0 ? x0 : x0 - barW;
-    var color = d.roi > 0 ? '#43a047' : '#e53935';
+    var color = d.roi >= 0 ? '#43a047' : '#e53935';
 
     ctx.fillStyle = color;
     ctx.fillRect(barX, barY, barW, barH);
