@@ -1,4 +1,4 @@
-import base64
+import json
 import math
 from datetime import datetime
 from pathlib import Path
@@ -87,7 +87,7 @@ def _top_bets_html(all_bets: list[dict]) -> str:
             if has_max else '<td class="odds-val">—</td>'
         )
         rows.append(
-            f'<tr class="bet-row" data-edge="{b["edge"]:.4f}" data-odds="{b["b365_odds"]:.2f}">'
+            f'<tr class="bet-row" data-edge="{b["edge"]:.4f}" data-odds="{b["b365_odds"]:.2f}" data-model-prob="{b["model_prob"]:.4f}">'
             f'<td class="rank">{medal}</td>'
             f'<td>{b["date"]}</td>'
             f'<td><span class="league-tag">{_LEAGUE_NAMES.get(b["league"], b["league"])}</span></td>'
@@ -163,122 +163,47 @@ def _league_section_html(league: str, rows: list[dict]) -> str:
 
 # ── historical monthly × league performance ──────────────────────────────────
 
-def _monthly_league_table_html(bets: pd.DataFrame) -> str:
-    """Render a month × league ROI summary from backtest bet history."""
+def _monthly_league_table_html(bets: pd.DataFrame | None) -> str:
+    """Container for month × league ROI table — populated by JS from BACKTEST_BETS."""
     if bets is None or bets.empty:
         return ""
-
-    bets = bets.copy()
-    bets["Date"] = pd.to_datetime(bets["Date"])
-    bets["month"] = bets["Date"].dt.to_period("M")
-
-    # Normalise league codes to full names used in _LEAGUE_ORDER
-    code_to_full = {v: k for k, v in _LEAGUE_CODES.items()}
-    bets["league_full"] = bets["league"].map(
-        lambda x: x if x in _LEAGUE_ORDER else code_to_full.get(x, x)
-    )
-
-    months = sorted(bets["month"].unique())
-    leagues = [lg for lg in _LEAGUE_ORDER if lg in bets["league_full"].values]
-
-    def cell(sub):
-        if sub.empty:
-            return '<td class="perf-empty">—</td>'
-        n = len(sub)
-        total_stake = sub["stake"].sum()
-        total_profit = sub["profit"].sum()
-        roi = (total_profit / total_stake * 100) if total_stake > 0 else 0.0
-        wins = (sub["y_true"] == sub["y_pred"]).sum()
-        color_cls = "perf-pos" if roi > 0 else "perf-neg"
-        return (
-            f'<td class="{color_cls}" title="{wins}W/{n-wins}L">'
-            f'{n}b&nbsp;<strong>{roi:+.0f}%</strong>'
-            f'</td>'
-        )
-
-    # Total column per month
-    def total_cell(sub):
-        if sub.empty:
-            return '<td class="perf-empty">—</td>'
-        n = len(sub)
-        total_stake = sub["stake"].sum()
-        total_profit = sub["profit"].sum()
-        roi = (total_profit / total_stake * 100) if total_stake > 0 else 0.0
-        wins = (sub["y_true"] == sub["y_pred"]).sum()
-        color_cls = "perf-pos" if roi > 0 else "perf-neg"
-        return (
-            f'<td class="{color_cls} perf-total" title="{wins}W/{n-wins}L">'
-            f'{n}b&nbsp;<strong>{roi:+.0f}%</strong>'
-            f'</td>'
-        )
-
-    header_cols = "".join(
-        f'<th>{_LEAGUE_NAMES.get(lg, lg)[:3]}</th>' for lg in leagues
-    )
-
-    body_rows = []
-    for month in months:
-        month_bets = bets[bets["month"] == month]
-        row_cells = "".join(
-            cell(month_bets[month_bets["league_full"] == lg]) for lg in leagues
-        )
-        body_rows.append(
-            f'<tr><td class="month-label">{month.strftime("%b %y")}</td>'
-            f'{row_cells}'
-            f'{total_cell(month_bets)}</tr>'
-        )
-
-    # Grand-total row
-    total_cells = ""
-    for lg in leagues:
-        sub = bets[bets["league_full"] == lg]
-        n = len(sub)
-        roi = (sub["profit"].sum() / sub["stake"].sum() * 100) if sub["stake"].sum() > 0 else 0.0
-        color_cls = "perf-pos" if roi > 0 else "perf-neg"
-        total_cells += f'<td class="{color_cls} perf-total"><strong>{roi:+.0f}%</strong><br><small>{n}b</small></td>'
-    overall_roi = (bets["profit"].sum() / bets["stake"].sum() * 100) if bets["stake"].sum() > 0 else 0.0
-    overall_n = len(bets)
-    color_cls = "perf-pos" if overall_roi > 0 else "perf-neg"
-    total_cells += f'<td class="{color_cls} perf-total"><strong>{overall_roi:+.0f}%</strong><br><small>{overall_n}b</small></td>'
-
-    return f"""
+    return """
 <div class="top-bets-card" style="margin-bottom:24px">
   <div class="card-header">
     Historical Performance by Month
-    <span style="font-size:.8em;font-weight:400;color:#888;margin-left:8px">backtest · 20/odds staking · threshold 0.03 · max odds 4.0</span>
+    <span id="perf-table-subtitle" style="font-size:.8em;font-weight:400;color:#888;margin-left:8px">backtest · 20/odds staking</span>
   </div>
-  <div style="overflow-x:auto;padding:4px 0">
-  <table class="perf-table">
-    <thead>
-      <tr>
-        <th>Month</th>{header_cols}<th>Total</th>
-      </tr>
-    </thead>
-    <tbody>
-      {"".join(body_rows)}
-    </tbody>
-    <tfoot>
-      <tr><td class="month-label"><strong>All</strong></td>{total_cells}</tr>
-    </tfoot>
-  </table>
-  </div>
+  <div style="overflow-x:auto;padding:4px 0" id="perf-table-container"></div>
 </div>"""
+
+
+# ── backtest data embed ───────────────────────────────────────────────────────
+
+def _backtest_data_script(historical_bets: pd.DataFrame | None) -> str:
+    if historical_bets is None or historical_bets.empty:
+        return "<script>var BACKTEST_BETS=[];</script>"
+    needed = ["Date", "league", "stake", "profit", "odds", "model_prob", "implied_prob", "y_true", "y_pred"]
+    cols = [c for c in needed if c in historical_bets.columns]
+    df = historical_bets[cols].copy()
+    df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
+    df = df.rename(columns={"Date": "date"})
+    records = df.to_dict("records")
+    return f"<script>\nvar BACKTEST_BETS={json.dumps(records, separators=(',', ':'))};\n</script>"
 
 
 # ── profit curve ─────────────────────────────────────────────────────────────
 
-def _profit_curve_html(path: Path | None) -> str:
-    if path is None or not path.exists():
+def _profit_curve_html(historical_bets: pd.DataFrame | None) -> str:
+    if historical_bets is None or historical_bets.empty:
         return ""
-    data = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f"""
+    return """
 <div class="top-bets-card" style="margin-bottom:24px">
   <div class="card-header">
     Backtest Profit Curve
-    <span style="font-size:.8em;font-weight:400;color:#888;margin-left:8px">last 2 seasons walk-forward</span>
+    <span id="profit-curve-subtitle" style="font-size:.8em;font-weight:400;color:#888;margin-left:8px">last 2 seasons walk-forward</span>
   </div>
-  <div style="padding:16px 24px">
-    <img src="data:image/png;base64,{data}" style="width:100%;max-width:900px;display:block;margin:0 auto" alt="Profit curve">
+  <div style="padding:16px 24px" id="profit-curve-container">
+    <canvas id="profit-curve-canvas" style="width:100%;max-width:860px;display:block;margin:0 auto"></canvas>
   </div>
 </div>"""
 
@@ -291,7 +216,7 @@ def _filter_bar_html(default_threshold: float) -> str:
 <div class="filter-bar">
   <div class="filter-group">
     <label>Min edge <span id="lbl-threshold">{thr_pct}%</span></label>
-    <input type="range" id="filter-threshold" min="0" max="15" step="1" value="{thr_pct}"
+    <input type="range" id="filter-threshold" min="{thr_pct}" max="15" step="1" value="{thr_pct}"
            oninput="document.getElementById('lbl-threshold').textContent=this.value+'%';applyFilters()">
   </div>
   <div class="filter-group">
@@ -309,10 +234,253 @@ def _filter_bar_html(default_threshold: float) -> str:
   </div>
 </div>
 <script>
+// ── backtest filtering helpers ────────────────────────────────────────────────
+function filterBacktestBets(minEdge, minOdds, maxOdds) {{
+  return BACKTEST_BETS.filter(function(b) {{
+    var edge = b.model_prob - b.implied_prob;
+    return edge >= minEdge && b.odds >= minOdds && b.odds <= maxOdds;
+  }});
+}}
+
+// ── profit curve (canvas) ─────────────────────────────────────────────────────
+function rebuildProfitCurve(bets) {{
+  var canvas = document.getElementById('profit-curve-canvas');
+  if (!canvas || !BACKTEST_BETS.length) return;
+  var container = document.getElementById('profit-curve-container');
+  var W = Math.max((container ? container.clientWidth : 0) - 32, 400);
+  var H = 270;
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  var sorted = bets.slice().sort(function(a, b) {{
+    return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+  }});
+
+  if (sorted.length === 0) {{
+    ctx.fillStyle = '#aaa';
+    ctx.font = '13px -apple-system,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No bets match current filters', W / 2, H / 2);
+    return;
+  }}
+
+  // Series 1: flat 1-unit staking — pure model signal, no bankroll assumption.
+  // Each bet contributes profit/stake = (odds−1) if win, −1 if lose.
+  // Y = 100 + cumulative flat profit (baseline 100 = zero profit).
+  var cum = 0;
+  var series1 = [{{date: sorted[0].date, y: 100}}];
+  sorted.forEach(function(b) {{
+    cum += b.profit / b.stake;
+    series1.push({{date: b.date, y: 100 + cum}});
+  }});
+
+  // Series 2: 0.5%-per-bet fixed-fractional compounding.
+  // Stake = 0.5% of current bankroll each bet; bankroll updates after every result.
+  // This is bankroll-proportional (no arbitrary unit) and truly compounding.
+  // 0.5% keeps the scale comparable to series 1; full Kelly ≈ 12% avg which blows up.
+  var FRAC = 0.005;
+  var bankroll = 100;
+  var series2 = [{{date: sorted[0].date, y: 100}}];
+  sorted.forEach(function(b) {{
+    bankroll *= (1 + FRAC * (b.profit / b.stake));
+    series2.push({{date: b.date, y: bankroll}});
+  }});
+
+  // Combined date range (timestamp-based x axis)
+  var allPts = series1.concat(series2);
+  var minTs = Math.min.apply(null, allPts.map(function(s) {{ return new Date(s.date).getTime(); }}));
+  var maxTs = Math.max.apply(null, allPts.map(function(s) {{ return new Date(s.date).getTime(); }}));
+  var tsRange = maxTs - minTs || 1;
+
+  // Combined y range, anchored at 100
+  var allY = allPts.map(function(s) {{ return s.y; }});
+  var rawMin = Math.min.apply(null, allY), rawMax = Math.max.apply(null, allY);
+  var spread = Math.abs(rawMax - rawMin) || 1;
+  var yMin = Math.min(100, rawMin) - spread * 0.08;
+  var yMax = Math.max(100, rawMax) + spread * 0.08;
+  if (yMax === yMin) {{ yMin -= 1; yMax += 1; }}
+  var yRange = yMax - yMin;
+
+  var pl = 56, pr = 24, pt = 16, pb = 50;
+  var cw = W - pl - pr, ch = H - pt - pb;
+
+  function sxD(dateStr) {{ return pl + (new Date(dateStr).getTime() - minTs) / tsRange * cw; }}
+  function sy(y) {{ return pt + (1 - (y - yMin) / yRange) * ch; }}
+  var y0 = sy(100);
+
+  // Green/red fill follows series 2 (the bankroll simulation — the one with % meaning)
+  ctx.fillStyle = 'rgba(67,160,71,0.12)';
+  ctx.beginPath(); ctx.moveTo(sxD(series2[0].date), y0);
+  series2.forEach(function(s) {{ ctx.lineTo(sxD(s.date), Math.min(sy(s.y), y0)); }});
+  ctx.lineTo(sxD(series2[series2.length-1].date), y0); ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = 'rgba(229,57,53,0.12)';
+  ctx.beginPath(); ctx.moveTo(sxD(series2[0].date), y0);
+  series2.forEach(function(s) {{ ctx.lineTo(sxD(s.date), Math.max(sy(s.y), y0)); }});
+  ctx.lineTo(sxD(series2[series2.length-1].date), y0); ctx.closePath(); ctx.fill();
+
+  // Breakeven line at 100
+  ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pl, y0); ctx.lineTo(pl + cw, y0); ctx.stroke();
+
+  // Series 2: 0.5%/bet compounding (orange, dashed) — drawn first so blue sits on top
+  ctx.strokeStyle = '#e65100'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  series2.forEach(function(s, i) {{
+    var x = sxD(s.date), yy = sy(s.y);
+    if (i === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+  }});
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Series 1: flat 1-unit (dark blue, solid)
+  ctx.strokeStyle = '#1a237e'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  series1.forEach(function(s, i) {{
+    var x = sxD(s.date), yy = sy(s.y);
+    if (i === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+  }});
+  ctx.stroke();
+
+  // Y axis ticks
+  ctx.fillStyle = '#999'; ctx.font = '11px -apple-system,sans-serif'; ctx.textAlign = 'right';
+  var tickStep = Math.pow(10, Math.floor(Math.log10(yRange / 4)));
+  if (yRange / tickStep < 3) tickStep /= 2;
+  if (yRange / tickStep > 8) tickStep *= 2;
+  var firstTick = Math.ceil(yMin / tickStep) * tickStep;
+  for (var t = firstTick; t <= yMax + tickStep * 0.01; t += tickStep) {{
+    var yp = sy(t);
+    if (yp < pt - 5 || yp > pt + ch + 5) continue;
+    ctx.fillStyle = '#999'; ctx.fillText(Math.round(t), pl - 5, yp + 4);
+    if (Math.abs(t - 100) > 0.01) {{
+      ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(pl, yp); ctx.lineTo(pl + cw, yp); ctx.stroke();
+    }}
+  }}
+
+  // X axis labels (monthly, max ~10)
+  var mnNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var labelDates = []; var lastMon = '';
+  series1.forEach(function(s) {{
+    var ym = s.date.slice(0, 7);
+    if (ym !== lastMon) {{ lastMon = ym; labelDates.push(s.date); }}
+  }});
+  var lstep = Math.ceil(labelDates.length / 10);
+  ctx.fillStyle = '#999'; ctx.font = '11px -apple-system,sans-serif'; ctx.textAlign = 'center';
+  labelDates.forEach(function(d, j) {{
+    if (j % lstep !== 0) return;
+    var p = d.split('-');
+    ctx.fillText(mnNames[parseInt(p[1]) - 1] + " '" + p[0].slice(2), sxD(d), pt + ch + 22);
+  }});
+
+  // Axes border
+  ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pl, pt); ctx.lineTo(pl, pt + ch); ctx.lineTo(pl + cw, pt + ch); ctx.stroke();
+
+  // Final value annotations
+  var fin1 = series1[series1.length - 1].y;
+  var fin2 = series2[series2.length - 1].y;
+  ctx.font = 'bold 11px -apple-system,sans-serif'; ctx.textAlign = 'right';
+  ctx.fillStyle = fin1 >= 100 ? '#1a237e' : '#c62828';
+  ctx.fillText(fin1.toFixed(0) + 'u', pl + cw, sy(fin1) + (fin1 >= fin2 ? -8 : 14));
+  ctx.fillStyle = fin2 >= 100 ? '#bf360c' : '#c62828';
+  ctx.fillText(fin2.toFixed(0) + '%', pl + cw, sy(fin2) + (fin2 > fin1 ? -8 : 14));
+
+  // Legend
+  var lx = pl, ly = pt + ch + 38;
+  ctx.font = '11px -apple-system,sans-serif'; ctx.textAlign = 'left';
+  ctx.strokeStyle = '#1a237e'; ctx.lineWidth = 2; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + 20, ly); ctx.stroke();
+  var flatReturn = fin1 - 100;
+  ctx.fillStyle = '#444';
+  ctx.fillText('Flat 1-unit · model signal (' + (flatReturn >= 0 ? '+' : '') + flatReturn.toFixed(0) + ' units)', lx + 24, ly + 4);
+  var lx2 = lx + 220;
+  ctx.strokeStyle = '#e65100'; ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath(); ctx.moveTo(lx2, ly); ctx.lineTo(lx2 + 20, ly); ctx.stroke();
+  ctx.setLineDash([]);
+  var pctReturn = fin2 - 100;
+  ctx.fillStyle = '#444';
+  ctx.fillText('0.5%/bet compounding · bankroll (' + (pctReturn >= 0 ? '+' : '') + pctReturn.toFixed(0) + '%)', lx2 + 24, ly + 4);
+}}
+
+// ── monthly performance table ─────────────────────────────────────────────────
+function rebuildPerformanceTable(bets) {{
+  var container = document.getElementById('perf-table-container');
+  if (!container || !BACKTEST_BETS.length) return;
+
+  if (bets.length === 0) {{
+    container.innerHTML = '<p style="text-align:center;color:#aaa;padding:24px">No bets match current filters</p>';
+    return;
+  }}
+
+  var LG_NAMES = {{'E0':'England','D1':'Germany','SP1':'Spain','I1':'Italy','F1':'France','N1':'Netherlands','P1':'Portugal'}};
+  var LG_ORDER = ['E0','D1','SP1','I1','F1','N1','P1'];
+  var mnNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function fmtMon(m) {{ var p=m.split('-'); return mnNames[parseInt(p[1])-1]+' '+p[0].slice(2); }}
+  function getMonth(d) {{ return d.slice(0, 7); }}
+
+  var months = [], leagues = [], byMonLg = {{}};
+  bets.forEach(function(b) {{
+    var m = getMonth(b.date), lg = b.league;
+    if (!byMonLg[m]) byMonLg[m] = {{}};
+    if (!byMonLg[m][lg]) byMonLg[m][lg] = [];
+    byMonLg[m][lg].push(b);
+    if (months.indexOf(m) < 0) months.push(m);
+    if (leagues.indexOf(lg) < 0) leagues.push(lg);
+  }});
+  months.sort();
+  var activeLgs = LG_ORDER.filter(function(lg) {{ return leagues.indexOf(lg) >= 0; }});
+
+  function cellHtml(arr, extra) {{
+    if (!arr || !arr.length) return '<td class="perf-empty' + (extra?' '+extra:'') + '">—</td>';
+    var n=arr.length, stake=0, profit=0, wins=0;
+    arr.forEach(function(b) {{ stake+=b.stake; profit+=b.profit; if(b.y_true===b.y_pred) wins++; }});
+    var roi = stake > 0 ? profit/stake*100 : 0;
+    var cls = (roi > 0 ? 'perf-pos' : 'perf-neg') + (extra?' '+extra:'');
+    return '<td class="'+cls+'" title="'+wins+'W/'+(n-wins)+'L">'+n+'b&nbsp;<strong>'+(roi>=0?'+':'')+roi.toFixed(0)+'%</strong></td>';
+  }}
+
+  var hdr = activeLgs.map(function(lg) {{ return '<th>'+LG_NAMES[lg].slice(0,3)+'</th>'; }}).join('');
+  var body = months.map(function(m) {{
+    var mBets = bets.filter(function(b) {{ return getMonth(b.date)===m; }});
+    var cells = activeLgs.map(function(lg) {{ return cellHtml(byMonLg[m] && byMonLg[m][lg]); }}).join('');
+    return '<tr><td class="month-label">'+fmtMon(m)+'</td>'+cells+cellHtml(mBets,'perf-total')+'</tr>';
+  }}).join('');
+
+  var foot = activeLgs.map(function(lg) {{
+    var lb = bets.filter(function(b) {{ return b.league===lg; }});
+    var n=lb.length, stake=0, profit=0;
+    lb.forEach(function(b) {{ stake+=b.stake; profit+=b.profit; }});
+    var roi = stake>0 ? profit/stake*100 : 0;
+    return '<td class="'+(roi>0?'perf-pos':'perf-neg')+' perf-total"><strong>'+(roi>=0?'+':'')+roi.toFixed(0)+'%</strong><br><small>'+n+'b</small></td>';
+  }}).join('');
+  var allStake=0, allProfit=0;
+  bets.forEach(function(b) {{ allStake+=b.stake; allProfit+=b.profit; }});
+  var roiAll = allStake>0 ? allProfit/allStake*100 : 0;
+  foot += '<td class="'+(roiAll>0?'perf-pos':'perf-neg')+' perf-total"><strong>'+(roiAll>=0?'+':'')+roiAll.toFixed(0)+'%</strong><br><small>'+bets.length+'b</small></td>';
+
+  container.innerHTML =
+    '<table class="perf-table"><thead><tr><th>Month</th>'+hdr+'<th>Total</th></tr></thead>' +
+    '<tbody>'+body+'</tbody>' +
+    '<tfoot><tr><td class="month-label"><strong>All</strong></td>'+foot+'</tr></tfoot></table>';
+}}
+
+// ── main filter function ───────────────────────────────────────────────────────
 function applyFilters() {{
   var minEdge = parseFloat(document.getElementById('filter-threshold').value) / 100;
   var minOdds = parseFloat(document.getElementById('filter-min-odds').value);
   var maxOdds = parseFloat(document.getElementById('filter-max-odds').value);
+
+  // Filter top value bets table
   var rows = document.querySelectorAll('.bet-row');
   var shown = 0;
   rows.forEach(function(row) {{
@@ -323,7 +491,10 @@ function applyFilters() {{
     if (visible) shown++;
   }});
   document.getElementById('visible-count').textContent = shown;
-  // re-number visible rows
+  var badge = document.getElementById('value-bets-badge');
+  if (badge) badge.textContent = shown;
+
+  // Re-number visible rows
   var rank = 1;
   rows.forEach(function(row) {{
     if (row.style.display !== 'none') {{
@@ -332,6 +503,18 @@ function applyFilters() {{
       rank++;
     }}
   }});
+
+  // Rebuild backtest sections from embedded data
+  if (BACKTEST_BETS.length) {{
+    var filtered = filterBacktestBets(minEdge, minOdds, maxOdds);
+    rebuildProfitCurve(filtered);
+    rebuildPerformanceTable(filtered);
+    // Update subtitles
+    var sub = document.getElementById('perf-table-subtitle');
+    if (sub) sub.textContent = 'backtest · 20/odds staking · ' + filtered.length + ' bets';
+    var psub = document.getElementById('profit-curve-subtitle');
+    if (psub) psub.textContent = 'last 2 seasons walk-forward · ' + filtered.length + ' bets';
+  }}
 }}
 window.addEventListener('DOMContentLoaded', applyFilters);
 </script>"""
@@ -361,6 +544,7 @@ def generate_predictions_html(
                 "b365_odds": r[f"B365{outcome}"],
                 "max_odds": cmax if not math.isnan(cmax) else float("nan"),
                 "max_bk": bk,
+                "model_prob": r[f"Model{outcome}"],
             })
     all_bets.sort(key=lambda x: x["edge"], reverse=True)
 
@@ -377,9 +561,10 @@ def generate_predictions_html(
     fetch_str = fetched_at.strftime("%d %b %Y, %H:%M")
     total_fixtures = len(pred_rows)
     total_value = len(all_bets)
-    profit_html = _profit_curve_html(profit_curve_path)
+    profit_html = _profit_curve_html(historical_bets)
     monthly_html = _monthly_league_table_html(historical_bets)
     filter_html = _filter_bar_html(threshold)
+    backtest_script = _backtest_data_script(historical_bets)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -516,6 +701,7 @@ def generate_predictions_html(
 
   .page-footer {{ text-align: center; color: #aaa; font-size: .82em; margin-top: 32px; }}
 </style>
+{backtest_script}
 </head>
 <body>
 <div class="container">
@@ -535,7 +721,7 @@ def generate_predictions_html(
   <div class="top-bets-card">
     <div class="card-header">
       Top Value Bets
-      <span class="count-badge">{len(all_bets)}</span>
+      <span class="count-badge" id="value-bets-badge">{len(all_bets)}</span>
     </div>
     <table>
       <thead>
