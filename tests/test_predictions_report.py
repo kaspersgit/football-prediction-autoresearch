@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.evaluation.predictions_report import (
     _top_bets_html,
+    _forecast_card_html,
     generate_predictions_html,
 )
 
@@ -72,3 +73,29 @@ def test_top_bets_html_includes_model_prob_attr():
     ]
     html = _top_bets_html(bets)
     assert 'data-model-prob="0.5500"' in html
+
+
+def test_forecast_card_html_empty_when_no_historical():
+    assert _forecast_card_html(None) == ""
+    assert _forecast_card_html(pd.DataFrame()) == ""
+
+
+def test_forecast_card_html_contains_container_id():
+    html = _forecast_card_html(_historical_bets())
+    assert "forecast-card-container" in html
+
+
+def test_generate_predictions_html_includes_forecast_card():
+    html = generate_predictions_html(
+        _pred_rows(), threshold=0.0, fetched_at=datetime(2026, 5, 3),
+        historical_bets=_historical_bets(),
+    )
+    assert "forecast-card-container" in html
+
+
+def test_generate_predictions_html_no_forecast_card_without_historical():
+    html = generate_predictions_html(
+        _pred_rows(), threshold=0.0, fetched_at=datetime(2026, 5, 3),
+        historical_bets=None,
+    )
+    assert "forecast-card-container" not in html

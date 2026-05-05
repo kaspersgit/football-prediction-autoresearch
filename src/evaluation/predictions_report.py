@@ -208,6 +208,19 @@ def _profit_curve_html(historical_bets: pd.DataFrame | None) -> str:
 </div>"""
 
 
+def _forecast_card_html(historical_bets: pd.DataFrame | None) -> str:
+    if historical_bets is None or historical_bets.empty:
+        return ""
+    return """
+<div class="top-bets-card" style="margin-bottom:24px" id="forecast-card">
+  <div class="card-header">
+    Matchweek Forecast
+    <span id="forecast-subtitle" style="font-size:.8em;font-weight:400;color:#888;margin-left:8px">predicted ROI · 95% CI</span>
+  </div>
+  <div id="forecast-card-container" style="padding:16px 24px;min-height:60px"></div>
+</div>"""
+
+
 # ── filter bar ───────────────────────────────────────────────────────────────
 
 def _filter_bar_html(default_threshold: float) -> str:
@@ -563,6 +576,7 @@ def generate_predictions_html(
     total_value = len(all_bets)
     profit_html = _profit_curve_html(historical_bets)
     monthly_html = _monthly_league_table_html(historical_bets)
+    forecast_html = _forecast_card_html(historical_bets)
     filter_html = _filter_bar_html(threshold)
     backtest_script = _backtest_data_script(historical_bets)
 
@@ -717,6 +731,8 @@ def generate_predictions_html(
   </div>
 
   {filter_html}
+
+  {forecast_html}
 
   <div class="top-bets-card">
     <div class="card-header">
