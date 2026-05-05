@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 from pathlib import Path
 
 import matplotlib
@@ -92,12 +93,26 @@ def _cumulative_chart(df: pd.DataFrame) -> str:
     return _fig_to_b64(fig)
 
 
+def _all_predictions_script(all_predictions: "pd.DataFrame | None") -> str:
+    if all_predictions is None or all_predictions.empty:
+        return "<script>var ALL_BETS=[];</script>"
+    needed = ["date", "league", "home", "away", "outcome", "model_prob",
+              "implied_prob", "odds", "y_true", "edge"]
+    cols = [c for c in needed if c in all_predictions.columns]
+    df = all_predictions[cols].copy()
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+    records = df.to_dict("records")
+    return f"<script>\nvar ALL_BETS={json.dumps(records, separators=(',', ':'))};\n</script>"
+
+
 def generate_report(
     results_df: pd.DataFrame,
     accuracy: float,
     roi: float,
     stability: float,
     output_path: Path,
+    all_predictions: "pd.DataFrame | None" = None,
 ) -> None:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -121,5 +136,7 @@ def generate_report(
         n_correct=n_correct,
         n_wrong=n_wrong,
     )
+    all_bets_script = _all_predictions_script(all_predictions)
+    html = html.replace("</head>", f"{all_bets_script}\n</head>", 1)
     output_path.write_text(html, encoding="utf-8")
     print(f"Report saved to {output_path}")

@@ -469,6 +469,40 @@ def _run_backtest():
     bets_with_league.to_csv(bets_path, index=False)
     print(f"Backtest bets saved to {bets_path}")
 
+    # Build all_predictions: one row per (match × outcome) for embedding in the eval report.
+    y_proba = results["y_proba"]
+    classes = list(results["classes"])
+    odds_cols = {"H": "B365H", "D": "B365D", "A": "B365A"}
+    eval_df_reset = eval_df.reset_index(drop=True)
+    pred_rows = []
+    for i, row in eval_df_reset.iterrows():
+        b365h = float(row["B365H"])
+        b365d = float(row["B365D"])
+        b365a = float(row["B365A"])
+        total_implied = 1.0 / b365h + 1.0 / b365d + 1.0 / b365a
+        raw_implied = {"H": 1.0 / b365h, "D": 1.0 / b365d, "A": 1.0 / b365a}
+        fair = {k: v / total_implied for k, v in raw_implied.items()}
+        odds_map = {"H": b365h, "D": b365d, "A": b365a}
+        for j, outcome in enumerate(classes):
+            model_prob = float(y_proba[i, j])
+            implied_prob = fair[outcome]
+            pred_rows.append({
+                "date": row["Date"],
+                "home": row.get("HomeTeam", ""),
+                "away": row.get("AwayTeam", ""),
+                "outcome": outcome,
+                "model_prob": model_prob,
+                "implied_prob": implied_prob,
+                "odds": odds_map[outcome],
+                "y_true": row["y_true"],
+                "edge": model_prob - implied_prob,
+            })
+    all_predictions = pd.DataFrame(pred_rows)
+    all_predictions = all_predictions.merge(
+        league_lookup, left_on=["date", "home", "away"],
+        right_on=["Date", "HomeTeam", "AwayTeam"], how="left"
+    ).drop(columns=["Date", "HomeTeam", "AwayTeam"], errors="ignore")
+
     print("\nGenerating report...")
     generate_report(
         results_df=betting_results,
@@ -476,6 +510,7 @@ def _run_backtest():
         roi=roi,
         stability=stability,
         output_path=Path("reports/evaluation_report.html"),
+        all_predictions=all_predictions,
     )
     print("Done. Open reports/evaluation_report.html to view results.")
 
