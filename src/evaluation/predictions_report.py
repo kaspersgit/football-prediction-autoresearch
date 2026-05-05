@@ -265,7 +265,10 @@ function rebuildForecastCard(backtestFiltered, nUpcoming) {
     totalVar += mp * (1 - mp) * odds * odds;
     count++;
   });
-  if (count === 0) return;
+  if (count === 0) {
+    container.innerHTML = '<p style="text-align:center;color:#aaa;padding:8px 0">Insufficient historical data for this filter combination</p>';
+    return;
+  }
 
   var se = Math.sqrt(totalVar) / count;
   var lower = mean - 1.96 * se;
@@ -308,6 +311,7 @@ function rebuildForecastCard(backtestFiltered, nUpcoming) {
     '</div>';
 }
 """
+        # Leading spaces must match the indentation of rebuildProfitCurve above
         forecast_card_call = "    rebuildForecastCard(filtered, shown);"
     else:
         forecast_card_js = ""

@@ -99,3 +99,11 @@ def test_generate_predictions_html_no_forecast_card_without_historical():
         historical_bets=None,
     )
     assert "forecast-card-container" not in html
+
+
+def test_generate_predictions_html_includes_forecast_js():
+    html = generate_predictions_html(
+        _pred_rows(), threshold=0.0, fetched_at=datetime(2026, 5, 3),
+        historical_bets=_historical_bets(),
+    )
+    assert "rebuildForecastCard" in html
