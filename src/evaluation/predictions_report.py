@@ -223,8 +223,96 @@ def _forecast_card_html(historical_bets: pd.DataFrame | None) -> str:
 
 # ── filter bar ───────────────────────────────────────────────────────────────
 
-def _filter_bar_html(default_threshold: float) -> str:
+def _filter_bar_html(default_threshold: float, has_historical: bool = False) -> str:
     thr_pct = int(round(default_threshold * 100))
+
+    if has_historical:
+        forecast_card_js = """
+// ── matchweek forecast card ───────────────────────────────────────────────────
+function rebuildForecastCard(backtestFiltered, nUpcoming) {
+  var container = document.getElementById('forecast-card-container');
+  if (!container) return;
+  var sub = document.getElementById('forecast-subtitle');
+
+  if (!BACKTEST_BETS.length || backtestFiltered.length < 30) {
+    container.innerHTML = '<p style="text-align:center;color:#aaa;padding:8px 0">Insufficient historical data for this filter combination</p>';
+    return;
+  }
+
+  // Expected ROI from backtest (calibrated point estimate)
+  var returns = backtestFiltered.map(function(b) { return b.profit / b.stake; });
+  var nHist = returns.length;
+  var mean = returns.reduce(function(a, b) { return a + b; }, 0) / nHist;
+
+  if (nUpcoming < 5) {
+    var sign = mean >= 0 ? '+' : '';
+    container.innerHTML =
+      '<div style="padding:8px 0;color:#555;font-size:.9em">Predicted ROI: <strong style="color:' +
+      (mean >= 0 ? '#2e7d32' : '#c62828') + '">' + sign + (mean * 100).toFixed(1) + '%</strong>' +
+      ' &nbsp;·&nbsp; <span style="color:#f57c00">⚠ CI unreliable — fewer than 5 bets</span></div>';
+    if (sub) sub.textContent = 'predicted ROI · ' + nHist + ' hist. bets';
+    return;
+  }
+
+  // Per-bet Bernoulli variance using each upcoming bet's actual odds
+  var upcomingRows = document.querySelectorAll('.bet-row');
+  var totalVar = 0, count = 0;
+  upcomingRows.forEach(function(row) {
+    if (row.style.display === 'none') return;
+    var odds = parseFloat(row.dataset.odds);
+    var mp = parseFloat(row.dataset.modelProb);
+    if (isNaN(odds) || isNaN(mp)) return;
+    totalVar += mp * (1 - mp) * odds * odds;
+    count++;
+  });
+  if (count === 0) return;
+
+  var se = Math.sqrt(totalVar) / count;
+  var lower = mean - 1.96 * se;
+  var upper = mean + 1.96 * se;
+  var lower1s = mean - se;
+  var upper1s = mean + se;
+
+  function fmt(v) { return (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }
+  var roiColor = mean >= 0 ? '#2e7d32' : '#c62828';
+
+  // Map value → % position within [lower, upper]
+  var span = upper - lower || 0.01;
+  function toPos(v) { return Math.max(0, Math.min(100, (v - lower) / span * 100)); }
+  var meanPos = toPos(mean);
+  var l1sPos = toPos(lower1s);
+  var u1sPos = toPos(upper1s);
+
+  if (sub) sub.textContent = 'predicted ROI · ' + nHist + ' hist. bets · ' + count + ' upcoming bets';
+
+  container.innerHTML =
+    '<div style="display:flex;gap:32px;align-items:center;flex-wrap:wrap">' +
+    '<div style="min-width:120px">' +
+      '<div style="font-size:2em;font-weight:700;color:' + roiColor + '">' + fmt(mean) + '</div>' +
+      '<div style="font-size:.8em;color:#888;margin-top:2px">predicted ROI</div>' +
+      '<div style="font-size:.85em;color:#555;margin-top:6px">' + count + ' bet' + (count !== 1 ? 's' : '') + ' this week</div>' +
+    '</div>' +
+    '<div style="flex:1;min-width:220px;padding:8px 0">' +
+      '<div style="position:relative;height:20px;margin:0 8px">' +
+        '<div style="position:absolute;top:9px;left:0;right:0;height:2px;background:#ddd;border-radius:1px"></div>' +
+        '<div style="position:absolute;top:6px;height:8px;background:' + roiColor + ';opacity:.22;border-radius:3px;left:' + l1sPos.toFixed(1) + '%;width:' + (u1sPos - l1sPos).toFixed(1) + '%"></div>' +
+        '<div style="position:absolute;top:2px;width:3px;height:16px;background:' + roiColor + ';border-radius:2px;left:calc(' + meanPos.toFixed(1) + '% - 1.5px)"></div>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:space-between;font-size:.75em;color:#999;margin-top:4px;padding:0 8px">' +
+        '<span>' + fmt(lower) + '</span>' +
+        '<span style="color:' + roiColor + ';font-weight:600">' + fmt(mean) + '</span>' +
+        '<span>' + fmt(upper) + '</span>' +
+      '</div>' +
+      '<div style="text-align:center;font-size:.72em;color:#bbb;margin-top:2px">← 95% confidence interval →</div>' +
+    '</div>' +
+    '</div>';
+}
+"""
+        forecast_card_call = "    rebuildForecastCard(filtered, shown);"
+    else:
+        forecast_card_js = ""
+        forecast_card_call = ""
+
     return f"""
 <div class="filter-bar">
   <div class="filter-group">
@@ -487,6 +575,7 @@ function rebuildPerformanceTable(bets) {{
     '<tfoot><tr><td class="month-label"><strong>All</strong></td>'+foot+'</tr></tfoot></table>';
 }}
 
+{forecast_card_js}
 // ── main filter function ───────────────────────────────────────────────────────
 function applyFilters() {{
   var minEdge = parseFloat(document.getElementById('filter-threshold').value) / 100;
@@ -522,7 +611,7 @@ function applyFilters() {{
     var filtered = filterBacktestBets(minEdge, minOdds, maxOdds);
     rebuildProfitCurve(filtered);
     rebuildPerformanceTable(filtered);
-    // Update subtitles
+{forecast_card_call}
     var sub = document.getElementById('perf-table-subtitle');
     if (sub) sub.textContent = 'backtest · 20/odds staking · ' + filtered.length + ' bets';
     var psub = document.getElementById('profit-curve-subtitle');
@@ -577,7 +666,7 @@ def generate_predictions_html(
     profit_html = _profit_curve_html(historical_bets)
     monthly_html = _monthly_league_table_html(historical_bets)
     forecast_html = _forecast_card_html(historical_bets)
-    filter_html = _filter_bar_html(threshold)
+    filter_html = _filter_bar_html(threshold, has_historical=historical_bets is not None and not historical_bets.empty)
     backtest_script = _backtest_data_script(historical_bets)
 
     return f"""<!DOCTYPE html>
