@@ -171,7 +171,7 @@ def _monthly_league_table_html(bets: pd.DataFrame | None) -> str:
 <div class="top-bets-card" style="margin-bottom:24px">
   <div class="card-header">
     Historical Performance by Month
-    <span id="perf-table-subtitle" style="font-size:.8em;font-weight:400;color:#888;margin-left:8px">backtest · 20/odds staking</span>
+    <span id="perf-table-subtitle" style="font-size:.8em;font-weight:400;color:#888;margin-left:8px">backtest · flat staking</span>
   </div>
   <div style="overflow-x:auto;padding:4px 0" id="perf-table-container"></div>
 </div>"""
@@ -320,8 +320,8 @@ function rebuildForecastCard(backtestFiltered, nUpcoming) {
     return f"""
 <div class="filter-bar">
   <div class="filter-group">
-    <label>Min edge <span id="lbl-threshold">{thr_pct}%</span></label>
-    <input type="range" id="filter-threshold" min="{thr_pct}" max="15" step="1" value="{thr_pct}"
+    <label>Min edge <span id="lbl-threshold">3%</span></label>
+    <input type="range" id="filter-threshold" min="0" max="15" step="1" value="3"
            oninput="document.getElementById('lbl-threshold').textContent=this.value+'%';applyFilters()">
   </div>
   <div class="filter-group">
@@ -375,26 +375,31 @@ function rebuildProfitCurve(bets) {{
     return;
   }}
 
+  // Aggregate bets by date so each day contributes exactly one point per series.
+  var byDate = {{}};
+  sorted.forEach(function(b) {{
+    if (!byDate[b.date]) byDate[b.date] = [];
+    byDate[b.date].push(b.profit / b.stake);
+  }});
+  var dates = Object.keys(byDate).sort();
+
   // Series 1: flat 1-unit staking — pure model signal, no bankroll assumption.
-  // Each bet contributes profit/stake = (odds−1) if win, −1 if lose.
   // Y = 100 + cumulative flat profit (baseline 100 = zero profit).
   var cum = 0;
-  var series1 = [{{date: sorted[0].date, y: 100}}];
-  sorted.forEach(function(b) {{
-    cum += b.profit / b.stake;
-    series1.push({{date: b.date, y: 100 + cum}});
+  var series1 = [{{date: dates[0], y: 100}}];
+  dates.forEach(function(d) {{
+    byDate[d].forEach(function(r) {{ cum += r; }});
+    series1.push({{date: d, y: 100 + cum}});
   }});
 
   // Series 2: 0.5%-per-bet fixed-fractional compounding.
-  // Stake = 0.5% of current bankroll each bet; bankroll updates after every result.
-  // This is bankroll-proportional (no arbitrary unit) and truly compounding.
-  // 0.5% keeps the scale comparable to series 1; full Kelly ≈ 12% avg which blows up.
+  // Each bet within a day compounds the bankroll individually before the next.
   var FRAC = 0.005;
   var bankroll = 100;
-  var series2 = [{{date: sorted[0].date, y: 100}}];
-  sorted.forEach(function(b) {{
-    bankroll *= (1 + FRAC * (b.profit / b.stake));
-    series2.push({{date: b.date, y: bankroll}});
+  var series2 = [{{date: dates[0], y: 100}}];
+  dates.forEach(function(d) {{
+    byDate[d].forEach(function(r) {{ bankroll *= (1 + FRAC * r); }});
+    series2.push({{date: d, y: bankroll}});
   }});
 
   // Combined date range (timestamp-based x axis)
@@ -547,9 +552,9 @@ function rebuildPerformanceTable(bets) {{
 
   function cellHtml(arr, extra) {{
     if (!arr || !arr.length) return '<td class="perf-empty' + (extra?' '+extra:'') + '">—</td>';
-    var n=arr.length, stake=0, profit=0, wins=0;
-    arr.forEach(function(b) {{ stake+=b.stake; profit+=b.profit; if(b.y_true===b.y_pred) wins++; }});
-    var roi = stake > 0 ? profit/stake*100 : 0;
+    var n=arr.length, flatProfit=0, wins=0;
+    arr.forEach(function(b) {{ flatProfit += b.profit/b.stake; if(b.y_true===b.y_pred) wins++; }});
+    var roi = n > 0 ? flatProfit/n*100 : 0;
     var cls = (roi > 0 ? 'perf-pos' : 'perf-neg') + (extra?' '+extra:'');
     return '<td class="'+cls+'" title="'+wins+'W/'+(n-wins)+'L">'+n+'b&nbsp;<strong>'+(roi>=0?'+':'')+roi.toFixed(0)+'%</strong></td>';
   }}
@@ -563,14 +568,14 @@ function rebuildPerformanceTable(bets) {{
 
   var foot = activeLgs.map(function(lg) {{
     var lb = bets.filter(function(b) {{ return b.league===lg; }});
-    var n=lb.length, stake=0, profit=0;
-    lb.forEach(function(b) {{ stake+=b.stake; profit+=b.profit; }});
-    var roi = stake>0 ? profit/stake*100 : 0;
+    var n=lb.length, fp=0;
+    lb.forEach(function(b) {{ fp += b.profit/b.stake; }});
+    var roi = n>0 ? fp/n*100 : 0;
     return '<td class="'+(roi>0?'perf-pos':'perf-neg')+' perf-total"><strong>'+(roi>=0?'+':'')+roi.toFixed(0)+'%</strong><br><small>'+n+'b</small></td>';
   }}).join('');
-  var allStake=0, allProfit=0;
-  bets.forEach(function(b) {{ allStake+=b.stake; allProfit+=b.profit; }});
-  var roiAll = allStake>0 ? allProfit/allStake*100 : 0;
+  var flatProfitAll=0;
+  bets.forEach(function(b) {{ flatProfitAll += b.profit/b.stake; }});
+  var roiAll = bets.length>0 ? flatProfitAll/bets.length*100 : 0;
   foot += '<td class="'+(roiAll>0?'perf-pos':'perf-neg')+' perf-total"><strong>'+(roiAll>=0?'+':'')+roiAll.toFixed(0)+'%</strong><br><small>'+bets.length+'b</small></td>';
 
   container.innerHTML =
@@ -617,7 +622,7 @@ function applyFilters() {{
     rebuildPerformanceTable(filtered);
 {forecast_card_call}
     var sub = document.getElementById('perf-table-subtitle');
-    if (sub) sub.textContent = 'backtest · 20/odds staking · ' + filtered.length + ' bets';
+    if (sub) sub.textContent = 'backtest · flat staking · ' + filtered.length + ' bets';
     var psub = document.getElementById('profit-curve-subtitle');
     if (psub) psub.textContent = 'last 2 seasons walk-forward · ' + filtered.length + ' bets';
   }}
