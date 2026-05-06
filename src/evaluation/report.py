@@ -632,12 +632,18 @@ function rebuildCumulativeChart(bets) {{
     return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
   }});
 
-  // Build series: start at 0, add unit return after each bet
-  var series = [{{date: sorted[0].date, y: 0}}];
-  var cum = 0;
+  // Build series: aggregate daily returns, then cumulative
+  var byDate = {{}};
   sorted.forEach(function(b) {{
-    cum += b.y_true === b.outcome ? (b.odds - 1) : -1;
-    series.push({{date: b.date, y: cum}});
+    var r = b.y_true === b.outcome ? (b.odds - 1) : -1;
+    byDate[b.date] = (byDate[b.date] || 0) + r;
+  }});
+  var dates = Object.keys(byDate).sort();
+  var series = [{{date: dates[0], y: 0}}];
+  var cum = 0;
+  dates.forEach(function(d) {{
+    cum += byDate[d];
+    series.push({{date: d, y: cum}});
   }});
 
   var allY = series.map(function(s) {{ return s.y; }});
