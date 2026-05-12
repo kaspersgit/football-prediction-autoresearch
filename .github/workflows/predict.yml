@@ -61,6 +61,7 @@ jobs:
           mkdir -p docs
           latest=$(ls -t reports/predictions_*.html | head -1)
           cp "$latest" docs/index.html
+          touch docs/.nojekyll
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
