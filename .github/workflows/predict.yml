@@ -48,7 +48,7 @@ jobs:
           EOF
 
       - name: Run predictions
-        run: uv run python main.py --predict --threshold 0.04
+        run: uv run python main.py --predict --threshold 0.0
 
       - name: Save updated match data to cache
         uses: actions/cache/save@v4
