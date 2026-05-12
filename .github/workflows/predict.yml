@@ -60,7 +60,7 @@ jobs:
         run: |
           mkdir -p docs
           latest=$(ls -t reports/predictions_*.html | head -1)
-          cp "$latest" docs/index.html
+          cp "$latest" docs/predictions.html
           touch docs/.nojekyll
 
       - name: Deploy to GitHub Pages
