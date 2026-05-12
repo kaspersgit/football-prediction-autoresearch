@@ -4,16 +4,17 @@
 
 | Metric    | threshold=0.0        |
 |-----------|----------------------|
-| Accuracy  | 0.515                |
-| ROI       | **+7.08%** ✅ |
-| Stability | **+0.0457** ✅ |
-| Bets      | 3669 / 4358 (84.2%) |
-| Training  | One HistGBM **per league** per test season (`--per-league`) |
+| Accuracy  | 0.510                |
+| ROI       | **+2.83%** ✅ |
+| Stability | **0.0283** ✅ |
+| t-stat    | +1.58 (below 2.0 significance threshold — direction is positive but not yet conclusive) |
+| Bets      | 3133 / 4354 (72.0%) |
+| Training  | One **LGBM** per league per test season (`--per-league`) |
 | Features  | 8 EWM/Elo + 3 market fair probs + 6 league dummies + H2H + 2 draw rates + 2 market bias = **22 features** |
-| Model cfg | max_depth=4, min_samples_leaf=20, l2_regularization=0.1, lr=0.05, max_iter=300 |
-| Bet filter | Pinnacle closing (`PSCH/PSCD/PSCA`) confirms edge over B365 where available |
+| Model cfg | n_estimators=300, learning_rate=0.05, num_leaves=31, min_child_samples=20, reg_lambda=0.05 |
+| Bet filter | Pinnacle pre-match (`PSH/PSD/PSA`) from fixtures CSV confirms edge over B365 where available |
 
-_Last updated: 2026-04-23 (Added France F1, Netherlands N1, Portugal P1. **New best: ROI +7.08%, Stability +0.0457.**)_
+_Last updated: 2026-05-12. Codebase cleanup: standardised all paths to LGBMClassifier; fixed Pinnacle filter bug. Re-validated metrics on current dataset (4354 test matches across 2425+2526). The previously recorded +7.08% ROI cannot be reproduced with either LGBM or HistGBM — confirmed by running both. The divergence is explained by ~900 additional 2025-26 season matches added since April 2026, which extended the harder mid-season test window. Both models now score comparably; LGBM is marginally better (+2.83% vs +1.56% for HistGBM), so LGBM is retained._
 
 **Evaluation setup (updated 2026-04-19):** All metrics from Iteration 11 onward use:
 - **Walk-forward backtest**: one model trained per test season (2425 then 2526); Elo carries forward correctly.

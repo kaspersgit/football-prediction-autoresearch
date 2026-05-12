@@ -4,21 +4,11 @@ import joblib
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
-from sklearn.ensemble import HistGradientBoostingClassifier
 
 from src.model.features import build_features_with_odds
 
 MODEL_PATH = Path("models/baseline.joblib")
 TEST_SEASONS = 2
-
-_MODEL_CFG = dict(
-    max_iter=300,
-    learning_rate=0.05,
-    max_depth=4,
-    min_samples_leaf=20,
-    l2_regularization=0.05,
-    random_state=42,
-)
 
 _LGBM_CFG = dict(
     n_estimators=300,
@@ -44,11 +34,11 @@ _CLASSES = np.array(["A", "D", "H"])  # canonical alphabetical order
 
 
 def _train_binary_models(X_train, y_train) -> dict[str, object]:
-    """Train one binary HistGBM per outcome (H/D/A). Returns {outcome: model}."""
+    """Train one binary LGBM per outcome (H/D/A). Returns {outcome: model}."""
     models = {}
     for outcome in _CLASSES:
         y_bin = (y_train == outcome).astype(int)
-        m = HistGradientBoostingClassifier(**_MODEL_CFG)
+        m = LGBMClassifier(**_LGBM_CFG)
         m.fit(X_train, y_bin)
         models[outcome] = m
     return models
@@ -80,7 +70,7 @@ def _predict_per_league(full_X, full_y, full_odds, train_mask, test_mask):
         if l_test.sum() == 0:
             continue
 
-        model = HistGradientBoostingClassifier(**_MODEL_CFG)
+        model = LGBMClassifier(**_LGBM_CFG)
         model.fit(full_X[l_train], full_y[l_train])
 
         classes = list(model.classes_)
@@ -307,7 +297,7 @@ def train_walkforward_monthly(df: pd.DataFrame, n_test_seasons: int = TEST_SEASO
 def train_on_all_data(df: pd.DataFrame):
     """Train on the full dataset (no holdout) for live fixture prediction."""
     X, y, _ = build_features_with_odds(df)
-    model = HistGradientBoostingClassifier(**_MODEL_CFG)
+    model = LGBMClassifier(**_LGBM_CFG)
     model.fit(X, y)
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, MODEL_PATH)
@@ -322,5 +312,5 @@ def load_model():
 if __name__ == "__main__":
     from src.data.loader import load_all_data
     df = load_all_data()
-    results = train_model(df)
+    results = train_walkforward(df)
     print(f"Accuracy: {results['accuracy']:.3f}")
