@@ -1,6 +1,6 @@
 data/raw/
 models/
-reports/
+reports/*
 !reports/backtest_bets.csv
 __pycache__/
 *.pyc
