@@ -1,0 +1,70 @@
+name: Predict
+
+on:
+  schedule:
+    - cron: '0 6 * * 2'  # Tuesday 06:00 UTC (midweek fixtures)
+    - cron: '0 6 * * 5'  # Friday  06:00 UTC (weekend fixtures)
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed by peaceiris/actions-gh-pages to push to gh-pages branch
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ hashFiles('uv.lock') }}
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Restore historical match data
+        uses: actions/cache/restore@v4
+        id: cache-data
+        with:
+          path: data/raw
+          key: football-data-${{ github.run_id }}
+          restore-keys: football-data-
+
+      - name: Download historical data (first run or cache miss)
+        run: |
+          uv run python - <<'EOF'
+          import glob
+          csvs = [f for f in glob.glob("data/raw/*.csv") if "fixtures" not in f]
+          if len(csvs) < 50:
+              from src.data.download import download_all
+              download_all()
+          EOF
+
+      - name: Run predictions
+        run: uv run python main.py --predict --threshold 0.04
+
+      - name: Save updated match data to cache
+        uses: actions/cache/save@v4
+        with:
+          path: data/raw
+          key: football-data-${{ github.run_id }}
+
+      - name: Stage HTML for Pages
+        run: |
+          mkdir -p docs
+          latest=$(ls -t reports/predictions_*.html | head -1)
+          cp "$latest" docs/index.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          keep_files: true  # preserve eval.html between predict runs
