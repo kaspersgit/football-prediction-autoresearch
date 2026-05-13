@@ -32,7 +32,8 @@ from src.data.loader import load_all_data
 from src.evaluation.metrics import compute_roi, compute_stability, compute_value_betting_results
 from src.evaluation.report import generate_report
 from src.model.features import FEATURE_COLS, build_features_with_odds, build_fixture_features
-from src.model.train import split_by_season, train_on_all_data, train_walkforward, train_walkforward_monthly
+from src.model.train import _CLASSES as _TRAIN_CLASSES
+from src.model.train import split_by_season, train_on_all_data, train_on_all_data_per_league, train_walkforward, train_walkforward_monthly
 
 
 def _parse_threshold() -> float:
@@ -109,8 +110,8 @@ def _run_predict():
     df = load_all_data()
     print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
 
-    print("Training on full dataset...")
-    model = train_on_all_data(df)
+    print("Training per-league models on full dataset...")
+    models = train_on_all_data_per_league(df)
 
     print("Loading fixtures...")
     fixtures_df = load_fixtures()
@@ -126,9 +127,21 @@ def _run_predict():
     if dropped:
         print(f"  {dropped} fixture(s) dropped — teams with < {5} games history")
 
+    # Exclude France (consistently negative ROI — not a betting market)
+    fixture_features = fixture_features[fixture_features["league"] != "F1"].reset_index(drop=True)
+
+    # Per-league inference: use each league's own model
     X_fix = fixture_features[FEATURE_COLS]
-    y_proba = model.predict_proba(X_fix)
-    classes = list(model.classes_)
+    classes = list(_TRAIN_CLASSES)
+    y_proba = np.zeros((len(X_fix), len(classes)))
+    for league, model in models.items():
+        mask = (fixture_features["league"] == league).values
+        if mask.sum() == 0:
+            continue
+        proba = model.predict_proba(X_fix[mask])
+        model_classes = list(model.classes_)
+        col_order = [model_classes.index(c) for c in classes if c in model_classes]
+        y_proba[mask] = proba[:, col_order]
 
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold)
 
@@ -174,7 +187,7 @@ def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float)
             edge = probs[o] - fair[o]
             if edge <= threshold:
                 continue
-            if ps_fair is not None and ps_fair[o] <= fair[o]:
+            if ps_fair is not None and ps_fair[o] <= fair[o] + 0.015:
                 continue
             value_bets.append((o, edge))
 
@@ -435,6 +448,7 @@ def _run_backtest():
         inv_odds_factor=inv_odds_factor,
         min_stake=min_stake,
         max_odds=max_odds,
+        skip_leagues={"F1"},
     )
     roi = compute_roi(betting_results)
     stability = compute_stability(betting_results)

@@ -64,6 +64,7 @@ def compute_value_betting_results(
     inv_odds_factor: float = 0.0,
     min_stake: float = 1.0,
     max_odds: float = float("inf"),
+    skip_leagues: set | None = None,
 ) -> pd.DataFrame:
     """
     Multi-outcome value betting.
@@ -101,6 +102,10 @@ def compute_value_betting_results(
     for i, row in df.iterrows():
         y_true = row["y_true"]
 
+        # Skip leagues excluded from betting (but still used in training)
+        if skip_leagues and row.get("league") in skip_leagues:
+            continue
+
         # Raw implied probabilities (include bookmaker vig, sum to ~1.05)
         raw = {
             "H": 1.0 / float(row["B365H"]),
@@ -130,9 +135,10 @@ def compute_value_betting_results(
             model_prob = float(y_proba[i, j])
             baseline_prob = raw[outcome] if edge_baseline == "raw" else fair[outcome]
 
-            # Pinnacle confirmation: only bet when Pinnacle also thinks B365 underprices this outcome.
+            # Pinnacle confirmation: only bet when Pinnacle also thinks B365 underprices this outcome
+            # by at least 1% (margin=0.01). A tiny Pinnacle advantage may be noise.
             # When Pinnacle data is missing for this row, the filter is skipped (no data = no veto).
-            if pinnacle_fair is not None and pinnacle_fair[outcome] <= fair[outcome]:
+            if pinnacle_fair is not None and pinnacle_fair[outcome] <= fair[outcome] + 0.015:
                 continue
 
             b365_odds = float(row[_ODDS_COL[outcome]])

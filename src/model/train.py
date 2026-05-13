@@ -11,7 +11,7 @@ MODEL_PATH = Path("models/baseline.joblib")
 TEST_SEASONS = 2
 
 _LGBM_CFG = dict(
-    n_estimators=300,
+    n_estimators=400,
     learning_rate=0.05,
     num_leaves=31,
     min_child_samples=20,
@@ -303,6 +303,21 @@ def train_on_all_data(df: pd.DataFrame):
     joblib.dump(model, MODEL_PATH)
     print(f"Model trained on {len(X)} matches, saved to {MODEL_PATH}")
     return model
+
+
+def train_on_all_data_per_league(df: pd.DataFrame) -> dict:
+    """Train one LGBM per league on the full dataset for live fixture prediction."""
+    X, y, odds = build_features_with_odds(df)
+    models = {}
+    for league in _LEAGUES:
+        mask = odds["league"] == league
+        if mask.sum() < 50:
+            continue
+        model = LGBMClassifier(**_LGBM_CFG)
+        model.fit(X[mask], y[mask])
+        models[league] = model
+        print(f"  {league}: trained on {int(mask.sum())} matches")
+    return models
 
 
 def load_model():
