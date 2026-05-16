@@ -95,7 +95,7 @@ def load_fixtures() -> pd.DataFrame:
     for col in _FIXTURE_ODDS_COLS:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=_FIXTURE_ODDS_COLS)
-    df["league"] = df["Div"].map(_LEAGUE_MAP)
+    df["league"] = df["Div"]  # use league code matching training data format (E0, D1, etc.)
     # Include pre-match Pinnacle odds when available (null-safe: filter skipped when absent)
     for c in _FIXTURE_PINNACLE_COLS:
         if c not in df.columns:

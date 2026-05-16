@@ -1,4 +1,8 @@
-# Possible Improvements
+# Possible Improvements — ARCHIVED
+
+> **This file is archived as of 2026-05-13.**
+> `autoresearch/state.md` is the single source of truth for all iteration results.
+> Do not add new iteration entries here.
 
 ## Evaluation Standards (established 2026-04-26)
 

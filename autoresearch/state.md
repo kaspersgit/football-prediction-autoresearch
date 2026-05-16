@@ -1094,6 +1094,7 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 **Analysis:** Adding the four derived features hurt rather than helped. The most likely explanation is multicollinearity: `home_form_gd` is a deterministic linear combination of `home_form_gf` and `home_form_ga` (already in the feature set), and `elo_diff` is a linear combination of `home_elo` and `away_elo`. While HistGBM is tree-based and theoretically tolerant of correlated features, adding redundant linear combinations can still inflate variance by splitting the tree budget across equivalent signals, reducing generalization. The `league_code` categorical likely offers negligible additional discriminative power since the Elo system already captures cross-league team strength implicitly. The result is a net regression: Iter 6 remains the best. Future directions should avoid derived features that are pure linear combinations of existing ones; instead pursue genuinely new information (head-to-head records, season phase, squad depth).
 
+
 ---
 
 ## Iteration 6: HistGBM with Elo + Rolling Features (All Bets)
@@ -1362,3 +1363,8 @@ The optimal threshold was selected on the pre-odds, pre-league model (Iter 15). 
 3. **Feature: home advantage ratio (B365H odds / B365A odds) vs Elo:** Market-derived home advantage signal may carry information orthogonal to ELO_HOME_ADV.
 4. **Weighted training: recent seasons weighted more:** If the last 3 seasons are weighted 2x vs earlier seasons, this may reduce concept drift in per-league models.
 5. **learning_rate=0.03 with n_estimators=600:** A lower learning rate with more trees may find a better minimum without the overfitting risk of more leaves.
+
+---
+
+<!-- APPEND NEW ITERATIONS BELOW THIS LINE — chronological order, newest at bottom.
+     See autoresearch/GUIDE.md for the protocol. -->

@@ -4,6 +4,13 @@
 
 You are an autoresearch LLM tasked with iteratively improving the football match prediction model's **ROI** and **profit stability**. Your job is to run hypothesis-driven experiments, measure their impact using the established evaluation pipeline, and document findings.
 
+## Single Source of Truth
+
+**`autoresearch/state.md` is the only file used to track iteration results.**
+
+- `docs/improvements.md` is archived — do not read or write to it.
+- `autoresearch/state.md` is structured with the **Current Best** at the top (lines 1–30) and the **iteration log** growing at the bottom (chronological, newest last).
+
 ## Constraints
 
 **DO NOT touch:**
@@ -14,8 +21,8 @@ You are an autoresearch LLM tasked with iteratively improving the football match
 **You MAY modify:**
 - `src/model/features.py` — add or change features
 - `src/model/train.py` — change model type, hyperparameters, training strategy
-- `src/evaluation/metrics.py` — betting strategy and metric computation (unfrozen as of Iteration 4)
-- `main.py` — pipeline wiring, to connect new metric signatures (unfrozen as of Iteration 4)
+- `src/evaluation/metrics.py` — betting strategy and metric computation
+- `main.py` — pipeline wiring
 - `autoresearch/state.md` — update after every iteration
 
 ## Iteration Protocol
@@ -23,24 +30,38 @@ You are an autoresearch LLM tasked with iteratively improving the football match
 Each iteration MUST follow these steps exactly:
 
 ### 1. Read Current State
-Read `autoresearch/state.md` to understand what has been tried, what worked, and what the current best metrics are.
+
+Read `autoresearch/state.md` in two parts:
+
+```python
+# Part 1 — Current Best (always at the top)
+Read(file_path="autoresearch/state.md", offset=0, limit=30)
+
+# Part 2 — Recent iterations (last 300 lines = newest experiments)
+# First get the line count:
+#   wc -l autoresearch/state.md  → N lines
+# Then read:
+Read(file_path="autoresearch/state.md", offset=N-300, limit=300)
+```
+
+Do NOT read the entire file — it is large. The two reads above give you everything you need: the current best metrics and the recent experimental context.
 
 ### 2. Form a Hypothesis
+
 Write a clear, falsifiable hypothesis. Example:
 > "Adding Elo ratings as features will improve ROI by at least 2% because Elo captures relative team strength better than simple rolling form."
 
 ### 3. Implement
-Make minimal changes to `src/model/features.py` and/or `src/model/train.py`. Keep changes focused on testing one hypothesis at a time. Do not make multiple independent changes in one iteration — you won't know which helped.
+
+Make minimal changes. One hypothesis per iteration — do not bundle unrelated changes.
 
 ### 4. Run the Pipeline
 
 ```bash
-uv run python main.py                   # value betting, threshold=0.0 (any positive edge)
-uv run python main.py --threshold 0.05  # require at least 5% edge over fair odds
+uv run python main.py --per-league
 ```
 
-Record the output metrics (Accuracy, Threshold, Bets, ROI, Stability).
-A profit curve PNG is saved to `reports/profit_curve.png` automatically on each run.
+Record the output metrics (Accuracy, Bets, ROI, Stability, t-stat).
 
 ### 5. Run Tests
 
@@ -48,70 +69,68 @@ A profit curve PNG is saved to `reports/profit_curve.png` automatically on each 
 uv run pytest tests/ -v
 ```
 
-All tests must pass. If they fail, fix the issue before recording results.
+All tests must pass. Fix failures before recording results.
 
 ### 6. Analyse Results
-Compare new metrics to the baseline and best-so-far. Consider:
+
+Compare to the current best (from step 1). Consider:
 - Did ROI improve? By how much?
 - Did stability improve or degrade?
-- Were the changes in the expected direction? Why or why not?
-- Is the improvement likely to generalize, or could it be overfitting to the test period?
+- Is the result statistically meaningful (t-stat > 2.0)?
+- Is the improvement likely to generalize, or could it be overfitting?
+
+**Keep if:** ROI improves AND stability does not significantly degrade.
+**Revert if:** Either metric regresses. Use `git checkout` to revert files.
 
 ### 7. Update state.md
-Add an entry to `autoresearch/state.md` following the format in that document. Update the "Current Best" section if this iteration beats the record.
 
-### 8. Propose Next Directions
-At the end of your state.md update, list 2-3 concrete next hypotheses to try, ranked by your confidence they will improve ROI.
+**Append** the new iteration entry at the **bottom** of `autoresearch/state.md`. Do not insert it near the top or in the middle.
 
-## Ideas to Explore (Starting Points)
+Also update the **Current Best** block at the very top of the file if this iteration beats the record.
+
+Use this format for the appended entry:
+
+```markdown
+## Iteration N: [Short Name] — [KEPT / REVERTED]
+
+**Date:** YYYY-MM-DD
+**Hypothesis:** One sentence.
+**Files changed:** List of files and what changed.
+**Results:**
+- ROI: +X.XX% (Δ vs previous best: +X.XXpp)
+- Stability: X.XXXX
+- t-stat: +X.XX
+- Bets: NNNN / MMMM (XX.X%)
+**Analysis:** 2–3 sentences on why it worked or didn't.
+**Decision:** KEPT / REVERTED. [One sentence reason.]
+```
+
+For reverted iterations with no notable findings, a compact 3-line entry is fine.
+
+## What Good Looks Like
+
+- **ROI > 0%** at `threshold=0.0` — beating the bookmakers on all bets
+- **t-stat > 2.0** — statistically significant (t = stability × √N_bets)
+- **Both metrics improving** is the goal — a high ROI from few lucky bets is not enough
+
+Bookmakers have ~5% margin (vig), so ROI > 0% is genuinely hard.
+
+## Ideas to Explore
 
 You are not limited to these — they are jumping-off points:
 
 **Feature Engineering:**
-- Elo rating system (track per-team Elo updated after each match)
-- Head-to-head historical record between the two teams
-- Days since last match (fatigue proxy)
-- Home/away split form (separate rolling stats for home games vs away games)
-- League position / points in current season
-- Goal difference rolling average (not just goals for/against separately)
-- Weighted rolling average (recent games weighted more heavily)
+- More leagues (Belgium B1, Greece G1, Scotland SC0, Turkey T1)
+- xG-based features (blocked on data access — see state.md notes)
+- Referee ID or referee tendency features
+- Market movement features (opening vs closing odds)
 
-**Model Architecture:**
-- Random Forest or Gradient Boosting (XGBoost, LightGBM)
-- Separate models per league
-- Calibrated probabilities (CalibratedClassifierCV)
-- Threshold-based betting: only bet when model confidence exceeds a threshold
+**Model / Training:**
+- Weighted training (up-weight recent seasons)
+- Ensemble of league models
+- Calibrated probabilities
 
 **Betting Strategy:**
-- Kelly criterion bet sizing instead of flat 1 unit
-- Only bet on outcomes where model probability > bookmaker implied probability (value bets)
-- Only bet on matches where model disagrees strongly with the market
-
-**Data:**
-- Longer or shorter rolling window (try 3, 7, 10 games)
-- Season-start correction (treat first N games of season differently)
-
-## What Good Looks Like
-
-- **ROI > 0%** means you're making money (beating the bookmakers)
-- **Stability > 0.05** means profits are consistent rather than from a few lucky bets
-- **Both improving** is the goal — a high ROI from 10 lucky bets is not good
-
-Bookmakers have ~5% margin (vig), so achieving ROI > 0% is genuinely hard and means you've found edge.
-
-## Output Format for Each Iteration
-
-When you complete an iteration, output a summary in this format:
-
-```
-## Iteration N: [Hypothesis Name]
-
-**Hypothesis:** [One sentence]
-**Changes:** [What files were changed and how]
-**Results:**
-  - Accuracy: X.XXX (baseline: 0.XXX)
-  - ROI: +X.XX% (baseline: X.XX%)
-  - Stability: X.XXXX (baseline: X.XXXX)
-**Analysis:** [2-3 sentences on why it worked or didn't]
-**Next directions:** [2-3 ranked ideas]
-```
+- Pinnacle margin tuning (currently 1.5% — try 1.0%, 2.0%)
+- Maximum odds cap adjustment (currently 4.0)
+- Staking strategy experiments
