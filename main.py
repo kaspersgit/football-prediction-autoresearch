@@ -13,10 +13,9 @@ Modes:
   python main.py --update           # re-download latest season results, then backtest
   python main.py --monthly          # monthly walk-forward retrain (experimental)
 
-Default staking (validated config — see docs/improvements.md):
-  stake = max(3, 20 / B365_odds)   — inverse-odds staking
+Default staking: flat 1 unit per bet
   Threshold: 0.03  (3% minimum edge over B365 fair price)
-  Max odds:  4.0   (B365 >= 4.0 excluded; model signal degrades above this)
+  Max odds:  5.0   (B365 >= 5.0 excluded; model signal degrades above this)
 """
 import sys
 from pathlib import Path
@@ -47,7 +46,21 @@ def _parse_max_odds() -> float:
     for i, arg in enumerate(sys.argv):
         if arg == "--max-odds" and i + 1 < len(sys.argv):
             return float(sys.argv[i + 1])
-    return 4.0  # validated default: model signal weakens above B365 4.0
+    return 5.0  # Iter 76: test if edge remains valid up to odds 5.0
+
+
+def _parse_max_edge() -> float:
+    for i, arg in enumerate(sys.argv):
+        if arg == "--max-edge" and i + 1 < len(sys.argv):
+            return float(sys.argv[i + 1])
+    return 0.20  # cap extreme-overconfident predictions (>20% edge is model noise)
+
+
+def _parse_min_season_games() -> int:
+    for i, arg in enumerate(sys.argv):
+        if arg == "--min-season-games" and i + 1 < len(sys.argv):
+            return int(sys.argv[i + 1])
+    return 0
 
 
 def _parse_kelly() -> float:
@@ -127,8 +140,9 @@ def _run_predict():
     if dropped:
         print(f"  {dropped} fixture(s) dropped — teams with < {5} games history")
 
-    # Exclude France (consistently negative ROI — not a betting market)
-    fixture_features = fixture_features[fixture_features["league"] != "F1"].reset_index(drop=True)
+    # Exclude leagues with consistently negative ROI in backtest
+    _SKIP_LEAGUES = {"F1", "D1", "SP1", "I1"}
+    fixture_features = fixture_features[~fixture_features["league"].isin(_SKIP_LEAGUES)].reset_index(drop=True)
 
     # Per-league inference: use each league's own model
     X_fix = fixture_features[FEATURE_COLS]
@@ -156,38 +170,38 @@ def _run_predict():
     _save_predictions_html(pred_rows, threshold, fetched_at, historical_bets=historical_bets)
 
 
-def _pinnacle_fair(row) -> dict | None:
-    """Return vig-corrected Pinnacle fair probs from PSH/PSD/PSA, or None if unavailable."""
-    try:
-        ps_total = 1/float(row["PSH"]) + 1/float(row["PSD"]) + 1/float(row["PSA"])
-        return {
-            "H": (1/float(row["PSH"])) / ps_total,
-            "D": (1/float(row["PSD"])) / ps_total,
-            "A": (1/float(row["PSA"])) / ps_total,
-        }
-    except (TypeError, ValueError, ZeroDivisionError, KeyError):
-        return None
+
+_PREDICT_MAX_ODDS = 5.0      # must match backtest max_odds
+_PREDICT_MAX_EDGE = 0.20     # must match backtest max_edge
+_PREDICT_MAX_OVERROUND = 0.07  # must match backtest max_overround
 
 
 def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float) -> list[dict]:
     """Build a list of per-fixture prediction dicts (used by both print and CSV export)."""
     odds_col = {"H": "B365H", "D": "B365D", "A": "B365A"}
-    has_pinnacle = all(c in fixture_features.columns for c in ("PSH", "PSD", "PSA"))
     fixture_features = fixture_features.reset_index(drop=True)
     rows = []
     for i, row in fixture_features.iterrows():
         probs = {c: float(y_proba[i, j]) for j, c in enumerate(classes)}
-        raw_implied = {o: 1.0 / float(row[odds_col[o]]) for o in ["H", "D", "A"]}
+        b365h, b365d, b365a = float(row["B365H"]), float(row["B365D"]), float(row["B365A"])
+        raw_implied = {"H": 1.0 / b365h, "D": 1.0 / b365d, "A": 1.0 / b365a}
         total_implied = sum(raw_implied.values())
         fair = {o: raw_implied[o] / total_implied for o in raw_implied}
-        ps_fair = _pinnacle_fair(row) if has_pinnacle else None
+
+        # Skip high-vig markets (same filter as backtest)
+        overround = total_implied - 1.0
+        if overround > _PREDICT_MAX_OVERROUND:
+            continue
 
         value_bets = []
         for o in ["H", "D", "A"]:
             edge = probs[o] - fair[o]
+            b365_odds = {"H": b365h, "D": b365d, "A": b365a}[o]
             if edge <= threshold:
                 continue
-            if ps_fair is not None and ps_fair[o] <= fair[o] + 0.015:
+            if edge > _PREDICT_MAX_EDGE:
+                continue
+            if b365_odds > _PREDICT_MAX_ODDS:
                 continue
             value_bets.append((o, edge))
 
@@ -329,6 +343,81 @@ def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at,
     print(f"HTML report saved to {path}")
 
 
+def _print_edge_analysis(eval_df, y_proba, classes, threshold, max_odds) -> None:
+    """Show ROI/bets/accuracy per edge bucket and simulate different max_edge caps."""
+    CAPS = [0.10, 0.15, 0.20, 0.25, 0.30, float("inf")]
+    BASE_KWARGS = dict(
+        threshold=threshold,
+        inv_odds_factor=20.0,
+        min_stake=3.0,
+        max_odds=max_odds,
+        skip_leagues={"F1", "SP1", "D1", "I1"},
+    )
+
+    # Build per-bet edge table for bucket analysis (no cap, no Pinnacle filter so we
+    # see all potential bets before the Pinnacle filter removes them)
+    outcomes = list(classes)
+    outcome_map = {"H": "B365H", "D": "B365D", "A": "B365A"}
+    rows = []
+    for i, row in eval_df.reset_index(drop=True).iterrows():
+        raw = {o: 1.0 / float(row[outcome_map[o]]) for o in outcomes}
+        total = sum(raw.values())
+        fair = {o: raw[o] / total for o in raw}
+        for j, outcome in enumerate(outcomes):
+            mp = float(y_proba[i, j])
+            edge = mp - fair[outcome]
+            if edge > threshold and float(row[outcome_map[outcome]]) <= max_odds:
+                rows.append({
+                    "edge": edge,
+                    "outcome": outcome,
+                    "y_true": row["y_true"],
+                    "odds": float(row[outcome_map[outcome]]),
+                    "month": pd.to_datetime(row["Date"]).month,
+                    "league": row.get("league", ""),
+                })
+    all_bets_df = pd.DataFrame(rows)
+
+    BUCKETS = [(0.0, 0.05), (0.05, 0.10), (0.10, 0.15), (0.15, 0.20),
+               (0.20, 0.25), (0.25, 0.30), (0.30, 1.0)]
+
+    print("\n=== EDGE DISTRIBUTION (all potential bets before Pinnacle filter) ===")
+    print(f"  {'Edge bucket':>14}  {'Bets':>6}  {'Win%':>6}  {'Avg odds':>9}  {'Flat ROI':>9}")
+    print("  " + "-" * 50)
+    for lo, hi in BUCKETS:
+        sub = all_bets_df[(all_bets_df["edge"] >= lo) & (all_bets_df["edge"] < hi)]
+        if len(sub) == 0:
+            continue
+        win_rate = (sub["outcome"] == sub["y_true"]).mean()
+        avg_odds = sub["odds"].mean()
+        flat_roi = ((sub["outcome"] == sub["y_true"]) * (sub["odds"] - 1) +
+                    (sub["outcome"] != sub["y_true"]) * -1).mean() * 100
+        print(f"  {lo:.0%} – {hi:.0%}       {len(sub):>6}  {win_rate:>5.1%}  {avg_odds:>9.2f}  {flat_roi:>+8.2f}%")
+
+    # Timing of high-edge bets
+    high_edge = all_bets_df[all_bets_df["edge"] >= 0.20]
+    if len(high_edge) > 0:
+        month_counts = high_edge.groupby("month").size()
+        months = {1:"Jan",2:"Feb",3:"Mar",4:"Apr",5:"May",6:"Jun",
+                  7:"Jul",8:"Aug",9:"Sep",10:"Oct",11:"Nov",12:"Dec"}
+        print(f"\n  High-edge bets (≥20%) by month: "
+              + "  ".join(f"{months[m]}:{n}" for m, n in month_counts.items()))
+
+    # Cap sweep: ROI and bet count at each cap
+    print(f"\n=== MAX-EDGE CAP SWEEP (with Pinnacle filter active) ===")
+    print(f"  {'Cap':>8}  {'Bets':>6}  {'Excl.':>6}  {'ROI':>9}  {'Stability':>10}  {'t-stat':>8}")
+    print("  " + "-" * 56)
+    base_bets = compute_value_betting_results(eval_df, y_proba, classes, **BASE_KWARGS)
+    base_n = len(base_bets)
+    for cap in CAPS:
+        bets = compute_value_betting_results(eval_df, y_proba, classes, max_edge=cap, **BASE_KWARGS)
+        roi = compute_roi(bets) if not bets.empty else float("nan")
+        stab = compute_stability(bets) if not bets.empty else float("nan")
+        tstat = stab * (len(bets) ** 0.5) if not bets.empty else float("nan")
+        excl = base_n - len(bets)
+        cap_label = f"≤{cap:.0%}" if cap < float("inf") else "none"
+        print(f"  {cap_label:>8}  {len(bets):>6}  {excl:>6}  {roi:>+8.2f}%  {stab:>10.4f}  {tstat:>+8.2f}")
+
+
 def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame) -> None:
     """Print ROI breakdowns by league and by tier matchup."""
     bets = betting_results.copy()
@@ -361,7 +450,7 @@ def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame
     LG = {"E0": "England", "D1": "Germany", "SP1": "Spain", "I1": "Italy",
           "F1": "France", "N1": "Netherlands", "P1": "Portugal"}
 
-    def _roi(sub): return sub["profit"].sum() / len(sub) * 100 if len(sub) else float("nan")
+    def _roi(sub): return sub["profit"].sum() / sub["stake"].sum() * 100 if len(sub) else float("nan")
 
     print("\n=== ROI BY LEAGUE ===")
     print(f"  {'League':>10}  {'Bets':>5}  {'ROI':>8}")
@@ -404,9 +493,11 @@ def _run_backtest():
         from src.data.download import update_current_season
         update_current_season()
 
-    threshold = _parse_threshold()
-    kelly     = _parse_kelly()
-    max_odds  = _parse_max_odds()
+    threshold        = _parse_threshold()
+    kelly            = _parse_kelly()
+    max_odds         = _parse_max_odds()
+    max_edge         = _parse_max_edge()
+    min_season_games = _parse_min_season_games()
 
     print("Loading data...")
     df = load_all_data()
@@ -434,10 +525,9 @@ def _run_backtest():
     eval_df = results["odds_test"].copy()
     eval_df["y_true"] = results["y_test"].values
 
-    # Staking: inverse-odds (stake = max(3, 20/odds)) — validated best config.
-    # Kelly and flat staking remain available via --kelly flag.
-    inv_odds_factor = 0.0 if kelly > 0.0 else 20.0
-    min_stake       = 1.0 if kelly > 0.0 else 3.0
+    # Staking: flat 1 unit per bet (Kelly available via --kelly flag).
+    inv_odds_factor = 0.0
+    min_stake       = 1.0
 
     betting_results = compute_value_betting_results(
         eval_df,
@@ -448,7 +538,10 @@ def _run_backtest():
         inv_odds_factor=inv_odds_factor,
         min_stake=min_stake,
         max_odds=max_odds,
-        skip_leagues={"F1"},
+        skip_leagues={"F1", "SP1", "D1", "I1"},
+        max_edge=max_edge,
+        min_season_games=min_season_games,
+        max_overround=0.07,
     )
     roi = compute_roi(betting_results)
     stability = compute_stability(betting_results)
@@ -459,16 +552,18 @@ def _run_backtest():
     if kelly > 0.0:
         sizing = f"Kelly x{kelly}"
     else:
-        sizing = f"20/odds (floor {min_stake:.0f} units)"
+        sizing = "flat 1 unit"
     t_stat = stability * (n_bets ** 0.5)
     print("\n=== BACKTEST RESULTS ===")
+    season_filter_str = f"  |  Min season games: {min_season_games}" if min_season_games > 0 else ""
     print(f"Accuracy:  {accuracy:.3f}  (on all {n_matches} test matches)")
-    print(f"Threshold: {threshold:+.3f}  |  Max odds: {max_odds:.1f}  |  Staking: {sizing}")
+    print(f"Threshold: {threshold:+.3f}  |  Max odds: {max_odds:.1f}  |  Staking: {sizing}{season_filter_str}")
     print(f"Bets:      {n_bets} / {n_matches} matches ({n_bets / n_matches:.1%})")
     print(f"ROI:       {roi:+.2f}%")
     print(f"Stability: {stability:.4f}")
     print(f"t-stat:    {t_stat:+.2f}  (need |t| > 2 for significance; ROI indistinct from 0 until then)")
 
+    _print_edge_analysis(eval_df, results["y_proba"], results["classes"], threshold, max_odds)
     _print_split_analysis(betting_results, eval_df)
 
     _save_profit_chart(betting_results, Path("reports/profit_curve.png"))
@@ -482,6 +577,26 @@ def _run_backtest():
     bets_path.parent.mkdir(parents=True, exist_ok=True)
     bets_with_league.to_csv(bets_path, index=False)
     print(f"Backtest bets saved to {bets_path}")
+
+    # All-leagues bets for interactive report (no skip_leagues — user can toggle leagues via buttons)
+    all_leagues_bets = compute_value_betting_results(
+        eval_df,
+        results["y_proba"],
+        results["classes"],
+        threshold=threshold,
+        inv_odds_factor=0.0,
+        min_stake=1.0,
+        max_odds=max_odds,
+        max_edge=max_edge,
+        min_season_games=min_season_games,
+        max_overround=0.07,
+    )
+    all_leagues_with_league = all_leagues_bets.merge(
+        league_lookup, on=["Date", "HomeTeam", "AwayTeam"], how="left"
+    )
+    all_leagues_with_league["edge"] = (
+        all_leagues_with_league["model_prob"] - all_leagues_with_league["implied_prob"]
+    )
 
     # Build all_predictions: one row per (match × outcome) for embedding in the eval report.
     y_proba = results["y_proba"]
@@ -517,7 +632,7 @@ def _run_backtest():
 
     print("\nGenerating report...")
     generate_report(
-        results_df=betting_results,
+        results_df=all_leagues_with_league,
         accuracy=accuracy,
         roi=roi,
         stability=stability,
