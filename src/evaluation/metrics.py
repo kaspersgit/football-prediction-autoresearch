@@ -54,6 +54,35 @@ def add_model_proba(
     return df
 
 
+def _build_team_game_counts(df: pd.DataFrame) -> dict:
+    """
+    Returns a dict mapping (season, league, team, date) -> number of games
+    that team has played in that season+league *before* that date.
+    Used by the early-season filter.
+    """
+    counts: dict = {}
+    has_season = "season" in df.columns
+    has_league = "league" in df.columns
+    if not has_season or not has_league:
+        return counts
+
+    # Collect all match dates per (season, league, team)
+    team_dates: dict = {}
+    for _, row in df.iterrows():
+        key_home = (row["season"], row["league"], row["HomeTeam"])
+        key_away = (row["season"], row["league"], row["AwayTeam"])
+        d = pd.Timestamp(row["Date"])
+        team_dates.setdefault(key_home, []).append(d)
+        team_dates.setdefault(key_away, []).append(d)
+
+    for (season, league, team), dates in team_dates.items():
+        sorted_dates = sorted(set(dates))
+        for rank, d in enumerate(sorted_dates):
+            counts[(season, league, team, d)] = rank
+
+    return counts
+
+
 def compute_value_betting_results(
     df: pd.DataFrame,
     y_proba,
@@ -65,6 +94,10 @@ def compute_value_betting_results(
     min_stake: float = 1.0,
     max_odds: float = float("inf"),
     skip_leagues: set | None = None,
+    skip_outcomes: set | None = None,
+    max_edge: float = float("inf"),
+    min_season_games: int = 0,
+    max_overround: float = float("inf"),
 ) -> pd.DataFrame:
     """
     Multi-outcome value betting.
@@ -85,6 +118,10 @@ def compute_value_betting_results(
               not execution odds; validated cutoff = 4.0, above which model signal weakens).
 
     threshold:   minimum edge over fair prob required to place a bet.
+    max_edge:    maximum allowed edge; bets with edge > max_edge are skipped (caps extreme predictions).
+    min_season_games: skip bets where either team has played fewer than this many games in the
+                      current season (in that league). Requires df to have 'season' and 'league' cols.
+                      Default 0 = no filter. Recommended value: 4 (skips first ~4 gameweeks).
     kelly_fraction, inv_odds_factor, min_stake: staking size controls (see above).
 
     df must have: y_true, B365H, B365D, B365A, Date (index aligned with y_proba rows)
@@ -96,7 +133,9 @@ def compute_value_betting_results(
     outcomes = list(classes)
     df = df.reset_index(drop=True)
 
-    has_pinnacle = all(c in df.columns for c in ("PSCH", "PSCD", "PSCA"))
+    team_game_counts: dict = {}
+    if min_season_games > 0:
+        team_game_counts = _build_team_game_counts(df)
 
     bet_rows = []
     for i, row in df.iterrows():
@@ -105,6 +144,21 @@ def compute_value_betting_results(
         # Skip leagues excluded from betting (but still used in training)
         if skip_leagues and row.get("league") in skip_leagues:
             continue
+
+        # Skip high-vig markets
+        raw_check = 1.0/float(row["B365H"]) + 1.0/float(row["B365D"]) + 1.0/float(row["B365A"])
+        if raw_check - 1.0 > max_overround:
+            continue
+
+        # Early-season filter: skip bets until both teams have enough season games
+        if min_season_games > 0 and team_game_counts:
+            season = row.get("season")
+            league = row.get("league")
+            date = pd.Timestamp(row["Date"])
+            home_games = team_game_counts.get((season, league, row.get("HomeTeam"), date), 0)
+            away_games = team_game_counts.get((season, league, row.get("AwayTeam"), date), 0)
+            if home_games < min_season_games or away_games < min_season_games:
+                continue
 
         # Raw implied probabilities (include bookmaker vig, sum to ~1.05)
         raw = {
@@ -117,68 +171,49 @@ def compute_value_betting_results(
         # Vig-corrected fair probabilities (sum to 1.0)
         fair = {outcome: raw[outcome] / total_implied for outcome in raw}
 
-        # Pinnacle closing fair probs — None when data unavailable for this row
-        pinnacle_fair = None
-        if has_pinnacle:
-            psch, pscd, psca = row.get("PSCH"), row.get("PSCD"), row.get("PSCA")
-            try:
-                ps_total = 1/float(psch) + 1/float(pscd) + 1/float(psca)
-                pinnacle_fair = {
-                    "H": (1/float(psch)) / ps_total,
-                    "D": (1/float(pscd)) / ps_total,
-                    "A": (1/float(psca)) / ps_total,
-                }
-            except (TypeError, ValueError, ZeroDivisionError):
-                pinnacle_fair = None  # null row — no Pinnacle filter applied
-
         for j, outcome in enumerate(outcomes):
+            if skip_outcomes and outcome in skip_outcomes:
+                continue
+
             model_prob = float(y_proba[i, j])
             baseline_prob = raw[outcome] if edge_baseline == "raw" else fair[outcome]
-
-            # Pinnacle confirmation: only bet when Pinnacle also thinks B365 underprices this outcome
-            # by at least 1% (margin=0.01). A tiny Pinnacle advantage may be noise.
-            # When Pinnacle data is missing for this row, the filter is skipped (no data = no veto).
-            if pinnacle_fair is not None and pinnacle_fair[outcome] <= fair[outcome] + 0.015:
-                continue
 
             b365_odds = float(row[_ODDS_COL[outcome]])
             if b365_odds > max_odds:
                 continue
 
-            if model_prob > baseline_prob + threshold:
-                # Execution odds: best available (CustomMax) or fall back to B365
-                custom_col = f"CustomMax{outcome}"
-                custom_val = row.get(custom_col)
-                try:
-                    odds = float(custom_val) if custom_val is not None and not pd.isna(custom_val) else b365_odds
-                except (TypeError, ValueError):
-                    odds = b365_odds
+            edge = model_prob - baseline_prob
+            if edge <= threshold or edge > max_edge:
+                continue
 
-                if inv_odds_factor > 0.0:
-                    # Inverse-odds staking: bet more on short-price certainties, less on longshots.
-                    # stake = factor / B365_odds, floored at min_stake.
-                    # Uses B365 (not CustomMax) so stake size reflects market assessment,
-                    # not the best execution price we managed to find.
-                    stake = max(min_stake, inv_odds_factor / b365_odds)
-                elif kelly_fraction > 0.0:
-                    # Full Kelly fraction: f* = p - (1-p)/(odds-1)
-                    full_kelly = model_prob - (1.0 - model_prob) / (odds - 1.0)
-                    stake = kelly_fraction * max(full_kelly, 0.0)
-                else:
-                    stake = 1.0
-                profit = stake * ((odds - 1.0) if y_true == outcome else -1.0)
-                bet_rows.append({
-                    "Date": row["Date"],
-                    "HomeTeam": row.get("HomeTeam", ""),
-                    "AwayTeam": row.get("AwayTeam", ""),
-                    "y_true": y_true,
-                    "y_pred": outcome,
-                    "odds": odds,
-                    "model_prob": model_prob,
-                    "implied_prob": baseline_prob,
-                    "stake": stake,
-                    "profit": profit,
-                })
+            # Execution odds: best available (CustomMax) or fall back to B365
+            custom_col = f"CustomMax{outcome}"
+            custom_val = row.get(custom_col)
+            try:
+                odds = float(custom_val) if custom_val is not None and not pd.isna(custom_val) else b365_odds
+            except (TypeError, ValueError):
+                odds = b365_odds
+
+            if inv_odds_factor > 0.0:
+                stake = max(min_stake, inv_odds_factor / b365_odds)
+            elif kelly_fraction > 0.0:
+                full_kelly = model_prob - (1.0 - model_prob) / (odds - 1.0)
+                stake = kelly_fraction * max(full_kelly, 0.0)
+            else:
+                stake = 1.0
+            profit = stake * ((odds - 1.0) if y_true == outcome else -1.0)
+            bet_rows.append({
+                "Date": row["Date"],
+                "HomeTeam": row.get("HomeTeam", ""),
+                "AwayTeam": row.get("AwayTeam", ""),
+                "y_true": y_true,
+                "y_pred": outcome,
+                "odds": odds,
+                "model_prob": model_prob,
+                "implied_prob": baseline_prob,
+                "stake": stake,
+                "profit": profit,
+            })
 
     if not bet_rows:
         return pd.DataFrame(columns=["Date", "y_true", "y_pred", "odds",

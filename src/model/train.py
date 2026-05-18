@@ -4,6 +4,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
+from sklearn.calibration import CalibratedClassifierCV
 
 from src.model.features import build_features_with_odds
 
@@ -19,6 +20,36 @@ _LGBM_CFG = dict(
     random_state=42,
     verbosity=-1,
 )
+
+# Calibrate predicted probabilities using isotonic regression after LGBM fitting.
+# ensemble=False: LGBM is fit on full training data; only the calibrator uses CV folds.
+# This preserves all training samples for the base model while still cross-validating
+# the calibration step to avoid overfitting.
+CALIBRATE = True
+_CALIB_CFG = dict(method="isotonic", cv=10, ensemble=False)
+
+
+def _calibrate(model, X, y):
+    """Return a calibrated wrapper around an already-fitted model."""
+    cal = CalibratedClassifierCV(model, cv="prefit", method=_CALIB_CFG["method"])
+    cal.fit(X, y)
+    return cal
+
+
+def _fit_calibrated(X_train, y_train):
+    """Fit LGBM + calibrate using CV on out-of-fold predictions (ensemble=False)."""
+    if not CALIBRATE:
+        m = LGBMClassifier(**_LGBM_CFG)
+        m.fit(X_train, y_train)
+        return m
+    cal = CalibratedClassifierCV(
+        LGBMClassifier(**_LGBM_CFG),
+        method=_CALIB_CFG["method"],
+        cv=_CALIB_CFG["cv"],
+        ensemble=_CALIB_CFG["ensemble"],
+    )
+    cal.fit(X_train, y_train)
+    return cal
 
 
 def split_by_season(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -70,12 +101,10 @@ def _predict_per_league(full_X, full_y, full_odds, train_mask, test_mask):
         if l_test.sum() == 0:
             continue
 
-        model = LGBMClassifier(**_LGBM_CFG)
-        model.fit(full_X[l_train], full_y[l_train])
-
+        model = _fit_calibrated(full_X[l_train], full_y[l_train])
         classes = list(model.classes_)
         y_proba_l = model.predict_proba(full_X[l_test])
-        y_pred_l = model.predict(full_X[l_test])
+        y_pred_l = _CLASSES[np.argmax(y_proba_l, axis=1)]
 
         # Reorder proba columns to canonical [A, D, H] order
         col_order = [classes.index(c) for c in _CLASSES if c in classes]
@@ -313,8 +342,7 @@ def train_on_all_data_per_league(df: pd.DataFrame) -> dict:
         mask = odds["league"] == league
         if mask.sum() < 50:
             continue
-        model = LGBMClassifier(**_LGBM_CFG)
-        model.fit(X[mask], y[mask])
+        model = _fit_calibrated(X[mask], y[mask])
         models[league] = model
         print(f"  {league}: trained on {int(mask.sum())} matches")
     return models

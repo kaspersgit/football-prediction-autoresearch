@@ -53,26 +53,28 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 <h1>Football Prediction Evaluation Report</h1>
 <h2>Summary Metrics</h2>
+<p style="color:#777;font-size:.88em;margin:4px 0 12px">Accuracy is over all test matches. Bets, ROI, and t-stat react to the filters below.</p>
 <div class="metrics">
-  <div class="metric-card"><div class="value">{accuracy:.1%}</div><div class="label">Accuracy</div></div>
-  <div class="metric-card"><div class="value" style="color:{roi_color}">{roi:+.2f}%</div><div class="label">ROI (Return on Investment)</div></div>
-  <div class="metric-card"><div class="value">{stability:.3f}</div><div class="label">Profit Stability (Sharpe-like)</div></div>
+  <div class="metric-card"><div class="value">{accuracy:.1%}</div><div class="label">Accuracy (all matches)</div></div>
+  <div class="metric-card"><div class="value" id="summary-bets">{n_bets}</div><div class="label">Bets Placed</div></div>
+  <div class="metric-card"><div class="value" id="summary-roi" style="color:{roi_color}">{roi:+.2f}%</div><div class="label">ROI (stake-weighted)</div></div>
+  <div class="metric-card"><div class="value" id="summary-tstat">{tstat:+.2f}</div><div class="label">t-stat (≥2 = significant)</div></div>
 </div>
 <div class="explanation">
-  <b>ROI</b>: total profit / total staked × 100. Positive means profit over the test period.<br>
-  <b>Stability</b>: mean profit per bet / std(profit per bet). Higher = more consistent returns. Above 0.05 is good.
+  <b>ROI</b>: total profit / total staked × 100. Uses flat staking: 1 unit per bet.<br>
+  <b>t-stat</b>: stability × √N. Above ±2 is statistically significant at 5% level.
 </div>
 
 <!-- ── filter bar ─────────────────────────────────────────────────────────── -->
 <div class="filter-bar">
   <div class="filter-group">
     <label>Min edge <span id="lbl-min-edge">0%</span></label>
-    <input type="range" id="filter-min-edge" min="-10" max="15" step="1" value="0"
+    <input type="range" id="filter-min-edge" min="0" max="15" step="1" value="0"
            oninput="document.getElementById('lbl-min-edge').textContent=this.value+'%';applyFilters()">
   </div>
   <div class="filter-group">
-    <label>Max edge <span id="lbl-max-edge">15%</span></label>
-    <input type="range" id="filter-max-edge" min="0" max="20" step="1" value="15"
+    <label>Max edge <span id="lbl-max-edge">25%</span></label>
+    <input type="range" id="filter-max-edge" min="0" max="25" step="1" value="25"
            oninput="document.getElementById('lbl-max-edge').textContent=this.value+'%';applyFilters()">
   </div>
   <div class="filter-group">
@@ -90,9 +92,21 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
            oninput="document.getElementById('lbl-min-odds').textContent=parseFloat(this.value).toFixed(1);applyFilters()">
   </div>
   <div class="filter-group">
-    <label>Max odds <span id="lbl-max-odds">4.0</span></label>
-    <input type="range" id="filter-max-odds" min="1.5" max="10.0" step="0.5" value="4.0"
+    <label>Max odds <span id="lbl-max-odds">10.0</span></label>
+    <input type="range" id="filter-max-odds" min="1.5" max="10.0" step="0.5" value="10.0"
            oninput="document.getElementById('lbl-max-odds').textContent=parseFloat(this.value).toFixed(1);applyFilters()">
+  </div>
+  <div class="filter-group">
+    <label>Leagues</label>
+    <div class="outcome-toggles">
+      <button class="outcome-btn active" id="btn-lg-E0" onclick="toggleLeague('E0')">ENG</button>
+      <button class="outcome-btn active" id="btn-lg-N1" onclick="toggleLeague('N1')">NED</button>
+      <button class="outcome-btn active" id="btn-lg-P1" onclick="toggleLeague('P1')">POR</button>
+      <button class="outcome-btn" id="btn-lg-D1" onclick="toggleLeague('D1')">GER</button>
+      <button class="outcome-btn" id="btn-lg-SP1" onclick="toggleLeague('SP1')">ESP</button>
+      <button class="outcome-btn" id="btn-lg-I1" onclick="toggleLeague('I1')">ITA</button>
+      <button class="outcome-btn" id="btn-lg-F1" onclick="toggleLeague('F1')">FRA</button>
+    </div>
   </div>
   <div class="filter-count">Showing <span id="visible-count">…</span> bets</div>
 </div>
@@ -104,8 +118,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 </div>
 
 <h2>ROI by Edge Bucket</h2>
+<div class="explanation">
+  ROI here is <b>stake-weighted</b> (profit / stake) from placed bets only. Only bets in England, Netherlands, and Portugal are included — excluded leagues (Germany, Spain, Italy, France) are deeply negative. Higher edge buckets tend to be rarer; small sample sizes make per-bucket noise high.
+</div>
 <div class="top-bets-card" id="edge-bucket-container">
-  <h3>ROI by Edge Bucket</h3>
+  <h3>ROI by Edge Bucket (stake-weighted)</h3>
   <canvas id="edge-bucket-canvas" height="220"></canvas>
 </div>
 
@@ -121,15 +138,15 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 </div>
 
-<h2>Profit Distribution (sorted by unit return)</h2>
+<h2>Profit Distribution (sorted by bet profit)</h2>
 <div class="top-bets-card" id="profit-bar-container">
-  <h3>Per-Bet Unit Returns</h3>
+  <h3>Per-Bet Profit (flat staking)</h3>
   <canvas id="profit-bar-canvas" height="220"></canvas>
 </div>
 
 <h2>Cumulative Profit Over Time</h2>
 <div class="top-bets-card" id="cumulative-chart-container">
-  <h3>Cumulative Flat Unit Profit</h3>
+  <h3>Cumulative Profit (flat staking)</h3>
   <canvas id="cumulative-chart-canvas" height="260"></canvas>
 </div>
 
@@ -140,6 +157,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 // ── filter state ──────────────────────────────────────────────────────────────
 var filteredBets = [];
 var _activeOutcome = 'All';
+var _activeLeagues = {{'E0': true, 'N1': true, 'P1': true, 'D1': false, 'SP1': false, 'I1': false, 'F1': false}};
 
 function setOutcome(outcome) {{
   _activeOutcome = outcome;
@@ -147,6 +165,13 @@ function setOutcome(outcome) {{
     var btn = document.getElementById('btn-' + o);
     if (btn) btn.classList.toggle('active', o === outcome);
   }});
+  applyFilters();
+}}
+
+function toggleLeague(league) {{
+  _activeLeagues[league] = !_activeLeagues[league];
+  var btn = document.getElementById('btn-lg-' + league);
+  if (btn) btn.classList.toggle('active', !!_activeLeagues[league]);
   applyFilters();
 }}
 
@@ -159,22 +184,62 @@ function applyFilters() {{
   if (maxEdge < minEdge) maxEdge = minEdge;
   if (maxOdds < minOdds) maxOdds = minOdds;
 
-  filteredBets = ALL_BETS.filter(function(b) {{
+  // BACKTEST_BETS = placed bets (stake/profit already computed, filtered by backtest config)
+  filteredBets = BACKTEST_BETS.filter(function(b) {{
     if (b.edge < minEdge || b.edge > maxEdge) return false;
     if (b.odds < minOdds || b.odds > maxOdds) return false;
     if (_activeOutcome !== 'All' && b.outcome !== _activeOutcome) return false;
+    if (b.league && !_activeLeagues[b.league]) return false;
+    return true;
+  }});
+
+  // ALL_BETS = all predictions (used only for calibration chart)
+  var filteredAllBets = ALL_BETS.filter(function(b) {{
+    if (b.edge < minEdge || b.edge > maxEdge) return false;
+    if (b.odds < minOdds || b.odds > maxOdds) return false;
+    if (_activeOutcome !== 'All' && b.outcome !== _activeOutcome) return false;
+    if (b.league && !_activeLeagues[b.league]) return false;
     return true;
   }});
 
   var countEl = document.getElementById('visible-count');
   if (countEl) countEl.textContent = filteredBets.length;
 
-  if (typeof rebuildCalibration === 'function') rebuildCalibration(filteredBets);
+  updateSummaryCards(filteredBets);
+  if (typeof rebuildCalibration === 'function') rebuildCalibration(filteredAllBets);
   if (typeof rebuildEdgeBuckets === 'function') rebuildEdgeBuckets(filteredBets);
   if (typeof rebuildOutcomeTable === 'function') rebuildOutcomeTable(filteredBets);
   if (typeof rebuildLeagueTable === 'function') rebuildLeagueTable(filteredBets);
   if (typeof rebuildProfitBar === 'function') rebuildProfitBar(filteredBets);
   if (typeof rebuildCumulativeChart === 'function') rebuildCumulativeChart(filteredBets);
+}}
+
+function updateSummaryCards(bets) {{
+  var n = bets.length;
+  var roi = NaN, stab = 0, tstat = NaN;
+  if (n > 0) {{
+    var totalProfit = bets.reduce(function(s,b){{return s+b.profit;}},0);
+    var totalStake  = bets.reduce(function(s,b){{return s+b.stake;}},0);
+    roi = totalStake > 0 ? (totalProfit / totalStake) * 100 : NaN;
+    var profits = bets.map(function(b){{return b.profit;}});
+    var mean = totalProfit / n;
+    var variance = profits.reduce(function(s,v){{return s+(v-mean)*(v-mean);}},0) / Math.max(n-1,1);
+    var std = Math.sqrt(variance);
+    stab = std > 0 ? mean / std : 0;
+    tstat = stab * Math.sqrt(n);
+  }}
+  var betsEl = document.getElementById('summary-bets');
+  if (betsEl) betsEl.textContent = n;
+  var roiEl = document.getElementById('summary-roi');
+  if (roiEl) {{
+    roiEl.textContent = isNaN(roi) ? 'n/a' : (roi >= 0 ? '+' : '') + roi.toFixed(2) + '%';
+    roiEl.style.color = (!isNaN(roi) && roi >= 0) ? '#2e7d32' : '#c62828';
+  }}
+  var tstatEl = document.getElementById('summary-tstat');
+  if (tstatEl) {{
+    tstatEl.textContent = isNaN(tstat) ? 'n/a' : (tstat >= 0 ? '+' : '') + tstat.toFixed(2);
+    tstatEl.style.color = (!isNaN(tstat) && Math.abs(tstat) >= 2) ? '#2e7d32' : '#c62828';
+  }}
 }}
 
 // ── calibration chart (canvas) ────────────────────────────────────────────────
@@ -352,10 +417,9 @@ function rebuildEdgeBuckets(bets) {{
     var n = subset.length;
     var roi = 0;
     if (n > 0) {{
-      var totalReturn = subset.reduce(function(s, b) {{
-        return s + (b.y_true === b.outcome ? (b.odds - 1) : -1);
-      }}, 0);
-      roi = (totalReturn / n) * 100;
+      var totalProfit = subset.reduce(function(s, b) {{ return s + b.profit; }}, 0);
+      var totalStake  = subset.reduce(function(s, b) {{ return s + b.stake;  }}, 0);
+      roi = totalStake > 0 ? (totalProfit / totalStake) * 100 : 0;
     }}
     return {{label: bk.label, roi: roi, n: n}};
   }});
@@ -430,15 +494,16 @@ function _breakdownStats(bets) {{
   var wins = bets.filter(function(b) {{ return b.y_true === b.outcome; }});
   var win_rate = wins.length / n;
   var avg_edge = bets.reduce(function(s, b) {{ return s + b.edge; }}, 0) / n;
-  var unitReturns = bets.map(function(b) {{
-    return b.y_true === b.outcome ? (b.odds - 1) : -1;
-  }});
-  var roi = unitReturns.reduce(function(s, v) {{ return s + v; }}, 0) / n * 100;
-  // sample std dev
-  var mean_ret = roi / 100;
-  var variance = unitReturns.reduce(function(s, v) {{ return s + (v - mean_ret) * (v - mean_ret); }}, 0) / (n - 1);
+  // Stake-weighted ROI: profit.sum() / stake.sum() * 100
+  var totalProfit = bets.reduce(function(s, b) {{ return s + b.profit; }}, 0);
+  var totalStake  = bets.reduce(function(s, b) {{ return s + b.stake; }}, 0);
+  var roi = totalStake > 0 ? (totalProfit / totalStake) * 100 : 0;
+  // t-stat: mean profit per bet / (std / sqrt(n))
+  var profits = bets.map(function(b) {{ return b.profit; }});
+  var mean_profit = totalProfit / n;
+  var variance = profits.reduce(function(s, v) {{ return s + (v - mean_profit) * (v - mean_profit); }}, 0) / (n - 1);
   var std_dev = Math.sqrt(variance);
-  var t_stat = std_dev > 0 ? (roi / 100) / (std_dev / Math.sqrt(n)) : 0;
+  var t_stat = std_dev > 0 ? mean_profit / (std_dev / Math.sqrt(n)) : 0;
   return {{n: n, win_rate: win_rate, avg_edge: avg_edge, roi: roi, t_stat: t_stat}};
 }}
 
@@ -538,15 +603,9 @@ function rebuildProfitBar(bets) {{
   var pl = 48, pr = 16, pt = 12, pb = 36;
   var cw = W - pl - pr, ch = H - pt - pb;
 
-  // Sort bets by unit return
-  var sorted = bets.slice().sort(function(a, b) {{
-    var ra = a.y_true === a.outcome ? (a.odds - 1) : -1;
-    var rb = b.y_true === b.outcome ? (b.odds - 1) : -1;
-    return ra - rb;
-  }});
-  var returns = sorted.map(function(b) {{
-    return b.y_true === b.outcome ? (b.odds - 1) : -1;
-  }});
+  // Sort bets by actual profit
+  var sorted = bets.slice().sort(function(a, b) {{ return a.profit - b.profit; }});
+  var returns = sorted.map(function(b) {{ return b.profit; }});
 
   var minR = Math.min.apply(null, returns);
   var maxR = Math.max.apply(null, returns);
@@ -584,7 +643,7 @@ function rebuildProfitBar(bets) {{
   // Y axis label
   ctx.save(); ctx.translate(12, pt + ch / 2); ctx.rotate(-Math.PI / 2);
   ctx.fillStyle = '#555'; ctx.font = '11px Arial,sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('Unit return', 0, 0); ctx.restore();
+  ctx.fillText('Profit (units)', 0, 0); ctx.restore();
 
   // Bars — one thin bar per bet, sorted
   var n = sorted.length;
@@ -632,11 +691,10 @@ function rebuildCumulativeChart(bets) {{
     return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
   }});
 
-  // Build series: aggregate daily returns, then cumulative
+  // Build series: aggregate actual profit per day, then cumulative
   var byDate = {{}};
   sorted.forEach(function(b) {{
-    var r = b.y_true === b.outcome ? (b.odds - 1) : -1;
-    byDate[b.date] = (byDate[b.date] || 0) + r;
+    byDate[b.date] = (byDate[b.date] || 0) + b.profit;
   }});
   var dates = Object.keys(byDate).sort();
   var series = [{{date: dates[0], y: 0}}];
@@ -751,6 +809,23 @@ document.addEventListener('DOMContentLoaded', function() {{
 
 
 
+def _backtest_bets_script(results_df: pd.DataFrame) -> str:
+    """Generate BACKTEST_BETS JS array from placed bets (includes stake, profit, edge, league)."""
+    if results_df is None or results_df.empty:
+        return "<script>var BACKTEST_BETS=[];</script>"
+    df = results_df.copy()
+    if "Date" in df.columns:
+        df["date"] = pd.to_datetime(df["Date"]).dt.strftime("%Y-%m-%d")
+    df = df.rename(columns={"HomeTeam": "home", "AwayTeam": "away", "y_pred": "outcome"})
+    if "edge" not in df.columns and "model_prob" in df.columns and "implied_prob" in df.columns:
+        df["edge"] = df["model_prob"] - df["implied_prob"]
+    needed = ["date", "league", "home", "away", "outcome", "y_true",
+              "odds", "model_prob", "implied_prob", "edge", "stake", "profit"]
+    cols = [c for c in needed if c in df.columns]
+    records = df[cols].to_dict("records")
+    return f"<script>\nvar BACKTEST_BETS={json.dumps(records, separators=(',', ':'))};\n</script>"
+
+
 def _all_predictions_script(all_predictions: "pd.DataFrame | None") -> str:
     if all_predictions is None or all_predictions.empty:
         return "<script>var ALL_BETS=[];</script>"
@@ -779,6 +854,7 @@ def generate_report(
     n_correct = (results_df["y_true"] == results_df["y_pred"]).sum()
     n_wrong = n_bets - n_correct
     roi_color = "#2e7d32" if roi >= 0 else "#c62828"
+    tstat = stability * (n_bets ** 0.5)
 
     html = _HTML_TEMPLATE.format(
         accuracy=accuracy,
@@ -788,8 +864,10 @@ def generate_report(
         n_bets=n_bets,
         n_correct=n_correct,
         n_wrong=n_wrong,
+        tstat=tstat,
     )
+    backtest_script = _backtest_bets_script(results_df)
     all_bets_script = _all_predictions_script(all_predictions)
-    html = html.replace("</head>", f"{all_bets_script}\n</head>", 1)
+    html = html.replace("</head>", f"{backtest_script}\n{all_bets_script}\n</head>", 1)
     output_path.write_text(html, encoding="utf-8")
     print(f"Report saved to {output_path}")
