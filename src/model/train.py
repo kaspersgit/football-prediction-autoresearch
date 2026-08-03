@@ -9,7 +9,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from src.model.features import build_features_with_odds
 
 MODEL_PATH = Path("models/baseline.joblib")
-TEST_SEASONS = 2
+TEST_SEASONS = 4
 
 _LGBM_CFG = dict(
     n_estimators=400,
@@ -181,9 +181,12 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
             odds_test = full_odds[test_mask].reset_index(drop=True)
             accuracy = (y_pred == y_true).mean()
             print(f"  Season {test_season}: {train_mask.sum()} train / {test_mask.sum()} test — accuracy {accuracy:.3f}")
+            _eval_df = odds_test.reset_index(drop=True).copy()
+            _eval_df["y_true"] = y_true
             season_results.append({
                 "y_pred": y_pred, "y_proba": y_proba, "y_true": y_true,
                 "odds_test": odds_test, "classes": _CLASSES,
+                "eval_df": _eval_df, "season": test_season,
             })
         elif per_league:
             y_pred, y_proba, y_true = _predict_per_league(
@@ -192,12 +195,15 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
             odds_test = full_odds[test_mask].reset_index(drop=True)
             accuracy = (y_pred == y_true).mean()
             print(f"  Season {test_season}: {train_mask.sum()} train / {test_mask.sum()} test — accuracy {accuracy:.3f}")
+            _eval_df = odds_test.reset_index(drop=True).copy()
+            _eval_df["y_true"] = y_true
             season_results.append({
                 "y_pred": y_pred,
                 "y_proba": y_proba,
                 "y_true": y_true,
                 "odds_test": odds_test,
                 "classes": _CLASSES,
+                "eval_df": _eval_df, "season": test_season,
             })
         elif binary_outcomes:
             X_train = full_X[train_mask]
@@ -211,9 +217,12 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
             y_pred = _CLASSES[np.argmax(y_proba, axis=1)]
             accuracy = (y_pred == y_test.values).mean()
             print(f"  Season {test_season}: {train_mask.sum()} train / {test_mask.sum()} test — accuracy {accuracy:.3f}")
+            _eval_df = odds_test.reset_index(drop=True).copy()
+            _eval_df["y_true"] = y_test.values
             season_results.append({
                 "y_pred": y_pred, "y_proba": y_proba, "y_true": y_test.values,
                 "odds_test": odds_test, "classes": _CLASSES,
+                "eval_df": _eval_df, "season": test_season,
             })
         else:
             X_train = full_X[train_mask]
@@ -231,12 +240,15 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
             accuracy = (y_pred == y_test.values).mean()
             print(f"  Season {test_season}: {train_mask.sum()} train / {test_mask.sum()} test — accuracy {accuracy:.3f}")
 
+            _eval_df = odds_test.reset_index(drop=True).copy()
+            _eval_df["y_true"] = y_test.values
             season_results.append({
                 "y_pred": y_pred,
                 "y_proba": y_proba,
                 "y_true": y_test.values,
                 "odds_test": odds_test,
                 "classes": classes,
+                "eval_df": _eval_df, "season": test_season,
             })
 
     if not per_league:
@@ -258,6 +270,7 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
         "classes": season_results[-1]["classes"],
         "odds_test": odds_all,
         "accuracy": accuracy,
+        "season_results": season_results,
     }
 
 

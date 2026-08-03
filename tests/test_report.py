@@ -34,4 +34,5 @@ def test_generate_report_creates_html(tmp_path):
     assert "<html" in content.lower()
     assert "ROI" in content
     assert "Accuracy" in content
-    assert "Stability" in content
+    assert "t-stat" in content
+    assert "+0.85" in content
