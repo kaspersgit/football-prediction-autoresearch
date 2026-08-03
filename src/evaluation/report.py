@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.config import LEAGUE_NAMES, SUPPORTED_LEAGUES
+
 _HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
@@ -99,13 +101,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <div class="filter-group">
     <label>Leagues</label>
     <div class="outcome-toggles">
-      <button class="outcome-btn active" id="btn-lg-E0" onclick="toggleLeague('E0')">ENG</button>
-      <button class="outcome-btn active" id="btn-lg-N1" onclick="toggleLeague('N1')">NED</button>
-      <button class="outcome-btn active" id="btn-lg-P1" onclick="toggleLeague('P1')">POR</button>
-      <button class="outcome-btn" id="btn-lg-D1" onclick="toggleLeague('D1')">GER</button>
-      <button class="outcome-btn" id="btn-lg-SP1" onclick="toggleLeague('SP1')">ESP</button>
-      <button class="outcome-btn" id="btn-lg-I1" onclick="toggleLeague('I1')">ITA</button>
-      <button class="outcome-btn" id="btn-lg-F1" onclick="toggleLeague('F1')">FRA</button>
+      {league_buttons}
+    </div>
+    <div class="outcome-toggles" style="margin-top:6px">
+      <button class="outcome-btn" onclick="setLeaguePreset('all')">All markets</button>
+      <button class="outcome-btn" onclick="setLeaguePreset('production')">Production markets</button>
     </div>
   </div>
   <div class="filter-count">Showing <span id="visible-count">…</span> bets</div>
@@ -119,7 +119,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 <h2>ROI by Edge Bucket</h2>
 <div class="explanation">
-  ROI here is <b>stake-weighted</b> (profit / stake) from placed bets only. Only bets in England, Netherlands, and Portugal are included — excluded leagues (Germany, Spain, Italy, France) are deeply negative. Higher edge buckets tend to be rarer; small sample sizes make per-bucket noise high.
+  ROI here is <b>stake-weighted</b> (profit / stake) from placed bets in the currently selected leagues. Higher edge buckets tend to be rarer; small sample sizes make per-bucket noise high.
 </div>
 <div class="top-bets-card" id="edge-bucket-container">
   <h3>ROI by Edge Bucket (stake-weighted)</h3>
@@ -157,7 +157,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 // ── filter state ──────────────────────────────────────────────────────────────
 var filteredBets = [];
 var _activeOutcome = 'All';
-var _activeLeagues = {{'E0': true, 'N1': true, 'P1': true, 'D1': false, 'SP1': false, 'I1': false, 'F1': false}};
+var _activeLeagues={active_leagues_json};
+var _productionLeagues={production_leagues_json};
 
 function setOutcome(outcome) {{
   _activeOutcome = outcome;
@@ -172,6 +173,15 @@ function toggleLeague(league) {{
   _activeLeagues[league] = !_activeLeagues[league];
   var btn = document.getElementById('btn-lg-' + league);
   if (btn) btn.classList.toggle('active', !!_activeLeagues[league]);
+  applyFilters();
+}}
+
+function setLeaguePreset(preset) {{
+  Object.keys(_activeLeagues).forEach(function(league) {{
+    _activeLeagues[league] = preset === 'all' || _productionLeagues.indexOf(league) !== -1;
+    var btn = document.getElementById('btn-lg-' + league);
+    if (btn) btn.classList.toggle('active', !!_activeLeagues[league]);
+  }});
   applyFilters();
 }}
 
@@ -561,8 +571,8 @@ function rebuildOutcomeTable(bets) {{
 function rebuildLeagueTable(bets) {{
   var container = document.getElementById('league-table-container');
   if (!container) return;
-  var LG_NAMES = {{'E0':'England','D1':'Germany','SP1':'Spain','I1':'Italy','F1':'France','N1':'Netherlands','P1':'Portugal'}};
-  var LG_ORDER = ['E0','D1','SP1','I1','F1','N1','P1'];
+  var LG_NAMES = {league_names_json};
+  var LG_ORDER = {league_order_json};
   var rows = [];
   LG_ORDER.forEach(function(code) {{
     var subset = bets.filter(function(b) {{ return b.league === code; }});
@@ -839,6 +849,18 @@ def _all_predictions_script(all_predictions: "pd.DataFrame | None") -> str:
     return f"<script>\nvar ALL_BETS={json.dumps(records, separators=(',', ':'))};\n</script>"
 
 
+def _observed_leagues(
+    results_df: pd.DataFrame,
+    all_predictions: "pd.DataFrame | None",
+) -> list[str]:
+    observed: set[str] = set()
+    for frame in (results_df, all_predictions):
+        if frame is not None and "league" in frame.columns:
+            observed.update(str(value) for value in frame["league"].dropna().unique())
+    canonical = [league for league in SUPPORTED_LEAGUES if league in observed]
+    return canonical + sorted(observed - set(canonical))
+
+
 def generate_report(
     results_df: pd.DataFrame,
     accuracy: float,
@@ -846,6 +868,7 @@ def generate_report(
     stability: float,
     output_path: Path,
     all_predictions: "pd.DataFrame | None" = None,
+    production_leagues: "set[str] | frozenset[str] | None" = None,
 ) -> None:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -855,6 +878,24 @@ def generate_report(
     n_wrong = n_bets - n_correct
     roi_color = "#2e7d32" if roi >= 0 else "#c62828"
     tstat = stability * (n_bets ** 0.5)
+    observed_leagues = _observed_leagues(results_df, all_predictions)
+    league_buttons = "\n      ".join(
+        f'<button class="outcome-btn active" id="btn-lg-{league}" '
+        f'onclick="toggleLeague(\'{league}\')">{league} · {LEAGUE_NAMES.get(league, league)}</button>'
+        for league in observed_leagues
+    )
+    active_leagues_json = json.dumps(
+        {league: True for league in observed_leagues}, separators=(",", ":")
+    )
+    production_order = [
+        league for league in observed_leagues if league in (production_leagues or set())
+    ]
+    production_leagues_json = json.dumps(production_order, separators=(",", ":"))
+    league_names_json = json.dumps(
+        {league: LEAGUE_NAMES.get(league, league) for league in observed_leagues},
+        separators=(",", ":"),
+    )
+    league_order_json = json.dumps(observed_leagues, separators=(",", ":"))
 
     html = _HTML_TEMPLATE.format(
         accuracy=accuracy,
@@ -865,6 +906,11 @@ def generate_report(
         n_correct=n_correct,
         n_wrong=n_wrong,
         tstat=tstat,
+        league_buttons=league_buttons,
+        active_leagues_json=active_leagues_json,
+        production_leagues_json=production_leagues_json,
+        league_names_json=league_names_json,
+        league_order_json=league_order_json,
     )
     backtest_script = _backtest_bets_script(results_df)
     all_bets_script = _all_predictions_script(all_predictions)

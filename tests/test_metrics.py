@@ -1,6 +1,14 @@
+import numpy as np
 import pandas as pd
+import pytest
 
-from src.evaluation.metrics import compute_betting_results, compute_roi, compute_stability
+from src.config import EXCLUDED_BETTING_LEAGUES
+from src.evaluation.metrics import (
+    compute_betting_results,
+    compute_roi,
+    compute_stability,
+    compute_value_betting_results,
+)
 
 
 def _make_results():
@@ -45,3 +53,32 @@ def test_stability_is_scalar():
     res = compute_betting_results(df)
     stab = compute_stability(res)
     assert isinstance(stab, float)
+
+
+def test_value_bets_keep_all_markets_unless_production_filter_is_requested():
+    matches = pd.DataFrame(
+        {
+            "Date": pd.date_range("2024-01-01", periods=2),
+            "HomeTeam": ["Home E0", "Home D1"],
+            "AwayTeam": ["Away E0", "Away D1"],
+            "league": ["E0", "D1"],
+            "y_true": ["H", "H"],
+            "B365H": [2.0, 2.0],
+            "B365D": [4.0, 4.0],
+            "B365A": [4.0, 4.0],
+        }
+    )
+    probabilities = np.array([[0.1, 0.2, 0.7], [0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    evaluation = compute_value_betting_results(matches, probabilities, classes)
+    production = compute_value_betting_results(
+        matches,
+        probabilities,
+        classes,
+        skip_leagues=EXCLUDED_BETTING_LEAGUES,
+    )
+
+    assert evaluation["league"].tolist() == ["E0", "D1"]
+    assert production["league"].tolist() == ["E0"]
+    assert evaluation["edge"].tolist() == pytest.approx([0.2, 0.2])

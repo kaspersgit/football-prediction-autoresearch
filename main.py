@@ -2,20 +2,20 @@
 """
 Main pipeline: data → model → evaluation → HTML report + profit chart.
 
-Leagues: England (E0), Germany (D1), Spain (SP1), Italy (I1), France (F1), Netherlands (N1), Portugal (P1)
+Evaluation: all supported leagues. Production inference: explicit allowlist in src/config.py.
 
 Modes:
   python main.py                    # backtest on last 2 seasons (default settings)
   python main.py --per-league       # one model per league (default recommended)
   python main.py --threshold 0.05   # override minimum edge filter (default: 0.03)
-  python main.py --max-odds 5.0     # override max B365 odds filter (default: 4.0)
+  python main.py --max-odds 5.0     # override max B365 odds filter (default: 5.0)
   python main.py --predict          # train on all data, predict upcoming fixtures
   python main.py --update           # re-download latest season results, then backtest
   python main.py --monthly          # monthly walk-forward retrain (experimental)
 
 Default staking: flat 1 unit per bet
   Threshold: 0.03  (3% minimum edge over B365 fair price)
-  Max odds:  5.0   (B365 >= 5.0 excluded; model signal degrades above this)
+  Max odds:  5.0   (B365 odds above 5.0 excluded; model signal degrades above this)
 """
 import sys
 from pathlib import Path
@@ -27,12 +27,30 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from src.config import (
+    DEFAULT_MAX_EDGE,
+    DEFAULT_MAX_ODDS,
+    DEFAULT_MAX_OVERROUND,
+    EXCLUDED_BETTING_LEAGUES,
+    LEAGUE_NAMES,
+    PRODUCTION_LEAGUES,
+    SUPPORTED_LEAGUES,
+    filter_production_fixtures,
+)
 from src.data.loader import load_all_data
+from src.evaluation.artifacts import save_bet_artifacts
 from src.evaluation.metrics import compute_roi, compute_stability, compute_value_betting_results
 from src.evaluation.report import generate_report
-from src.model.features import FEATURE_COLS, build_features_with_odds, build_fixture_features
+from src.evaluation.threshold_selector import select_league_thresholds
+from src.model.features import FEATURE_COLS, build_fixture_features
 from src.model.train import _CLASSES as _TRAIN_CLASSES
-from src.model.train import split_by_season, train_on_all_data, train_on_all_data_per_league, train_walkforward, train_walkforward_monthly
+from src.model.train import (
+    train_on_all_data_per_league,
+    train_walkforward,
+    train_walkforward_monthly,
+)
+
+_THRESHOLD_GRID = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10]
 
 
 def _parse_threshold() -> float:
@@ -46,14 +64,14 @@ def _parse_max_odds() -> float:
     for i, arg in enumerate(sys.argv):
         if arg == "--max-odds" and i + 1 < len(sys.argv):
             return float(sys.argv[i + 1])
-    return 5.0  # Iter 76: test if edge remains valid up to odds 5.0
+    return DEFAULT_MAX_ODDS
 
 
 def _parse_max_edge() -> float:
     for i, arg in enumerate(sys.argv):
         if arg == "--max-edge" and i + 1 < len(sys.argv):
             return float(sys.argv[i + 1])
-    return 0.20  # cap extreme-overconfident predictions (>20% edge is model noise)
+    return DEFAULT_MAX_EDGE
 
 
 def _parse_min_season_games() -> int:
@@ -107,11 +125,21 @@ def _save_profit_chart(betting_results, output_path: Path) -> None:
 
 def _run_predict():
     from datetime import datetime
+
     from src.data.download import download_fixtures, update_current_season
     from src.data.loader import load_fixtures
 
     threshold = _parse_threshold()
     fetched_at = datetime.now()
+
+    import json as _json
+    _lt_path = Path("models/league_thresholds.json")
+    league_thresholds: dict | None = _json.loads(_lt_path.read_text()) if _lt_path.exists() else None
+    if league_thresholds:
+        print("Using per-league thresholds: " +
+              ", ".join(f"{lg}={v:+.2f}" for lg, v in sorted(league_thresholds.items())))
+    else:
+        print(f"No league_thresholds.json found — using global threshold {threshold:+.2f}")
 
     print("Updating latest season results...")
     update_current_season()
@@ -140,9 +168,21 @@ def _run_predict():
     if dropped:
         print(f"  {dropped} fixture(s) dropped — teams with < {5} games history")
 
-    # Exclude leagues with consistently negative ROI in backtest
-    _SKIP_LEAGUES = {"F1", "D1", "SP1", "I1"}
-    fixture_features = fixture_features[~fixture_features["league"].isin(_SKIP_LEAGUES)].reset_index(drop=True)
+    fixture_features = filter_production_fixtures(fixture_features)
+    if fixture_features.empty:
+        print("No upcoming fixtures are in the production market allowlist.")
+        return
+
+    modelled_leagues = set(models)
+    missing_models = sorted(set(fixture_features["league"]) - modelled_leagues)
+    if missing_models:
+        print("Skipping fixtures without trained models: " + ", ".join(missing_models))
+        fixture_features = fixture_features[
+            fixture_features["league"].isin(modelled_leagues)
+        ].reset_index(drop=True)
+    if fixture_features.empty:
+        print("No production fixtures have a trained model.")
+        return
 
     # Per-league inference: use each league's own model
     X_fix = fixture_features[FEATURE_COLS]
@@ -157,7 +197,8 @@ def _run_predict():
         col_order = [model_classes.index(c) for c in classes if c in model_classes]
         y_proba[mask] = proba[:, col_order]
 
-    pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold)
+    pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
+                                       league_thresholds=league_thresholds)
 
     # Load historical backtest bets for the monthly performance table in the report
     historical_bets = None
@@ -165,20 +206,24 @@ def _run_predict():
     if bets_path.exists():
         historical_bets = pd.read_csv(bets_path, parse_dates=["Date"])
 
-    _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at)
-    _save_predictions_csv(fixture_features, y_proba, classes, threshold, fetched_at)
+    _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at,
+                       league_thresholds=league_thresholds)
+    _save_predictions_csv(fixture_features, y_proba, classes, threshold, fetched_at,
+                          league_thresholds=league_thresholds)
     _save_predictions_html(pred_rows, threshold, fetched_at, historical_bets=historical_bets)
 
 
 
-_PREDICT_MAX_ODDS = 5.0      # must match backtest max_odds
-_PREDICT_MAX_EDGE = 0.20     # must match backtest max_edge
-_PREDICT_MAX_OVERROUND = 0.07  # must match backtest max_overround
+_PREDICT_MAX_ODDS = DEFAULT_MAX_ODDS
+_PREDICT_MAX_EDGE = DEFAULT_MAX_EDGE
+_PREDICT_MAX_OVERROUND = DEFAULT_MAX_OVERROUND
 
 
-def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float) -> list[dict]:
+def _build_prediction_rows(
+    fixture_features, y_proba, classes, threshold: float,
+    league_thresholds: dict | None = None,
+) -> list[dict]:
     """Build a list of per-fixture prediction dicts (used by both print and CSV export)."""
-    odds_col = {"H": "B365H", "D": "B365D", "A": "B365A"}
     fixture_features = fixture_features.reset_index(drop=True)
     rows = []
     for i, row in fixture_features.iterrows():
@@ -193,11 +238,14 @@ def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float)
         if overround > _PREDICT_MAX_OVERROUND:
             continue
 
+        league = row.get("league", "")
+        t = (league_thresholds or {}).get(league, threshold)
+
         value_bets = []
         for o in ["H", "D", "A"]:
             edge = probs[o] - fair[o]
             b365_odds = {"H": b365h, "D": b365d, "A": b365a}[o]
-            if edge <= threshold:
+            if edge <= t:
                 continue
             if edge > _PREDICT_MAX_EDGE:
                 continue
@@ -206,8 +254,10 @@ def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float)
             value_bets.append((o, edge))
 
         def _safe_float(v):
-            try: return float(v)
-            except (TypeError, ValueError): return float("nan")
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return float("nan")
 
         rows.append({
             "Date": row["Date"],
@@ -234,22 +284,21 @@ def _build_prediction_rows(fixture_features, y_proba, classes, threshold: float)
     return rows
 
 
-def _print_predictions(fixture_features, y_proba, classes, threshold: float, fetched_at=None) -> None:
-    from datetime import datetime
+def _print_predictions(fixture_features, y_proba, classes, threshold: float, fetched_at=None,
+                       league_thresholds: dict | None = None) -> None:
     outcome_label = {"H": "Home", "D": "Draw", "A": "Away"}
 
-    has_pinnacle = all(c in fixture_features.columns for c in ("PSH", "PSD", "PSA"))
-    pinnacle_note = " + Pinnacle filter" if has_pinnacle else ""
     fetch_str = fetched_at.strftime("%Y-%m-%d %H:%M") if fetched_at else "unknown"
 
     W = 100
     print(f"\n{'='*W}")
-    print(f"UPCOMING FIXTURE PREDICTIONS")
-    print(f"Odds fetched: {fetch_str}  |  threshold: {threshold:+.2f}{pinnacle_note}")
-    print(f"⚠  Verify odds are still current before placing any bet")
+    print("UPCOMING FIXTURE PREDICTIONS")
+    print(f"Odds fetched: {fetch_str}  |  threshold: {threshold:+.2f}")
+    print("⚠  Verify odds are still current before placing any bet")
     print(f"{'='*W}")
 
-    pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold)
+    pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
+                                       league_thresholds=league_thresholds)
 
     by_league: dict[str, list] = {}
     for r in pred_rows:
@@ -300,9 +349,11 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
     print(f"{'='*W}\n")
 
 
-def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, fetched_at) -> None:
+def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, fetched_at,
+                          league_thresholds: dict | None = None) -> None:
     """Save a timestamped CSV of all fixtures + odds + model probs for pre-bet verification."""
-    pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold)
+    pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
+                                       league_thresholds=league_thresholds)
     records = []
     for r in pred_rows:
         value_labels = "+".join(o for o, _ in r["ValueBets"]) if r["ValueBets"] else ""
@@ -351,11 +402,9 @@ def _print_edge_analysis(eval_df, y_proba, classes, threshold, max_odds) -> None
         inv_odds_factor=20.0,
         min_stake=3.0,
         max_odds=max_odds,
-        skip_leagues={"F1", "SP1", "D1", "I1"},
     )
 
-    # Build per-bet edge table for bucket analysis (no cap, no Pinnacle filter so we
-    # see all potential bets before the Pinnacle filter removes them)
+    # Build the uncapped per-bet edge table for bucket analysis.
     outcomes = list(classes)
     outcome_map = {"H": "B365H", "D": "B365D", "A": "B365A"}
     rows = []
@@ -380,7 +429,7 @@ def _print_edge_analysis(eval_df, y_proba, classes, threshold, max_odds) -> None
     BUCKETS = [(0.0, 0.05), (0.05, 0.10), (0.10, 0.15), (0.15, 0.20),
                (0.20, 0.25), (0.25, 0.30), (0.30, 1.0)]
 
-    print("\n=== EDGE DISTRIBUTION (all potential bets before Pinnacle filter) ===")
+    print("\n=== EDGE DISTRIBUTION (all potential bets before max-edge cap) ===")
     print(f"  {'Edge bucket':>14}  {'Bets':>6}  {'Win%':>6}  {'Avg odds':>9}  {'Flat ROI':>9}")
     print("  " + "-" * 50)
     for lo, hi in BUCKETS:
@@ -399,11 +448,11 @@ def _print_edge_analysis(eval_df, y_proba, classes, threshold, max_odds) -> None
         month_counts = high_edge.groupby("month").size()
         months = {1:"Jan",2:"Feb",3:"Mar",4:"Apr",5:"May",6:"Jun",
                   7:"Jul",8:"Aug",9:"Sep",10:"Oct",11:"Nov",12:"Dec"}
-        print(f"\n  High-edge bets (≥20%) by month: "
+        print("\n  High-edge bets (≥20%) by month: "
               + "  ".join(f"{months[m]}:{n}" for m, n in month_counts.items()))
 
     # Cap sweep: ROI and bet count at each cap
-    print(f"\n=== MAX-EDGE CAP SWEEP (with Pinnacle filter active) ===")
+    print("\n=== MAX-EDGE CAP SWEEP ===")
     print(f"  {'Cap':>8}  {'Bets':>6}  {'Excl.':>6}  {'ROI':>9}  {'Stability':>10}  {'t-stat':>8}")
     print("  " + "-" * 56)
     base_bets = compute_value_betting_results(eval_df, y_proba, classes, **BASE_KWARGS)
@@ -425,10 +474,11 @@ def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame
     odds_test = odds_test.copy()
     odds_test["Date"] = pd.to_datetime(odds_test["Date"])
 
-    bets = bets.merge(
-        odds_test[["HomeTeam", "AwayTeam", "Date", "league"]],
-        on=["HomeTeam", "AwayTeam", "Date"], how="left",
-    )
+    if "league" not in bets.columns:
+        bets = bets.merge(
+            odds_test[["HomeTeam", "AwayTeam", "Date", "league"]],
+            on=["HomeTeam", "AwayTeam", "Date"], how="left",
+        )
 
     # Per-league strength tiers (top/mid/bot = top-third/mid/bottom-third of that league)
     tiers: dict[str, str] = {}
@@ -447,8 +497,7 @@ def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame
     bets["home_tier"] = bets["HomeTeam"].map(tiers)
     bets["away_tier"] = bets["AwayTeam"].map(tiers)
 
-    LG = {"E0": "England", "D1": "Germany", "SP1": "Spain", "I1": "Italy",
-          "F1": "France", "N1": "Netherlands", "P1": "Portugal"}
+    LG = LEAGUE_NAMES
 
     def _roi(sub): return sub["profit"].sum() / sub["stake"].sum() * 100 if len(sub) else float("nan")
 
@@ -512,9 +561,9 @@ def _run_backtest():
         results = train_walkforward_monthly(df)
     else:
         if per_league and binary:
-            mode = "3 binary models × 4 leagues = 12 models per test season"
+            mode = f"3 binary models × {len(SUPPORTED_LEAGUES)} leagues per test season"
         elif per_league:
-            mode = "one multi-class model per league per test season (4 models)"
+            mode = f"one multi-class model per league per test season ({len(SUPPORTED_LEAGUES)} models)"
         elif binary:
             mode = "3 binary models per test season (one per outcome)"
         else:
@@ -529,7 +578,87 @@ def _run_backtest():
     inv_odds_factor = 0.0
     min_stake       = 1.0
 
-    betting_results = compute_value_betting_results(
+    if "season_results" in results:
+        # Per-season threshold calibration:
+        # For each test season, calibrate per-league thresholds from all PRIOR test seasons,
+        # then apply them. Season 1 (no prior data) uses the global default threshold.
+        prior_season_data: list[dict] = []
+        per_season_chunks: list[pd.DataFrame] = []
+        final_threshold_map: dict[str, float] = {lg: threshold for lg in SUPPORTED_LEAGUES}
+
+        for sr in results["season_results"]:
+            if prior_season_data:
+                final_threshold_map = select_league_thresholds(
+                    prior_season_data,
+                    leagues=SUPPORTED_LEAGUES,
+                    grid=_THRESHOLD_GRID,
+                    max_odds=max_odds,
+                    max_overround=DEFAULT_MAX_OVERROUND,
+                    max_edge=max_edge,
+                )
+
+            leagues_in_season = set(sr["eval_df"]["league"].unique())
+            season_chunks: list[pd.DataFrame] = []
+            for league in SUPPORTED_LEAGUES:
+                if league not in PRODUCTION_LEAGUES:
+                    continue
+                if league not in leagues_in_season:
+                    continue
+                league_threshold = final_threshold_map.get(league, threshold)
+                skip_all_but_this = set(SUPPORTED_LEAGUES) - {league}
+                lg_bets = compute_value_betting_results(
+                    sr["eval_df"],
+                    sr["y_proba"],
+                    sr["classes"],
+                    threshold=league_threshold,
+                    kelly_fraction=kelly,
+                    inv_odds_factor=inv_odds_factor,
+                    min_stake=min_stake,
+                    max_odds=max_odds,
+                    skip_leagues=skip_all_but_this,
+                    max_edge=max_edge,
+                    min_season_games=min_season_games,
+                    max_overround=DEFAULT_MAX_OVERROUND,
+                )
+                season_chunks.append(lg_bets)
+
+            prior_season_data.append(sr)
+            if season_chunks:
+                per_season_chunks.append(
+                    pd.concat(season_chunks).sort_values("Date").reset_index(drop=True)
+                )
+
+        if per_season_chunks:
+            production_results = (
+                pd.concat(per_season_chunks).sort_values("Date").reset_index(drop=True)
+            )
+            production_results["cumulative_profit"] = production_results["profit"].cumsum()
+        else:
+            production_results = pd.DataFrame(
+                columns=["Date", "HomeTeam", "AwayTeam", "league", "profit",
+                         "cumulative_profit"]
+            )
+    else:
+        # Monthly mode — no season_results; use global threshold unchanged
+        production_results = compute_value_betting_results(
+            eval_df,
+            results["y_proba"],
+            results["classes"],
+            threshold=threshold,
+            kelly_fraction=kelly,
+            inv_odds_factor=inv_odds_factor,
+            min_stake=min_stake,
+            max_odds=max_odds,
+            skip_leagues=EXCLUDED_BETTING_LEAGUES,
+            max_edge=max_edge,
+            min_season_games=min_season_games,
+            max_overround=DEFAULT_MAX_OVERROUND,
+        )
+        final_threshold_map = {lg: threshold for lg in SUPPORTED_LEAGUES}
+
+    # Research evaluation is deliberately independent from the production portfolio:
+    # every observed supported league uses the fixed CLI threshold.
+    evaluation_results = compute_value_betting_results(
         eval_df,
         results["y_proba"],
         results["classes"],
@@ -538,23 +667,25 @@ def _run_backtest():
         inv_odds_factor=inv_odds_factor,
         min_stake=min_stake,
         max_odds=max_odds,
-        skip_leagues={"F1", "SP1", "D1", "I1"},
         max_edge=max_edge,
         min_season_games=min_season_games,
-        max_overround=0.07,
+        max_overround=DEFAULT_MAX_OVERROUND,
     )
-    roi = compute_roi(betting_results)
-    stability = compute_stability(betting_results)
+
+    roi = compute_roi(evaluation_results) if not evaluation_results.empty else float("nan")
+    stability = (
+        compute_stability(evaluation_results) if not evaluation_results.empty else float("nan")
+    )
     accuracy = results["accuracy"]
 
     n_matches = len(eval_df)
-    n_bets = len(betting_results)
+    n_bets = len(evaluation_results)
     if kelly > 0.0:
         sizing = f"Kelly x{kelly}"
     else:
         sizing = "flat 1 unit"
     t_stat = stability * (n_bets ** 0.5)
-    print("\n=== BACKTEST RESULTS ===")
+    print("\n=== ALL-MARKET EVALUATION ===")
     season_filter_str = f"  |  Min season games: {min_season_games}" if min_season_games > 0 else ""
     print(f"Accuracy:  {accuracy:.3f}  (on all {n_matches} test matches)")
     print(f"Threshold: {threshold:+.3f}  |  Max odds: {max_odds:.1f}  |  Staking: {sizing}{season_filter_str}")
@@ -562,41 +693,30 @@ def _run_backtest():
     print(f"ROI:       {roi:+.2f}%")
     print(f"Stability: {stability:.4f}")
     print(f"t-stat:    {t_stat:+.2f}  (need |t| > 2 for significance; ROI indistinct from 0 until then)")
+    print("League thresholds (last calibration): " +
+          ", ".join(f"{lg}={v:+.2f}" for lg, v in sorted(final_threshold_map.items())))
+    import json as _json
+    _thresholds_path = Path("models/league_thresholds.json")
+    _thresholds_path.parent.mkdir(parents=True, exist_ok=True)
+    _thresholds_path.write_text(_json.dumps(final_threshold_map, indent=2))
+    print(f"League thresholds saved to {_thresholds_path}")
 
     _print_edge_analysis(eval_df, results["y_proba"], results["classes"], threshold, max_odds)
-    _print_split_analysis(betting_results, eval_df)
+    _print_split_analysis(evaluation_results, eval_df)
 
-    _save_profit_chart(betting_results, Path("reports/profit_curve.png"))
+    if not production_results.empty:
+        production_roi = compute_roi(production_results)
+        print(
+            f"Production portfolio: {len(production_results)} bets | "
+            f"ROI {production_roi:+.2f}% | leagues {', '.join(sorted(PRODUCTION_LEAGUES))}"
+        )
+        _save_profit_chart(production_results, Path("reports/profit_curve.png"))
 
-    # Save per-bet results with league info for use in prediction reports
+    evaluation_path, bets_path = save_bet_artifacts(evaluation_results, production_results)
+    print(f"All-market evaluation bets saved to {evaluation_path}")
+    print(f"Production backtest bets saved to {bets_path}")
+
     league_lookup = eval_df[["Date", "HomeTeam", "AwayTeam", "league"]].drop_duplicates()
-    bets_with_league = betting_results.merge(
-        league_lookup, on=["Date", "HomeTeam", "AwayTeam"], how="left"
-    )
-    bets_path = Path("reports/backtest_bets.csv")
-    bets_path.parent.mkdir(parents=True, exist_ok=True)
-    bets_with_league.to_csv(bets_path, index=False)
-    print(f"Backtest bets saved to {bets_path}")
-
-    # All-leagues bets for interactive report (no skip_leagues — user can toggle leagues via buttons)
-    all_leagues_bets = compute_value_betting_results(
-        eval_df,
-        results["y_proba"],
-        results["classes"],
-        threshold=threshold,
-        inv_odds_factor=0.0,
-        min_stake=1.0,
-        max_odds=max_odds,
-        max_edge=max_edge,
-        min_season_games=min_season_games,
-        max_overround=0.07,
-    )
-    all_leagues_with_league = all_leagues_bets.merge(
-        league_lookup, on=["Date", "HomeTeam", "AwayTeam"], how="left"
-    )
-    all_leagues_with_league["edge"] = (
-        all_leagues_with_league["model_prob"] - all_leagues_with_league["implied_prob"]
-    )
 
     # Build all_predictions: one row per (match × outcome) for embedding in the eval report.
     y_proba = results["y_proba"]
@@ -632,12 +752,13 @@ def _run_backtest():
 
     print("\nGenerating report...")
     generate_report(
-        results_df=all_leagues_with_league,
+        results_df=evaluation_results,
         accuracy=accuracy,
         roi=roi,
         stability=stability,
         output_path=Path("reports/evaluation_report.html"),
         all_predictions=all_predictions,
+        production_leagues=PRODUCTION_LEAGUES,
     )
     print("Done. Open reports/evaluation_report.html to view results.")
 
@@ -709,8 +830,8 @@ def _run_compare_vig():
         r_roi = f"{compute_roi(rb):+.2f}%" if not rb.empty else "  n/a"
         print(f"{t:>+.2f}{'':8}  {len(fb):>10}  {f_roi:>10}  {len(rb):>10}  {r_roi:>10}")
 
-    print(f"\nNote: 'raw' bets ⊆ 'fair' bets — raw is strictly more conservative.\n"
-          f"Bets flagged by 'fair' but not 'raw' are negative-EV at these actual odds.")
+    print("\nNote: 'raw' bets ⊆ 'fair' bets — raw is strictly more conservative.\n"
+          "Bets flagged by 'fair' but not 'raw' are negative-EV at these actual odds.")
 
     # --- Per-league breakdown at base threshold ---
     LG = {"E0": "England", "D1": "Germany", "SP1": "Spain", "I1": "Italy",

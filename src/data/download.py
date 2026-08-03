@@ -3,15 +3,9 @@ from pathlib import Path
 
 import requests
 
-LEAGUES = {
-    "england": "E0",
-    "germany": "D1",
-    "spain": "SP1",
-    "italy": "I1",
-    "france": "F1",
-    "netherlands": "N1",
-    "portugal": "P1",
-}
+from src.config import LEAGUE_NAMES
+
+LEAGUES = {name.lower(): code for code, name in LEAGUE_NAMES.items()}
 
 BASE_URL = "https://www.football-data.co.uk/mmz4281"
 FIXTURES_URL = "https://www.football-data.co.uk/fixtures.csv"

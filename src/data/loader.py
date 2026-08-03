@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.config import LEAGUE_NAMES
+
 RAW_DIR = Path("data/raw")
 
 REQUIRED_COLS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "B365H", "B365D", "B365A"]
@@ -12,10 +14,7 @@ _BK_COLS_H = ["B365H", "BFDH", "BMGMH", "BVH", "BWH", "CLH", "LBH", "PSH", "WHH"
 _BK_COLS_D = ["B365D", "BFDD", "BMGMD", "BVD", "BWD", "CLD", "LBD", "PSD", "WHD", "VCD", "SJD", "IWD", "GBD", "SBD"]
 _BK_COLS_A = ["B365A", "BFDA", "BMGMA", "BVA", "BWA", "CLA", "LBA", "PSA", "WHA", "VCA", "SJA", "IWA", "GBA", "SBA"]
 
-_LEAGUE_MAP = {
-    "E0": "england", "D1": "germany", "SP1": "spain", "I1": "italy",
-    "F1": "france", "N1": "netherlands", "P1": "portugal",
-}
+_LEAGUE_MAP = {code: name.lower() for code, name in LEAGUE_NAMES.items()}
 _FIXTURE_ODDS_COLS = ["B365H", "B365D", "B365A"]
 _FIXTURE_PINNACLE_COLS = ["PSH", "PSD", "PSA"]
 
