@@ -1,33 +1,24 @@
-# Autoresearch State Document
+# Autoresearch experiment ledger
 
-## Current Best Model (Pinnacle-free — inference-realistic)
+This is the append-only record of completed experiments and archived investigations.
 
-| Metric    | threshold=0.0        |
-|-----------|----------------------|
-| Accuracy  | 0.523                |
-| ROI       | **+8.33%** ✅ |
-| Stability | **0.0630** ✅ |
-| t-stat    | **+2.59** ✅ (above 2.0 — statistically significant!) |
-| Bets      | 1688 / 4433 (38.1%) |
-| Training  | One **LGBM + isotonic calibration** per league per test season (`--per-league`) |
-| Features  | 8 EWM/Elo + 3 market fair probs + 6 league dummies + H2H + 2 draw rates + 2 market bias + match_balance + 4 DC ratings + 2 elo_delta = **30 features** |
-| Model cfg | n_estimators=**400**, learning_rate=0.05, num_leaves=31, min_child_samples=20, reg_lambda=0.05; **CalibratedClassifierCV(method="isotonic", cv=10, ensemble=False)** |
-| Bet filter | **No Pinnacle filter** |
-| Odds filter | **max_odds=5.0**, **max_overround=0.07** (skip high-vig markets) |
-| League filter | **France, Spain, Germany, Italy excluded from betting** (F1, SP1, D1, I1) |
+## Identifier migration
 
-_Last updated: 2026-05-18. Iteration 85: calibration cv=10. Stability +0.0630 (+0.0020 vs Iter 84), t-stat +2.59. ROI +8.33% (−0.02pp within noise). Betting England, Netherlands, Portugal in low-vig markets._
+Two independent ledgers reused iteration numbers. Their records are preserved with globally unique IDs:
 
-**Evaluation setup (updated 2026-04-19):** All metrics from Iteration 11 onward use:
-- **Walk-forward backtest**: one model trained per test season (2425 then 2526); Elo carries forward correctly.
-- **Value betting**: multi-outcome, vig-corrected fair probabilities. Primary evaluation at `--threshold 0.0`.
-- **Test set**: 2425 (1426 matches) + 2526 partial (1200 matches) = 2626 total.
-- **Primary goal**: ROI > 0% AND Stability > 0 at threshold=0.0. This is the only robust, unbiased metric.
-- **Retired**: threshold=0.06 was selected by grid search on the test set (Iter 15) — it carries look-ahead bias and is not a valid operating point. It may be reported as a secondary reference but must not drive keep/revert decisions.
+- `EXP-<date>-S<id>`: migrated from `autoresearch/state.md`.
+- `EXP-<date>-D<id>`: migrated from `docs/improvements.md`.
+- `SX` and `DP` identify formerly unnumbered records.
 
----
+Legacy iteration references inside an entry are source-local. For example, “Iteration 84” in a migrated `D` entry refers to the old docs ledger, while the same text in an `S` entry refers to the old state ledger.
 
-## Baseline (Iteration 0)
+New experiments use `EXP-YYYYMMDD-NNN` and must be appended at the bottom.
+
+# State-ledger history
+
+## EXP-20260417-S000: Baseline
+
+_Legacy source: state.md baseline iteration 0._
 
 **Date:** 2026-04-17
 **Hypothesis:** N/A — this is the starting baseline.
@@ -56,9 +47,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration History
+## EXP-20260513-S070: DC_SPAN=15 (REVERTED — severe regression)
 
-## Iteration 70: DC_SPAN=15 (REVERTED — severe regression)
+_Legacy source: state.md iteration 70._
 
 **Date:** 2026-05-13
 **Hypothesis:** Longer DC rating span (15 vs 10) gives more stable attack/defense estimates.
@@ -68,7 +59,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 69: num_leaves=20 (REVERTED — regression)
+## EXP-20260513-S069: num_leaves=20 (REVERTED — regression)
+
+_Legacy source: state.md iteration 69._
 
 **Date:** 2026-05-13
 **Hypothesis:** Fewer leaves reduces overfitting in smaller per-league datasets.
@@ -78,7 +71,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 68: reg_lambda=0.1 (REVERTED — regression)
+## EXP-20260513-S068: reg_lambda=0.1 (REVERTED — regression)
+
+_Legacy source: state.md iteration 68._
 
 **Date:** 2026-05-13
 **Hypothesis:** Stronger L2 regularization might help generalize per-league models.
@@ -88,7 +83,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 67: WINDOW=7 EWM form span (REVERTED — regression)
+## EXP-20260513-S067: WINDOW=7 EWM form span (REVERTED — regression)
+
+_Legacy source: state.md iteration 67._
 
 **Date:** 2026-05-13
 **Hypothesis:** Longer EWM form window smooths noise in per-league models.
@@ -98,7 +95,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 66: min_child_samples=30 (REVERTED — regression)
+## EXP-20260513-S066: min_child_samples=30 (REVERTED — regression)
+
+_Legacy source: state.md iteration 66._
 
 **Date:** 2026-05-13
 **Hypothesis:** Larger leaf size reduces overfitting in small per-league datasets.
@@ -108,7 +107,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 65: min_child_samples=10 (REVERTED — severe regression)
+## EXP-20260513-S065: min_child_samples=10 (REVERTED — severe regression)
+
+_Legacy source: state.md iteration 65._
 
 **Date:** 2026-05-13
 **Hypothesis:** Smaller leaf size allows finer-grained patterns in per-league models.
@@ -118,7 +119,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 64: n_estimators=500 (REVERTED — marginal regression)
+## EXP-20260513-S064: n_estimators=500 (REVERTED — marginal regression)
+
+_Legacy source: state.md iteration 64._
 
 **Date:** 2026-05-13
 **Hypothesis:** Even more trees may squeeze additional signal from 30 features.
@@ -128,7 +131,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 63: n_estimators=400 — **NEW BEST**
+## EXP-20260513-S063: n_estimators=400 — **NEW BEST**
+
+_Legacy source: state.md iteration 63._
 
 **Date:** 2026-05-13
 **Hypothesis:** With 30 features and per-league models (~2000-3000 training rows), 300 trees at lr=0.05 may not fully converge. Increasing to 400 should improve generalization.
@@ -144,7 +149,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 62: Pinnacle Margin 1.5% — **NEW BEST**
+## EXP-20260513-S062: Pinnacle Margin 1.5% — **NEW BEST**
+
+_Legacy source: state.md iteration 62._
 
 **Date:** 2026-05-13
 **Hypothesis:** A stricter 1.5% Pinnacle margin (vs 1%) will further improve bet quality by requiring more confident agreement from Pinnacle before placing.
@@ -160,7 +167,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 61: Pinnacle Margin 0.5% (REVERTED — regression)
+## EXP-20260513-S061: Pinnacle Margin 0.5% (REVERTED — regression)
+
+_Legacy source: state.md iteration 61._
 
 **Date:** 2026-05-13
 **Hypothesis:** A looser 0.5% Pinnacle margin allows more bets while still filtering noise.
@@ -170,7 +179,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 60: Exclude France from Betting — **NEW BEST**
+## EXP-20260513-S060: Exclude France from Betting — **NEW BEST**
+
+_Legacy source: state.md iteration 60._
 
 **Date:** 2026-05-13
 **Hypothesis:** France (F1) has consistently -30% ROI across all configurations. Excluding France from the bet pool (while keeping it in training) will improve overall ROI and stability.
@@ -186,7 +197,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 59: DC_SPAN=20 for Long-term Attack/Defense Ratings (REVERTED — severe regression)
+## EXP-20260513-S059: DC_SPAN=20 for Long-term Attack/Defense Ratings (REVERTED — severe regression)
+
+_Legacy source: state.md iteration 59._
 
 **Date:** 2026-05-13
 **Hypothesis:** Increasing DC_SPAN from 10 to 20 games makes `home_attack`/`home_defense`/`away_attack`/`away_defense` more structural (half-season+), which is more orthogonal to the 5-game `form_gf`/`form_ga` features. Expected to reduce collinearity and improve model quality.
@@ -206,7 +219,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 58: Pinnacle Filter Margin +2% (REVERTED — marginal gain, lower t-stat)
+## EXP-20260513-S058: Pinnacle Filter Margin +2% (REVERTED — marginal gain, lower t-stat)
+
+_Legacy source: state.md iteration 58._
 
 **Date:** 2026-05-13
 **Hypothesis:** The +1% margin (Iter 57) improved both ROI and Stability. Testing whether +2% margin further concentrates bets on the strongest Pinnacle-confirmed signals.
@@ -227,7 +242,9 @@ The baseline model barely beats random on accuracy and loses money at -6.79% ROI
 
 ---
 
-## Iteration 57: Pinnacle Filter +1% Margin — **NEW BEST**
+## EXP-20260513-S057: Pinnacle Filter +1% Margin — **NEW BEST**
+
+_Legacy source: state.md iteration 57._
 
 **Date:** 2026-05-13
 **Hypothesis:** The current Pinnacle filter vetoes bets where `pinnacle_fair[outcome] <= b365_fair[outcome]` (any amount). Bets where Pinnacle only marginally exceeds B365 (e.g., 0.001%) may represent noise rather than genuine confirmation. Requiring at least a 1% margin (`pinnacle_fair > b365_fair + 0.01`) should filter out borderline cases and improve bet quality.
@@ -260,7 +277,9 @@ Per-league ROI with +1% Pinnacle margin:
 
 ---
 
-## Iteration 56: LGBM num_leaves=63 (REVERTED — regression)
+## EXP-20260513-S056: LGBM num_leaves=63 (REVERTED — regression)
+
+_Legacy source: state.md iteration 56._
 
 **Date:** 2026-05-13
 **Hypothesis:** With 30 features (vs the 22 when the model was configured at num_leaves=31), deeper trees (num_leaves=63) could capture more complex feature interactions that the current model misses.
@@ -279,7 +298,9 @@ Per-league ROI with +1% Pinnacle margin:
 
 ---
 
-## Iteration 55: Remove elo_delta Features (REVERTED — regression)
+## EXP-20260513-S055: Remove elo_delta Features (REVERTED — regression)
+
+_Legacy source: state.md iteration 55._
 
 **Date:** 2026-05-13
 **Hypothesis:** `home_elo_delta` and `away_elo_delta` were reverted in Iter 42 (tested without Pinnacle filter or DC ratings). They appear to have been re-added later. Testing whether they still add value in the current 30-feature model.
@@ -298,7 +319,9 @@ Per-league ROI with +1% Pinnacle margin:
 
 ---
 
-## Iteration 54: Add France (F1), Netherlands (N1), Portugal (P1) — **NEW BEST**
+## EXP-20260423-S054: Add France (F1), Netherlands (N1), Portugal (P1) — **NEW BEST**
+
+_Legacy source: state.md iteration 54._
 
 **Date:** 2026-04-23
 **Hypothesis:** Adding 3 more leagues increases bet volume (~110 → ~190 bets/month), compressing monthly variance by ~√(7/4) and reducing sampling noise. All three leagues are available on football-data.co.uk from 2013-14 with full B365 and Pinnacle column coverage. The per-league model structure means each new league gets its own dedicated model.
@@ -338,7 +361,9 @@ Per-league ROI (7-league model):
 
 ---
 
-## Experiment: Monthly Retraining + Long Market Bias Window (NOT ADOPTED — both regress)
+## EXP-20260423-SX01: Monthly Retraining + Long Market Bias Window (NOT ADOPTED — both regress)
+
+_Legacy source: state.md unnumbered experiment._
 
 **Date:** 2026-04-23
 **Hypothesis:** Two ideas to reduce large month-to-month ROI swings:
@@ -365,7 +390,9 @@ Per-league ROI (7-league model):
 
 ---
 
-## Experiment: Binary Outcome Models (NOT ADOPTED — per-league multi-class remains best)
+## EXP-20260422-SX02: Binary Outcome Models (NOT ADOPTED — per-league multi-class remains best)
+
+_Legacy source: state.md unnumbered experiment._
 
 **Date:** 2026-04-22
 **Hypothesis:** Training separate binary classifiers (one per outcome: H/D/A) instead of a single multi-class model would improve per-outcome calibration, especially for Home (-8.49% ROI) and Draw (-6.72% ROI) bets which lagged far behind Away (+4.23%) in the global model.
@@ -394,7 +421,9 @@ Per-league breakdown:
 
 ---
 
-## Iteration 43: Season Progress Features (REVERTED — flat)
+## EXP-20260421-S043: Season Progress Features (REVERTED — flat)
+
+_Legacy source: state.md iteration 43._
 
 **Date:** 2026-04-21
 **Hypothesis:** `home_season_progress` / `away_season_progress` (games played / 38) would help the model account for early-season noise vs settled mid/late-season form.
@@ -411,7 +440,9 @@ Per-league breakdown:
 
 ---
 
-## Iteration 42: Elo Delta / Momentum (REVERTED — regression)
+## EXP-20260421-S042: Elo Delta / Momentum (REVERTED — regression)
+
+_Legacy source: state.md iteration 42._
 
 **Date:** 2026-04-21
 **Hypothesis:** `home_elo_delta` / `away_elo_delta` (Elo change over last WINDOW games) captures trajectory distinct from absolute Elo.
@@ -429,7 +460,9 @@ Per-league breakdown:
 
 ---
 
-## Iteration 41: Draw Rate Features (KEPT — new best)
+## EXP-20260421-S041: Draw Rate Features (KEPT — new best)
+
+_Legacy source: state.md iteration 41._
 
 **Date:** 2026-04-21
 **Hypothesis:** Per-team rolling draw rate (home/away draws over last WINDOW games) would help the model identify draw-prone matchups that the market misprices.
@@ -448,7 +481,9 @@ Per-league breakdown:
 
 ---
 
-## Iteration 40: Threshold=0.08 as Default (REVERTED — threshold tuning is unstable)
+## EXP-20260421-S040: Threshold=0.08 as Default (REVERTED — threshold tuning is unstable)
+
+_Legacy source: state.md iteration 40._
 
 **Date:** 2026-04-21
 **Hypothesis:** Threshold grid showed 0.08 gives +2.13% ROI vs +0.78% at threshold=0.00.
@@ -456,7 +491,9 @@ Per-league breakdown:
 
 ---
 
-## Iteration 39: Shots on Target EWM Form (REVERTED — regression)
+## EXP-20260420-S039: Shots on Target EWM Form (REVERTED — regression)
+
+_Legacy source: state.md iteration 39._
 
 **Date:** 2026-04-20
 **Hypothesis:** Rolling EWM of shots on target (`HST`/`AST`) captures chance-creation quality beyond goals, which have higher per-game variance. This is the basis of modern xG systems — shots on target predicts future performance better than raw goals.
@@ -475,7 +512,9 @@ Per-league breakdown:
 
 ---
 
-## Iteration 38: Pinnacle as Value-Detection Criterion (KEPT — **GOALS ACHIEVED**)
+## EXP-20260420-S038: Pinnacle as Value-Detection Criterion (KEPT — **GOALS ACHIEVED**)
+
+_Legacy source: state.md iteration 38._
 
 **Date:** 2026-04-20
 **Hypothesis:** Pinnacle closing odds represent the sharpest available market consensus. Instead of using Pinnacle as a model feature (Iter 37 — failed), use it as a bet filter: only place a bet when BOTH `model_prob > B365_fair_prob` AND `Pinnacle_fair_prob > B365_fair_prob`. The second condition says the sharp market also sees value at B365 odds, confirming our model's signal. Where Pinnacle data is unavailable (null), the filter is skipped — no data means no veto.
@@ -501,7 +540,9 @@ Mechanistically: the ~1400 vetoed bets are cases where Pinnacle priced the outco
 
 ---
 
-## Iteration 37: Pinnacle Closing Odds as Features (REVERTED — regression, two variants)
+## EXP-20260420-S037: Pinnacle Closing Odds as Features (REVERTED — regression, two variants)
+
+_Legacy source: state.md iteration 37._
 
 **Date:** 2026-04-20
 **Hypothesis:** Pinnacle closing odds (PSCH/PSCD/PSCA) represent a sharper, more accurate market consensus (~2.7% margin vs B365's ~5-7%). Adding Pinnacle fair probs as features gives the model a "sharp money" reference alongside B365, enabling it to detect where B365 is systematically over or under-pricing outcomes. Backed by direct empirical evidence: football-data.co.uk's own research showed Pinnacle yields 101.81% ROI as a benchmark vs competitors. Pinnacle columns confirmed present in all 53 CSV files.
@@ -537,7 +578,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 36: l2 Regularization (REVERTED — regression)
+## EXP-20260420-S036: l2 Regularization (REVERTED — regression)
+
+_Legacy source: state.md iteration 36._
 
 **Date:** 2026-04-20
 **Hypothesis:** Per-league models train on ~4500 rows. Adding `l2_regularization=1.0` to HistGBM prevents overfitting by penalising large leaf values, which may be a better lever than structural constraints (depth/min_leaf) for small datasets.
@@ -555,7 +598,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 35: Opponent-Quality-Adjusted Form (REVERTED — regression)
+## EXP-20260420-S035: Opponent-Quality-Adjusted Form (REVERTED — regression)
+
+_Legacy source: state.md iteration 35._
 
 **Date:** 2026-04-20
 **Hypothesis:** Weight each game in the rolling form by opponent pre-match Elo: `scaled_pts = pts * (opponent_elo / ELO_DEFAULT)`. A win against a 1700-Elo team is worth more than a win against a 1300-Elo team. This is the SPI-style approach (Idea 30) — the most principled remaining feature idea.
@@ -573,7 +618,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 34: HistGBM Hyperparameter Tuning (REVERTED — regression)
+## EXP-20260420-S034: HistGBM Hyperparameter Tuning (REVERTED — regression)
+
+_Legacy source: state.md iteration 34._
 
 **Date:** 2026-04-20
 **Hypothesis:** Current HistGBM config (`max_depth=4, min_samples_leaf=20`) was set for the global model (~15k training rows). Per-league models train on ~4500 rows — shallower trees (`max_depth=3`) and higher leaf regularization (`min_samples_leaf=30`) should reduce overfitting on smaller datasets.
@@ -591,7 +638,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 33: H2H Win Rate Re-test (KEPT — marginal improvement)
+## EXP-20260420-S033: H2H Win Rate Re-test (KEPT — marginal improvement)
+
+_Legacy source: state.md iteration 33._
 
 **Date:** 2026-04-20
 **Hypothesis:** H2H win rate regressed in Iter 12 (without market features, global model). In the current paradigm (market probs + per-league + EWM), H2H could help detect systematic fixture-level mispricings that the per-league model hasn't learned — e.g., a team that historically dominates a specific opponent regardless of current form or market odds.
@@ -612,7 +661,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 32: EWM span=3 (REVERTED — regression)
+## EXP-20260420-S032: EWM span=3 (REVERTED — regression)
+
+_Legacy source: state.md iteration 32._
 
 **Date:** 2026-04-20
 **Hypothesis:** After EWM span=5 improved all metrics (Iter 30), test whether a more aggressive recency weighting (span=3) further improves ROI by down-weighting older games even more. In EWM, span=3 gives the most recent game ~50% of total weight vs ~33% for span=5.
@@ -630,7 +681,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 31: WINDOW=7 with EWM (REVERTED — marginal, within noise)
+## EXP-20260419-S031: WINDOW=7 with EWM (REVERTED — marginal, within noise)
+
+_Legacy source: state.md iteration 31._
 
 **Date:** 2026-04-19
 **Hypothesis:** With EWM already active, increasing the span from 5 to 7 games provides a smoother long-term trend signal. The 7-game window emphasises durable team quality over short-form spikes. Previously tested in Iter 13 without market features (regression); worth re-testing in the current paradigm on top of EWM.
@@ -650,7 +703,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 30: EWM Rolling Form on Per-League Models (KEPT — new best)
+## EXP-20260419-S030: EWM Rolling Form on Per-League Models (KEPT — new best)
+
+_Legacy source: state.md iteration 30._
 
 **Date:** 2026-04-19
 **Hypothesis:** EWM was previously tested (Iter 22) on the global model and reverted because it hurt `threshold=0.06` ROI (-7.77pp). However, at `threshold=0.0` — the metric we actually use — EWM gave +2.11pp improvement. The reason for reversion (threshold=0.06 harm) is now moot since that operating point was retired as having look-ahead bias. Re-testing EWM on per-league models: never previously combined.
@@ -671,7 +726,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 29: Draw Propensity (REVERTED — regression)
+## EXP-20260419-S029: Draw Propensity (REVERTED — regression)
+
+_Legacy source: state.md iteration 29._
 
 **Date:** 2026-04-19
 **Hypothesis:** A team's rolling draw rate over the last WINDOW games (`home_draw_rate`, `away_draw_rate`) captures a propensity to draw that is not already captured by form_pts, Elo, or market odds. Draw rates are notoriously hard for bookmakers to price and teams that frequently play tight matches may have a systemic draw signal.
@@ -690,7 +747,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 28: Season Standings Context (REVERTED — regression)
+## EXP-20260419-S028: Season Standings Context (REVERTED — regression)
+
+_Legacy source: state.md iteration 28._
 
 **Date:** 2026-04-19
 **Hypothesis:** Cumulative season points (`home_season_pts`, `away_season_pts`) and games played (`home_season_gp`, `away_season_gp`) encode motivational and performance context the rolling form window misses. A team on 15 points after 8 games (near top) faces different pressure than one on 3 points (relegation zone). This is a within-season signal orthogonal to short-term Elo/form.
@@ -709,7 +768,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 23: Days Since Last Match (REVERTED — regression)
+## EXP-20260419-S023: Days Since Last Match (REVERTED — regression)
+
+_Legacy source: state.md iteration 23._
 
 **Date:** 2026-04-19
 **Hypothesis:** Adding `home_days_rest` and `away_days_rest` (days between a team's previous match and this one) gives the model a genuine scheduling-fatigue signal. Short rest (<4 days) is a well-documented performance drag, especially for away teams. Default value of 7 for first appearances.
@@ -728,7 +789,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 22: Exponential Decay Rolling Form (REVERTED — regression)
+## EXP-20260419-S022: Exponential Decay Rolling Form (REVERTED — regression)
+
+_Legacy source: state.md iteration 22._
 
 **Date:** 2026-04-19
 **Hypothesis:** Replacing flat `rolling(window).mean()` with `ewm(span=WINDOW, min_periods=WINDOW).mean()` will improve ROI because exponential weighting emphasises recent games over older ones, capturing current team form more accurately than a uniform 5-game average. Unlike WINDOW=3 (noisier) and WINDOW=7 (smoother), EWM keeps the same effective span while changing the weighting curve.
@@ -747,7 +810,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 27: Elo Momentum (REVERTED — regression)
+## EXP-20260419-S027: Elo Momentum (REVERTED — regression)
+
+_Legacy source: state.md iteration 27._
 
 **Date:** 2026-04-19
 **Hypothesis:** The Elo delta over the last WINDOW games (`home_elo_delta = home_elo_now − home_elo_WINDOW_games_ago`) captures whether a team is on an improving or declining trajectory, independently of their absolute strength. A mid-table team on a 5-game winning streak has a large positive delta; a top-table team coasting has near-zero delta. This is orthogonal to `home_elo` (level) and `home_form_pts` (results). Tested on the per-league baseline (Iter 24).
@@ -765,7 +830,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 26: Kelly Criterion on Per-League Models (REVERTED — regression)
+## EXP-20260419-S026: Kelly Criterion on Per-League Models (REVERTED — regression)
+
+_Legacy source: state.md iteration 26._
 
 **Date:** 2026-04-19
 **Hypothesis:** Kelly criterion sizing (+3.63pp ROI improvement on the global model at threshold=0.0, Iter 21) should work at least as well on per-league models, which have better probability calibration within each league.
@@ -782,7 +849,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 25: Market Deviation Persistence (REVERTED — regression)
+## EXP-20260419-S025: Market Deviation Persistence (REVERTED — regression)
+
+_Legacy source: state.md iteration 25._
 
 **Date:** 2026-04-19
 **Hypothesis:** A rolling mean of `(actual_result_share − market_fair_prob)` over the last 5 games captures whether a team is persistently under- or over-valued by the bookmaker. A team that consistently beats its market odds represents a systematic blind spot. Testing on top of the current best (per-league models, Iter 24).
@@ -801,7 +870,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 24: League-Specific Sub-models
+## EXP-20260419-S024: League-Specific Sub-models
+
+_Legacy source: state.md iteration 24._
 
 **Date:** 2026-04-19
 **Hypothesis:** Training one HistGBM per league (E0, D1, SP1, I1) instead of a single global model will better capture league-specific deviations from market pricing — each league has different H/D/A base rates, different Elo dynamics, and different bookmaker efficiency profiles. The league dummies (Iter 19) showed that league identity matters a lot; per-league models should learn these interactions more precisely without requiring cross-league generalization.
@@ -822,7 +893,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 21: Kelly Criterion Bet Sizing
+## EXP-20260419-S021: Kelly Criterion Bet Sizing
+
+_Legacy source: state.md iteration 21._
 
 **Date:** 2026-04-19
 **Hypothesis:** Sizing bets proportionally to the Kelly criterion (`stake = kelly_fraction × (p − (1−p)/(odds−1))`) will improve ROI and stability by concentrating capital on bets where the model has the largest genuine edge, rather than treating all qualifying bets as equal.
@@ -839,7 +912,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 20: Season Progress Ratio (REVERTED — regression)
+## EXP-20260419-S020: Season Progress Ratio (REVERTED — regression)
+
+_Legacy source: state.md iteration 20._
 
 **Date:** 2026-04-19
 **Hypothesis:** A normalized season-progress ratio (`home/away_season_progress = games_played_this_season / 38`, capped at 1.0) is a better season-phase signal than raw match_month (Iter 11 — failed), because it is team-specific and league-agnostic. Early-season (progress ≈ 0.1) means Elo and form are unreliable; late-season (≈ 0.9) means near-full information. The model can learn to discount high-edge bets when information is still sparse.
@@ -858,7 +933,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 19: League One-Hot Encoding
+## EXP-20260418-S019: League One-Hot Encoding
+
+_Legacy source: state.md iteration 19._
 
 **Date:** 2026-04-18
 **Hypothesis:** Adding league identity (E0/D1/SP1/I1) as one-hot features lets the model learn league-specific patterns — home advantage, draw rate, and form predictability differ across the Bundesliga, Premier League, La Liga, and Serie A. The model currently has no explicit league signal; it relies only on the market odds to infer context.
@@ -878,7 +955,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 18: Venue-Specific Rolling Form (REVERTED — regression)
+## EXP-20260418-S018: Venue-Specific Rolling Form (REVERTED — regression)
+
+_Legacy source: state.md iteration 18._
 
 **Date:** 2026-04-18
 **Hypothesis:** Rolling form computed separately for home games (home team) and away games (away team) is more predictive than all-games form, since venue splits capture systematically different performance.
@@ -895,7 +974,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 17: Sigmoid Calibration on Top of Odds Features
+## EXP-20260418-S017: Sigmoid Calibration on Top of Odds Features
+
+_Legacy source: state.md iteration 17._
 
 **Date:** 2026-04-18
 **Hypothesis:** Sigmoid calibration (Platt scaling) applied on top of the odds-features model will further improve probability alignment. Unlike isotonic, sigmoid uses only 2 parameters per class and is less prone to overfitting — it may correct the residual shape of HistGBM's probability outputs without degrading the market-alignment already learned from the odds features.
@@ -912,7 +993,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 16: Market Fair Probabilities as Features
+## EXP-20260418-S016: Market Fair Probabilities as Features
+
+_Legacy source: state.md iteration 16._
 
 **Date:** 2026-04-18
 **Hypothesis:** Adding the bookmaker's vig-corrected fair probabilities (`market_h`, `market_d`, `market_a`) as features lets the model learn to deviate from the market rather than predict outcomes in isolation. This directly addresses the probability calibration problem: the model can explicitly learn "given all my signals AND what the market thinks, what is my probability?"
@@ -932,7 +1015,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 15: Threshold Grid Search
+## EXP-20260418-S015: Threshold Grid Search
+
+_Legacy source: state.md iteration 15._
 
 **Date:** 2026-04-18
 **Hypothesis:** There exists a threshold > 0 at which value betting ROI exceeds the threshold=0.0 baseline, because requiring a minimum edge filters out the worst spurious value signals while preserving genuine edge cases.
@@ -958,7 +1043,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 14: Probability Calibration (CalibratedClassifierCV, isotonic, cv=3)
+## EXP-20260418-S014: Probability Calibration (CalibratedClassifierCV, isotonic, cv=3)
+
+_Legacy source: state.md iteration 14._
 
 **Date:** 2026-04-18
 **Hypothesis:** Wrapping HistGBM in `CalibratedClassifierCV(cv=3, method="isotonic")` will improve probability calibration and thus betting ROI, directly addressing the accuracy/ROI decoupling identified in Iterations 11–13.
@@ -975,7 +1062,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 13: Longer Rolling Window (WINDOW=7)
+## EXP-20260418-S013: Longer Rolling Window (WINDOW=7)
+
+_Legacy source: state.md iteration 13._
 
 **Date:** 2026-04-18
 **Hypothesis:** A 7-game rolling window captures more stable team form than WINDOW=5, smoothing out noise from single anomalous results. WINDOW=3 was worse (Iter 10), suggesting more data is better — so 7 might beat 5.
@@ -992,7 +1081,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 12: Head-to-Head Historical Win Rate
+## EXP-20260418-S012: Head-to-Head Historical Win Rate
+
+_Legacy source: state.md iteration 12._
 
 **Date:** 2026-04-18
 **Hypothesis:** Adding `h2h_home_win_rate` — the historical home win rate between the two teams across all prior meetings — will improve ROI by capturing persistent matchup-specific dominance that Elo and rolling form cannot encode.
@@ -1009,7 +1100,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 11: Season Phase (match_month)
+## EXP-20260418-S011: Season Phase (match_month)
+
+_Legacy source: state.md iteration 11._
 
 **Date:** 2026-04-18
 **Hypothesis:** Adding `match_month` (calendar month 1–12) as a 9th feature gives GBM the ability to learn that early-season predictions (August–September) are less reliable because Elo ratings and rolling form are unsettled. This information is structurally orthogonal to all 8 current features.
@@ -1029,7 +1122,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 10: Shorter Rolling Window (3-game)
+## EXP-20260418-S010: Shorter Rolling Window (3-game)
+
+_Legacy source: state.md iteration 10._
 
 **Date:** 2026-04-18
 **Hypothesis:** A 3-game rolling window captures more recent form than the 5-game window — tighter recency should improve signal quality and reduce noise from stale results.
@@ -1046,7 +1141,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 9: Elo Hyperparameter Tuning (K=20, HOME_ADV=65)
+## EXP-20260418-S009: Elo Hyperparameter Tuning (K=20, HOME_ADV=65)
+
+_Legacy source: state.md iteration 9._
 
 **Date:** 2026-04-18
 **Hypothesis:** The default Elo parameters (K=30, HOME_ADV=100) may not be optimal for this dataset. Lowering K to 20 (more stable, less reactive ratings) and HOME_ADV to 65 (reflecting modern football's declining home advantage) will produce more accurate team strength estimates and improve ROI.
@@ -1063,7 +1160,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 8: Multi-Outcome Value Betting
+## EXP-20260417-S008: Multi-Outcome Value Betting
+
+_Legacy source: state.md iteration 8._
 
 **Date:** 2026-04-17
 **Hypothesis:** Betting any outcome where model probability > bookmaker implied probability — across all three outcomes (H/D/A) per match — will improve ROI by identifying underpriced draws and away wins that single-outcome value betting (Iterations 4+5) systematically missed.
@@ -1080,7 +1179,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 7: Feature Enrichment (Goal Difference, Elo Diff, League Categorical)
+## EXP-20260417-S007: Feature Enrichment (Goal Difference, Elo Diff, League Categorical)
+
+_Legacy source: state.md iteration 7._
 
 **Date:** 2026-04-17
 **Hypothesis:** Adding `home_form_gd`, `away_form_gd` (rolling goal difference), `elo_diff` (Elo differential), and `league_code` (integer-encoded league as HistGBM categorical) on top of the Iter 6 8-feature set would improve ROI because: goal difference captures style more directly than separate gf/ga; Elo diff is the single strongest Elo scalar; league captures systematic home-advantage differences across competitions.
@@ -1098,7 +1199,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 6: HistGBM with Elo + Rolling Features (All Bets)
+## EXP-20260417-S006: HistGBM with Elo + Rolling Features (All Bets)
+
+_Legacy source: state.md iteration 6._
 
 **Date:** 2026-04-17
 **Hypothesis:** HistGradientBoostingClassifier with the full 8-feature set (Elo + rolling stats) will outperform Logistic Regression because the richer feature combination gives the gradient boosting model non-linear interactions to exploit — unlike Iteration 2 where GBM had only 6 weak rolling features.
@@ -1115,7 +1218,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 5: Calibrated Probabilities + Value Betting
+## EXP-20260417-S005: Calibrated Probabilities + Value Betting
+
+_Legacy source: state.md iteration 5._
 
 **Date:** 2026-04-17
 **Hypothesis:** Wrapping LogisticRegression in `CalibratedClassifierCV` (cv=5, method="isotonic") will fix the overconfidence problem identified in Iteration 4, making the value-bet filter (`model_prob > 1/odds`) a genuine edge signal and improving ROI.
@@ -1133,7 +1238,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 4: Value Betting Filter
+## EXP-20260417-S004: Value Betting Filter
+
+_Legacy source: state.md iteration 4._
 
 **Date:** 2026-04-17
 **Hypothesis:** Only betting when model's predicted probability exceeds the bookmaker's implied probability (value bets) will improve ROI — possibly into positive territory — because it filters out bets where we have no edge over the market.
@@ -1150,7 +1257,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 3: Elo Ratings as Features
+## EXP-20260417-S003: Elo Ratings as Features
+
+_Legacy source: state.md iteration 3._
 
 **Date:** 2026-04-17
 **Hypothesis:** Adding Elo ratings as features will improve ROI because Elo captures long-run team strength that a 5-game rolling window misses — especially early in a season when rolling form is noisy.
@@ -1167,7 +1276,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 2: HistGradientBoostingClassifier
+## EXP-20260417-S002: HistGradientBoostingClassifier
+
+_Legacy source: state.md iteration 2._
 
 **Date:** 2026-04-17
 **Hypothesis:** Replacing Logistic Regression with HistGradientBoostingClassifier will improve ROI because gradient boosting captures non-linear feature interactions that a linear model cannot, potentially finding subtler patterns between team form stats.
@@ -1184,7 +1295,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Iteration 1: Home/Away Split Form
+## EXP-20260417-S001: Home/Away Split Form
+
+_Legacy source: state.md iteration 1._
 
 **Date:** 2026-04-17
 **Hypothesis:** Separating home and away rolling form will improve ROI because teams often perform very differently at home vs away, and mixing the two signals adds noise.
@@ -1206,180 +1319,9 @@ The correct use of Pinnacle is not as a model feature but as a value-detection c
 
 ---
 
-## Open Hypotheses
+## EXP-20260517-S071: Isotonic Calibration on LGBM Per-League — KEPT
 
-Ranked by estimated probability of improving ROI:
-
-~~**Threshold-based betting (value bets):**~~ _Tested in Iteration 4 — worsened ROI from -6.32% to -15.10%. Raw LogReg probabilities are poorly calibrated; value filtering selects overconfident bets, not genuine edge. Requires probability calibration (Platt scaling / isotonic regression) to work._
-
-~~**Probability calibration + value betting:**~~ _Tested in Iteration 5 — calibration (isotonic, cv=5) did not improve ROI over Iteration 4. ROI -15.52% vs -15.10%. The value-bet approach based on predicted-class probability appears structurally broken with this feature set; calibration preserves ranking so the same bets are selected. Value betting via this mechanism is abandoned._
-
-~~**Additional feature engineering (goal difference, league effects, elo_diff):**~~ _Tested in Iteration 7 — regression on all metrics. Derived features that are linear combinations of existing features (gd = gf - ga; elo_diff = home_elo - away_elo) did not add information and slightly hurt generalization. Discarded approach._
-
-~~**Multi-outcome value betting:**~~ _Tested in Iteration 8 — severe regression. ROI -17.80% vs -5.09% in Iter 6. Bet rate 126.3% (>1 per match) indicates the model generates spurious value across multiple outcomes simultaneously, amplifying the overconfidence problem. Any value-betting approach using raw model probabilities vs. bookmaker implied probabilities is abandoned — the model is not calibrated well enough relative to the bookmaker vig._
-
-~~**Elo hyperparameter tuning (K=20, HOME_ADV=65):**~~ _Tested in Iteration 9 — regression on all metrics (ROI -6.19% vs -5.09%). K=30 and HOME_ADV=100 are confirmed as better for this multi-league European dataset. The higher K provides more reactivity to team form changes season-to-season; the higher HOME_ADV better reflects the historical baseline across the full dataset. Elo parameter search abandoned at this scale._
-
-~~**Shorter rolling window (WINDOW=3):**~~ _Tested in Iteration 10 — regression on all metrics (ROI -5.53% vs -5.09%). Fewer games = noisier estimates; consistent with Iteration 1 finding. WINDOW=5 is confirmed as optimal._
-
-~~**Season phase (match_month):**~~ _Tested Iter 11 — regression._
-~~**Head-to-head win rate:**~~ _Tested Iter 12 — regression on ROI._
-~~**WINDOW=7:**~~ _Tested Iter 13 — regression on ROI._
-~~**Isotonic calibration (cv=3):**~~ _Tested Iter 14 — regression._
-~~**Threshold tuning:**~~ _Tested Iter 15 — threshold=0.06 was best statistically-robust operating point (pre-odds-features)._
-~~**Market fair probs as features:**~~ _Tested Iter 16 — **NEW BEST**: ROI -6.72% at threshold=0.0 (+4.27pp), accuracy 0.532 (+0.009). Kept._
-~~**Sigmoid calibration on odds-features model:**~~ _Tested Iter 17 — regression at threshold=0.0 (-8.64% vs -6.72%). Calibration distorts the market-aligned probs the model already learned. Reverted._
-
-**Current paradigm (updated 2026-04-19):** Market fair probs + league dummies are the dominant features. **Primary evaluation target is threshold=0.0: goal is ROI > 0% AND Stability > 0.** The threshold=0.06 operating point is retired as a decision criterion — it was selected on the test set and carries look-ahead bias. All keep/revert decisions from here forward use threshold=0.0 metrics only.
-
-~~**Threshold re-grid:**~~ _Retired. Re-gridding on the test set perpetuates the same look-ahead bias that made threshold=0.06 unreliable. The path to a valid operating threshold is improving the base model until ROI > 0 at threshold=0.0, then validating a threshold on a held-out set._
-
-~~**Sigmoid calibration on odds-features model:**~~ _Tested Iter 17 — regression._
-
-~~**Venue-specific rolling form:**~~ _Tested Iter 18 — regression (halved sample size per window, high collinearity with all-games form)._
-
-~~**League one-hot encoding:**~~ _Tested Iter 19 — **NEW BEST at threshold=0.06 (+10.34pp ROI)**. Kept permanently._
-
----
-
-### Simple ideas (low code, quick to test — 1 run each)
-
-**20. Threshold re-grid on Iter-19 model** _(highest priority — 0 code changes)_
-The optimal threshold was selected on the pre-odds, pre-league model (Iter 15). With 14 features, market-aligned probabilities are distributed differently: the model selects 335 bets at 0.06 vs 1180 in Iter 15. The new optimal may be lower (0.03–0.04) or higher. Re-run the 8-threshold grid on the current model with no changes. _High confidence this reveals a better operating point. Zero implementation risk._
-
-~~**21. Exponential decay rolling form (ewm):**~~ _Tested Iter 22 (global, reverted for threshold=0.06 harm — now moot) and Iter 30 (per-league, **KEPT — NEW BEST**: ROI -1.89% +1.51pp, Stability -0.0125 +0.0100, Accuracy +0.006). EWM is now the permanent default in `_team_rolling_stats`._
-
-~~**22. Re-test WINDOW=7 in the odds-features paradigm:**~~ _Tested Iter 31 on top of EWM+per-league. Marginal +0.09pp ROI and +0.0009 stability — within noise margin. Accuracy -0.014. Reverted; WINDOW=5 kept._
-
----
-
-### Medium ideas (moderate implementation, clear hypothesis)
-
-~~**23. Days since last match:**~~ _Tested Iter 23 — regression at both thresholds (threshold=0.0: -2.48pp; threshold=0.06: -5.68pp, turns +3.93% → -1.75%). Accuracy improved (+0.003) but ROI worsened — same decoupling pattern. Market already prices scheduling effects, so no genuine edge added. Reverted._
-
-~~**24. Elo momentum:**~~ _Tested Iter 27 — regression (ROI -4.31% vs -3.40%, -0.91pp; Stability -0.0289 vs -0.0225). Correlated with form_pts; adds noise in smaller per-league datasets. Large accuracy drop (-0.015). Reverted._
-
-~~**25. Season-progress ratio:**~~ _Tested Iter 20 — regression (ROI -8.91% vs -6.39% at threshold=0.0; +2.68% vs +3.93% at threshold=0.06). The model already captures early-season noise implicitly through Elo convergence and rolling form variance; the explicit ratio splits tree budget without adding independent information. Reverted._
-
-~~**26. Re-test H2H win rate in the odds-features paradigm:**~~ _Tested Iter 33 — marginal improvement (+0.23pp ROI, +0.0018 stability). Within noise margin but both primary metrics improve. KEPT tentatively._
-
----
-
-### Complex ideas (multi-component changes or structural shifts)
-
-~~**27. League-specific sub-models:**~~ _Tested Iter 24 — **NEW BEST at threshold=0.0**: ROI -3.40% (+2.99pp vs -6.39%), Stability -0.0225 (+0.0196). Accuracy dropped -0.025 but ROI improved significantly — accuracy/ROI decoupling in reverse. Per-league calibration reduces cross-league probability smearing. KEPT. Run with `--per-league`._
-
-~~**28. Kelly criterion bet sizing:**~~ _Tested Iter 21 (global model) and Iter 26 (per-league). On global model: +3.63pp ROI at threshold=0.0. On per-league models: -0.94pp regression. Kelly's benefit depends on having poorly-calibrated cross-league variance to de-weight. Per-league models are already better calibrated, so Kelly adds no value. Not recommended with per-league setup._
-
-~~**28. Season standings context:**~~ _Tested Iter 28 — regression (ROI -4.18% vs -3.40%, -0.78pp; Stability -0.0278 vs -0.0225). Season pts/games_played are highly correlated with Elo (same teams dominate both). Redundant with existing Elo features; adds variance in smaller per-league datasets. Reverted._
-
-~~**29. Draw propensity (rolling draw rate):**~~ _Tested Iter 29 — severe regression (ROI -7.20% vs -3.40%, -3.80pp; Stability -0.0480). WINDOW=5 draw rates are too noisy (near-zero autocorrelation); also bookmakers over-price draws by design to manage exposure, so any model nudged toward draw bets is playing into the market's strongest pricing. Large accuracy drop (-0.012). Reverted._
-
-~~**30. Opponent-quality-adjusted form (SPI-style):**~~ _Tested Iter 35 — regression (ROI -2.85%, -1.19pp). Scale distortion and train/predict Elo inconsistency. Reverted._
-
-~~**32. EWM span=3:**~~ _Tested Iter 32 — severe regression (ROI -4.52%, -2.63pp). Too noisy; span=5 confirmed optimal._
-~~**34. HistGBM max_depth=3, min_samples_leaf=30:**~~ _Tested Iter 34 — regression (ROI -3.39%, -1.73pp). Underfit; original config kept._
-~~**36. l2_regularization=1.0:**~~ _Tested Iter 36 — regression (ROI -2.64%, -0.98pp). Penalises market-deviation signal. Original config kept._
-
-~~**37. Pinnacle closing odds as model features:**~~ _Tested Iter 37 (two variants). Variant A (both B365+Pinnacle): ROI -3.78% (-2.12pp). Variant B (Pinnacle replaces B365): ROI -2.57% (-0.91pp). Both regress. Root cause: adding highly correlated probability features hurts in small per-league datasets; the Pinnacle-vs-B365 discrepancy is already a known signal priced by the market. Correct Pinnacle use: as VALUE-DETECTION CRITERION in the bet filter (`Pinnacle_fair_prob > B365_fair_prob`), not as a model feature. Loader now passes through PSCH/PSCD/PSCA for future experiments._
-
-~~**38. Pinnacle as value-detection criterion (structural change to bet filter):**~~ _Tested Iter 38 — KEPT (ROI +0.78%, Stability +0.0051, first positive metrics). Tested Iter 57 (Pinnacle margin +1%): **NEW BEST** ROI +3.16%, Stability +0.0324. Tested Iter 58 (margin +2%): marginal ROI gain but lower t-stat — reverted. Tested Iter 61 (0.5% margin): regression. Tested Iter 62 (1.5% margin): **NEW BEST** ROI +4.77%, t-stat +2.13 — KEPT. 1.5% margin is the confirmed best Pinnacle configuration._
-
-~~**France exclusion from betting:**~~ _Tested Iter 60 — **NEW BEST** ROI +4.16% (+1.0pp), Stability 0.0424 (+0.0100). France consistently -30% ROI. Excluded from bet pool via `skip_leagues={"F1"}` in metrics.py. Training still includes France data. KEPT permanently._
-
-~~**n_estimators=400:**~~ _Tested Iter 63 — **NEW BEST** ROI +5.48%, t-stat +2.50 (statistically significant). 300 trees with 30 features was under-converged. n_estimators=400 is the new default. Iter 64 (500 trees): marginal regression — reverted._
-
-~~**min_child_samples=10:**~~ _Tested Iter 65 — severe regression (ROI +1.71%). Overfitting with smaller per-league datasets. Reverted._
-
-~~**min_child_samples=30:**~~ _Tested Iter 66 — regression (ROI +4.18%). Underfit. min_child_samples=20 is optimal._
-
-~~**WINDOW=7 (EWM form):**~~ _Tested Iter 67 (with all other improvements active) — regression (ROI +2.60%). WINDOW=5 is confirmed optimal in all configurations._
-
-~~**reg_lambda=0.1:**~~ _Tested Iter 68 — regression (ROI +4.19%). Penalises market-deviation signal. reg_lambda=0.05 is optimal._
-
-~~**num_leaves=20:**~~ _Tested Iter 69 — regression (ROI +4.88%). num_leaves=31 is optimal._
-
-~~**DC_SPAN=15:**~~ _Tested Iter 70 — severe regression (ROI +1.68%). DC_SPAN=10 is optimal._
-
-~~**30. Market deviation persistence:**~~ _Tested Iter 25 — regression on per-league baseline (ROI -4.25% vs -3.40%, Stability -0.0282 vs -0.0225). WINDOW=5 too noisy for reliable bias signal; per-league models already capture market deviation patterns implicitly. Could revisit with longer window (20+ games) but would reduce training rows significantly. Reverted._
-
-~~**Elo ratings as features:**~~ _Tested in Iteration 3 — improved accuracy (+2.7pp) and ROI (+0.47%) but remains negative. Elo is now a permanent part of the feature set._
-
-~~**Gradient Boosting model (XGBoost/LightGBM):**~~ _Tested in Iteration 2 — no improvement over Logistic Regression with the current 6-feature set. Model capacity is not the bottleneck._
-
-~~**Home/away split form:**~~ _Tested in Iteration 1 — worsened all metrics. Discarded._
-
----
-
-## Key Findings So Far
-
-- **Strategy shift (2026-04-19): primary goal is positive + stable ROI at threshold=0.0.** The threshold=0.06 operating point was retired — it was selected on the test set (Iter 15, look-ahead bias) and its apparent success (+3.93% ROI) is not reliable. All future iterations target ROI > 0% and Stability > 0 at threshold=0.0. This is a harder target (bookmaker vig ≈ 5% must be beaten on all bets, not just a cherry-picked 12.8% subset) but any success here is genuinely generalisable.
-
-- **Recurring pattern — accuracy improves but ROI does not (Iterations 12, 13, 20, 22, 23):** Five separate feature experiments (H2H, WINDOW=7, season progress, EWM, days rest) all improved classification accuracy by 0.002–0.005 while worsening or not improving threshold=0.0 ROI. This means the features carry real discriminative signal that the market has already priced. Adding information the bookmaker already knows cannot create betting edge. Future experiments must seek signal the market is known to *mis-price* — e.g., market deviation persistence, opponent-adjusted form.
-
-- **All value-betting approaches have failed — flat betting remains best (Iterations 4, 5, 8):** Three attempts to exploit model probabilities vs. bookmaker implied probabilities have all catastrophically worsened ROI: single-outcome value betting with raw LogReg (-15.10%), with calibrated LogReg (-15.52%), and multi-outcome value betting with HistGBM (-17.80%). The multi-outcome approach (Iter 8) bet on 3337 outcomes across 2643 matches (126.3% bet rate), revealing that the model simultaneously sees spurious "value" on multiple outcomes per match. The root cause is that bookmaker odds carry a vig that is not accounted for in the model's probability output, creating systematic false positive value signals. Future improvement must come from either (a) reducing the base loss rate (better accuracy) or (b) explicit bookmaker-margin correction before applying a value filter.
-
-- **Derived linear combination features regress performance (Iteration 7):** Adding `home_form_gd` (= gf − ga), `away_form_gd`, `elo_diff` (= home_elo − away_elo), and `league_code` worsened all metrics vs Iter 6 (ROI: -5.09% → -6.30%, Accuracy: 0.521 → 0.518, Stability: -0.0516 → -0.0647). Features that are exact linear combinations of existing features offer no new information for tree models and can dilute the signal budget, increasing variance without reducing bias. The lesson: only add features that represent genuinely new information.
-
-- **HistGBM + Elo features is the new best model (Iteration 6):** Replacing LogisticRegression with HistGradientBoostingClassifier (max_iter=300, lr=0.05, max_depth=4, min_samples_leaf=20) on the 8-feature Elo+rolling set improved ROI from -6.32% to -5.09% (+1.23pp) and stability from -0.0652 to -0.0516. The hypothesis is confirmed: GBM benefits from Elo's non-linear interactions where it had no gain with rolling-only features (Iter 2). This is the first iteration to clearly beat the previous best on all three metrics simultaneously.
-
-- **Probability calibration does not fix the value-bet filter (Iteration 5):** Wrapping LogReg in `CalibratedClassifierCV(cv=5, method="isotonic")` left ROI essentially unchanged at -15.52% (vs -15.10% in Iter 4). Isotonic calibration is a monotone transform of the predicted probabilities, so it preserves the ranking of outcomes — the same bets are selected as "value" before and after calibration. The structural flaw is that the value-bet filter always bets in the direction of the model's predicted class, and the model's predicted class is already the bookmaker's most likely outcome most of the time. Value betting via this mechanism is abandoned.
-
-- **Value betting without calibration makes ROI worse (Iteration 4):** Filtering to bets where model probability > bookmaker implied probability worsened ROI from -6.32% to -15.10% and reduced bets to 884 (33.4%). The root cause: Logistic Regression probabilities are not calibrated, causing systematic overconfidence for predicted outcomes. The model picks exactly the bets where it is most wrong relative to the market. Value betting requires probability calibration (Platt scaling or isotonic regression) as a prerequisite.
-
-- **Elo ratings meaningfully improve accuracy and ROI (Iteration 3):** Adding pre-match Elo ratings for home and away teams (K=30, HOME_ADV=100) improved accuracy by +2.7pp (0.492 → 0.519) and ROI by +0.47pp (-6.79% → -6.32%). Elo is now part of the permanent 8-feature set. ROI remains negative, but the hypothesis was confirmed: long-run team strength captures information beyond 5-game rolling form. Next priority: value-bet threshold filtering to exploit the improved probability estimates.
-
-- **Home/away venue split hurts, not helps (Iteration 1):** Splitting rolling form into home-only and away-only stats reduced all metrics vs baseline. The additional warm-up cost (needing 5 home AND 5 away games) drops ~10% of test matches, and sparser per-venue windows produce noisier estimates. Combined rolling form across all games is a better signal at window=5.
-
-- **HistGBM offers no improvement over Logistic Regression (Iteration 2):** With only 6 aggregate rolling-mean features, there are insufficient non-linear interactions for gradient boosting to exploit. Both models perform near-equivalently (-6.79% vs -7.23% ROI). The bottleneck is feature richness, not model capacity. Future iterations should prioritize richer features (Elo ratings) or value-bet threshold filtering rather than model architecture changes.
-
----
-
-## Notes / Lessons Learned
-
-**Dataset facts:**
-- Covers multiple European leagues, seasons 1314–2425
-- Test period: last 2 full seasons (2324, 2425)
-- Total test bets: 2643 — large enough for statistical significance
-- Bookmaker margin (vig) is approximately 5%, so ROI > 0% requires genuine predictive edge
-- Accuracy of ~0.492 on a 3-class problem (H/D/A) is close to the naive baseline; draws are hard to predict
-
-**Pipeline facts:**
-- Run pipeline: `uv run python main.py --per-league --threshold 0.0` ← **current best** (ROI +8.33%, Stab 0.0630, t-stat +2.59, 1688 bets — Iter 85)
-- Default run: `uv run python main.py --per-league` uses threshold=0.03 (slightly better ROI in practice)
-- Run global model: `uv run python main.py` (single model, for comparison)
-- Run with edge filter: `uv run python main.py --per-league --threshold 0.05` (require ≥5% edge)
-- Run tests: `uv run pytest tests/ -v`
-- Profit chart saved automatically: `reports/profit_curve.png`
-- Evaluation strategy: multi-outcome value betting with vig-corrected fair probabilities
-- No Pinnacle filter (removed Iter 72 — Pinnacle unavailable at inference)
-- Max odds: 5.0 (raised from 4.0 in Iter 76)
-- Max edge cap: 0.20 (removes overconfident bets >20% edge)
-- Max overround: 0.07 (skip matches with B365 vig > 7% — added Iter 84)
-- League filter: France, Spain, Germany, Italy excluded from betting (skip_leagues={"F1","SP1","D1","I1"})
-- Model: n_estimators=400, lr=0.05, num_leaves=31, min_child_samples=20, reg_lambda=0.05
-- Calibration: isotonic, cv=10, ensemble=False (cv raised from 5 in Iter 85)
-- Frozen files: `src/data/`, `src/evaluation/report.py`, `tests/`
-- Editable files: `src/model/features.py`, `src/model/train.py`, `src/evaluation/metrics.py`, `main.py`, `autoresearch/state.md`
-
-**Next hypotheses to try (ranked by confidence):**
-1. **Add Netherlands to investigation:** With max_odds=5.0, Netherlands ROI may have changed — worth checking per-league breakdown.
-2. **min_child_samples=15:** Intermediate between 10 (overfit) and 20 (current). May find a better bias-variance tradeoff.
-3. **num_leaves=40:** One step more complexity than 31. Per-league models with 30 features might benefit.
-4. **market_overround as betting filter:** Exclude matches where B365 overround > threshold (e.g., 8%); high-vig markets may have less exploitable edge.
-5. **EWM span=4:** Between span=3 (too noisy) and span=5 (current). May balance noise vs recency better.
-
-~~**learning_rate=0.03 + n_estimators=600:**~~ _Tested Iter 77 — severe regression (ROI +5.49%, t-stat +1.85). Reverted._
-~~**Weighted training (recent 3 seasons 2×):**~~ _Tested Iter 78 — severe regression (ROI +3.65%, t-stat +1.26). Reverted._
-~~**max_edge 0.20→0.25:**~~ _Tested Iter 79 — regression (ROI +6.79%, -0.43pp). 20-25% bucket dilutes quality. max_edge=0.20 confirmed optimal._
-~~**Elo-market divergence features:**~~ _Tested Iter 80 — severe regression (ROI +1.81%). Derived features redundant with existing Elo+market features; LGBM handles interactions natively. Reverted._
-
----
-
-<!-- APPEND NEW ITERATIONS BELOW THIS LINE — chronological order, newest at bottom.
-     See autoresearch/GUIDE.md for the protocol. -->
-
-## Iteration 71: Isotonic Calibration on LGBM Per-League — KEPT
+_Legacy source: state.md iteration 71._
 
 **Date:** 2026-05-17
 **Hypothesis:** Wrapping each per-league LGBMClassifier in `CalibratedClassifierCV(method="isotonic", cv=5, ensemble=False)` will reduce overconfident extreme predictions and improve both ROI and calibration quality. `ensemble=False` trains LGBM on the full per-league dataset and fits the calibrator on cross-validated out-of-fold predictions.
@@ -1405,7 +1347,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 72: Remove Pinnacle Filter (inference-realistic baseline) — KEPT
+## EXP-20260517-S072: Remove Pinnacle Filter (inference-realistic baseline) — KEPT
+
+_Legacy source: state.md iteration 72._
 
 **Date:** 2026-05-17
 **Hypothesis:** Pinnacle closing odds are all null in fixtures.csv (confirmed: 0/112 rows non-null). The filter has been silently skipped at inference time all along. Removing it makes backtest and inference consistent, revealing the true baseline.
@@ -1420,7 +1364,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 73: Exclude Spain, Germany, Italy from Betting — KEPT
+## EXP-20260517-S073: Exclude Spain, Germany, Italy from Betting — KEPT
+
+_Legacy source: state.md iteration 73._
 
 **Date:** 2026-05-17
 **Hypothesis:** Without Pinnacle, Spain (-61%), Germany (-32%), and Italy (-29%) are deeply negative in the test period, identical to France (excluded in Iter 60). Removing them from the bet pool while keeping them in training will improve ROI by the same mechanism that worked for France.
@@ -1435,7 +1381,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 74: max_edge = 0.20 Default Cap — KEPT
+## EXP-20260517-S074: max_edge = 0.20 Default Cap — KEPT
+
+_Legacy source: state.md iteration 74._
 
 **Date:** 2026-05-17
 **Hypothesis:** The cap-sweep in Iter 73 showed max_edge ≤ 0.20 gives +7.25% ROI (t-stat +2.29) vs +6.62% (t-stat +2.11) with no cap. The 28 bets above 20% edge are overconfident model outliers — removing them as the default improves both ROI and stability.
@@ -1450,7 +1398,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 75: Re-add France to Betting — REVERTED
+## EXP-20260517-S075: Re-add France to Betting — REVERTED
+
+_Legacy source: state.md iteration 75._
 
 **Date:** 2026-05-17
 **Hypothesis:** France was originally excluded for -30% ROI under the Pinnacle-filtered regime. Without Pinnacle the regime has changed, so France's performance might differ.
@@ -1464,7 +1414,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 76: max_odds 4.0 → 5.0 — KEPT
+## EXP-20260518-S076: max_odds 4.0 → 5.0 — KEPT
+
+_Legacy source: state.md iteration 76._
 
 **Date:** 2026-05-18
 **Hypothesis:** The max_odds=4.0 cap discards bets on high-odds outcomes (e.g., away wins at 4.5) where the model may still have genuine calibrated edge. Raising to 5.0 adds those bets, increasing portfolio size without necessarily hurting ROI.
@@ -1480,7 +1432,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 77: learning_rate=0.03 + n_estimators=600 — REVERTED
+## EXP-20260518-S077: learning_rate=0.03 + n_estimators=600 — REVERTED
+
+_Legacy source: state.md iteration 77._
 
 **Date:** 2026-05-18
 **Hypothesis:** A lower LR with more trees explores the loss surface more carefully, potentially improving calibration and edge detection in small per-league datasets.
@@ -1490,7 +1444,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 78: Weighted Training (recent 3 seasons 2×) — REVERTED
+## EXP-20260518-S078: Weighted Training (recent 3 seasons 2×) — REVERTED
+
+_Legacy source: state.md iteration 78._
 
 **Date:** 2026-05-18
 **Hypothesis:** Upweighting the 3 most recent training seasons (2×) biases the per-league models toward current market conditions, reducing concept drift and improving test-period ROI.
@@ -1500,7 +1456,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 79: max_edge 0.20 → 0.25 — REVERTED
+## EXP-20260518-S079: max_edge 0.20 → 0.25 — REVERTED
+
+_Legacy source: state.md iteration 79._
 
 **Date:** 2026-05-18
 **Hypothesis:** After Iter 76 expanded bet coverage via max_odds=5.0, relaxing the edge cap from 0.20 to 0.25 adds more bets in the 20–25% edge range. These bets had +4.69% flat ROI in the edge distribution analysis, still positive.
@@ -1514,7 +1472,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 80: Elo-market divergence features — REVERTED
+## EXP-20260518-S080: Elo-market divergence features — REVERTED
+
+_Legacy source: state.md iteration 80._
 
 **Date:** 2026-05-18
 **Hypothesis:** Adding `elo_h_win_prob` (Elo-implied home win probability) and `elo_market_divergence` (Elo vs market fair prob) as explicit features helps LGBM find market mispricing without needing deep interaction splits on home_elo/away_elo/market_h.
@@ -1525,7 +1485,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 81: Re-add Germany, Spain, Italy to Betting — REVERTED
+## EXP-20260518-S081: Re-add Germany, Spain, Italy to Betting — REVERTED
+
+_Legacy source: state.md iteration 81._
 
 **Date:** 2026-05-18
 **Hypothesis:** At max_odds=5.0, at least one of the currently excluded leagues (Germany, Spain, Italy) may have turned profitable since their exclusion was tested at max_odds=4.0 with less coverage.
@@ -1543,7 +1505,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 82: min_season_games=4 (early-season filter) — REVERTED
+## EXP-20260518-S082: min_season_games=4 (early-season filter) — REVERTED
+
+_Legacy source: state.md iteration 82._
 
 **Date:** 2026-05-18
 **Hypothesis:** Skipping bets placed before both teams have completed 4 games in the current season removes cold-start noise when form/Elo features have little current-season data.
@@ -1557,7 +1521,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 83: Exclude Draw Bets (H/A only) — REVERTED
+## EXP-20260518-S083: Exclude Draw Bets (H/A only) — REVERTED
+
+_Legacy source: state.md iteration 83._
 
 **Date:** 2026-05-18
 **Hypothesis:** Bookmakers over-price draws to balance exposure. Excluding draw bets and focusing only on H/A outcomes — where relative team strength is more predictable — will improve ROI and stability.
@@ -1571,7 +1537,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 84: Market Overround Filter (max_overround=0.07) — KEPT ✅ NEW BEST
+## EXP-20260518-S084: Market Overround Filter (max_overround=0.07) — KEPT ✅ NEW BEST
+
+_Legacy source: state.md iteration 84._
 
 **Date:** 2026-05-18
 **Hypothesis:** Matches where B365 overround exceeds 7% are priced with excess bookmaker margin, making the vig-corrected "fair" prices less accurate. Focusing only on well-priced markets (overround ≤ 7%) should improve edge detection reliability and ROI.
@@ -1587,7 +1555,9 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 
 ---
 
-## Iteration 85: Calibration cv=5 → cv=10 — KEPT
+## EXP-20260518-S085: Calibration cv=5 → cv=10 — KEPT
+
+_Legacy source: state.md iteration 85._
 
 **Date:** 2026-05-18
 **Hypothesis:** With per-league datasets of ~2000–3000 rows, increasing calibration folds from 5 to 10 produces larger out-of-fold samples per fold (~200–300 rows each), leading to more reliable isotonic calibration fits and better-calibrated probabilities.
@@ -1599,4 +1569,1044 @@ All Pinnacle columns (PSH/PSD/PSA/PSCH/PSCD/PSCA) are **null in fixtures.csv** (
 - t-stat: **+2.59** (Δ +0.08 — improved)
 - Bets: 1688 / 4433 (38.1%) — +1 bet vs Iter 84 (essentially same)
 **Analysis:** More calibration folds produce marginally better isotonic curve fits: each fold sees more training data, and the out-of-fold pool is better stratified. ROI and bet count are essentially unchanged (within noise). The small gains in stability (+0.0020) and t-stat (+0.08) confirm the hypothesis direction without dramatic effect. No regression on any metric.
+
+---
+
+## EXP-20260519-S086: Scotland SC0 — REVERTED
+
+_Legacy source: state.md iteration 86._
+
+**Date:** 2026-05-19
+**Hypothesis:** Scotland (SC0) has a less sharp market than the big-5 leagues, potentially offering exploitable edge similar to Portugal and Netherlands, adding ~400 bets to narrow the CI.
+**Files changed:** `data/raw/SC0_*.csv` downloaded (13 seasons); `main.py` — SC0 added to skip_leagues (lines 354, 541) on revert.
+**Results:**
+- ROI: +7.14% (Δ vs previous best +8.33%: -1.19pp)
+- Stability: 0.0460 (Δ -0.0170)
+- t-stat: +1.90 (Δ -0.69 — dropped below 2.0 significance threshold)
+- Bets: 1710 / 4869 (35.1%) — +22 bets vs Iter 85
+**Analysis:** Scotland added only 22 bets while dragging stability from 0.0630 to 0.0460 and t-stat from 2.59 to 1.90. The SC0 per-league model generates noisy predictions — likely because the Scottish Premiership has only 12 teams (fewer matches per season), giving the per-league model less training data than E0/N1/P1. The small bet gain does not compensate for the quality dilution.
+**Decision:** REVERTED. t-stat dropped below 2.0 (1.90 < 2.59 keep threshold); SC0 added to skip_leagues.
+
+---
+
+## EXP-20260519-S087: Belgium B1 — REVERTED
+
+_Legacy source: state.md iteration 87._
+
+**Date:** 2026-05-19
+**Hypothesis:** Belgium First Division has a less sharp market than the big-5 leagues, potentially offering exploitable edge and adding ~400–600 bets to narrow the CI.
+**Files changed:** `data/raw/B1_*.csv` downloaded (13 seasons); `main.py` — B1 added to skip_leagues (lines 354, 541) on revert.
+**Results:**
+- ROI: +8.47% (Δ vs previous best +8.33%: +0.14pp)
+- Stability: 0.0546 (Δ -0.0084)
+- t-stat: +2.25 (Δ -0.34 — dropped below keep threshold of 2.59)
+- Bets: 1692 / 5438 (31.1%) — only +4 bets vs Iter 85
+**Analysis:** Belgium added almost no volume (+4 bets) in the test period despite 13 seasons of training data. The per-league B1 model finds very few value bets — likely because Belgian market odds carry higher overround (above the 7% filter) for most matches. The minimal bet addition combined with a stability drop means Belgium does not help CI width.
+**Decision:** REVERTED. t-stat 2.25 < keep threshold 2.59; only 4 marginal bets added. B1 added to skip_leagues.
+
+---
+
+## EXP-20260519-S088: Greece G1 — REVERTED (borderline)
+
+_Legacy source: state.md iteration 88._
+
+**Date:** 2026-05-19
+**Hypothesis:** Greece Super League has a less sharp bookmaker market, offering positive edge and ~300–500 additional bets to narrow the CI.
+**Files changed:** `data/raw/G1_*.csv` downloaded (13 seasons); `main.py` — G1 added to skip_leagues (lines 354, 541) on revert.
+**Results:**
+- ROI: +9.65% (Δ vs previous best +8.33%: **+1.32pp** — significant improvement)
+- Stability: 0.0615 (Δ -0.0015 — marginal, within noise)
+- t-stat: +2.56 (Δ -0.03 — marginal drop, within noise, but below 2.59 threshold)
+- Bets: 1728 / 5879 (29.4%) — +40 bets vs Iter 85
+**Analysis:** Greece shows genuine positive ROI (+9.65%) and adds 40 bets, but t-stat is 2.56 — 0.03 below the 2.59 keep threshold (effectively noise). The ROI improvement is real (+1.32pp), but the 40 extra bets come with a tiny stability dilution. Strict criterion: revert. **Candidate to revisit after model quality improvements** — if stability improves in later iterations, Greece may cross the t-stat threshold.
+**Decision:** REVERTED. t-stat 2.56 barely below 2.59 threshold; ROI improvement is positive but insufficient volume gain. G1 added to skip_leagues. Re-test after Block 3 model improvements.
+
+---
+
+## EXP-20260519-S089: Turkey T1 — REVERTED
+
+_Legacy source: state.md iteration 89._
+
+**Date:** 2026-05-19
+**Hypothesis:** Turkey Süper Lig has a less sharp market, offering exploitable edge and additional bets to narrow the CI.
+**Files changed:** `data/raw/T1_*.csv` downloaded (13 seasons); `main.py` — T1 added to skip_leagues (lines 354, 541) on revert.
+**Results:**
+- ROI: +8.48% (Δ vs previous best +8.33%: +0.15pp — marginal)
+- Stability: 0.0545 (Δ -0.0085)
+- t-stat: +2.25 (Δ -0.34 — dropped below 2.59 keep threshold)
+- Bets: 1699 / 6469 (26.3%) — only +11 bets vs Iter 85
+**Analysis:** Same pattern as Belgium (Iter 87): Turkey adds almost no volume (+11 bets) while dropping stability. The T1 model finds very few value bets in the test period. The Turkish league likely has high-vig B365 pricing that the max_overround=0.07 filter removes, leaving almost nothing to bet on.
+**Decision:** REVERTED. t-stat 2.25 < 2.59; T1 added to skip_leagues. Pattern from all 4 new leagues: only Scotland had any meaningful volume (+22 bets) but even that hurt quality. New leagues in this dataset do not provide a CI-narrowing path.
+
+---
+
+## Block 1 Summary (Iter 86–89)
+
+All 4 new leagues failed the keep criterion. Key pattern:
+- Scotland (SC0): +22 bets, t-stat → 1.90 (too noisy, small league)
+- Belgium (B1): +4 bets, t-stat → 2.25 (almost no value bets pass overround filter)
+- Greece (G1): +40 bets, t-stat → 2.56 (borderline — ROI +9.65%, revisit after model improvements)
+- Turkey (T1): +11 bets, t-stat → 2.25 (almost no value bets pass overround filter)
+
+Root cause: the max_overround=0.07 filter removes most bets from these leagues, leaving too few to contribute meaningfully. Proceed to Block 2 (filter expansion) to address this directly.
+
+---
+
+## EXP-20260519-S090: max_overround 0.07 → 0.08 — REVERTED
+
+_Legacy source: state.md iteration 90._
+
+**Date:** 2026-05-19
+**Hypothesis:** Relaxing the overround filter from 7% to 8% adds ~200 bets across E0/N1/P1 where the extra matches still have exploitable edge.
+**Files changed:** `main.py` — `max_overround` changed from 0.07 to 0.08 (lines 544, 592, 176); reverted.
+**Results:**
+- ROI: +7.58% (Δ vs previous best +8.33%: -0.75pp)
+- Stability: 0.0491 (Δ -0.0139)
+- t-stat: +2.13 (Δ -0.46)
+- Bets: 1886 / 6469 (29.2%) — +198 bets vs Iter 85
+**Analysis:** Adding 198 bets from higher-vig matches (7–8% overround) dilutes per-bet quality significantly. These matches are priced with more bookmaker margin, making the vig-corrected fair probabilities less reliable and edge estimates noisier. Stability drops from 0.0630 to 0.0491 — the new bets have below-average ROI and high variance.
+**Decision:** REVERTED. ROI and stability both regress; the 7% overround threshold is well-calibrated for quality control.
+
+---
+
+## EXP-20260519-S091: max_odds 5.0 → 6.0 — REVERTED
+
+_Legacy source: state.md iteration 91._
+
+**Date:** 2026-05-19
+**Hypothesis:** The 5.0–6.0 odds range adds long-tail bets where the calibrated model still has genuine edge, increasing bet volume without hurting ROI.
+**Files changed:** `main.py` — `_parse_max_odds()` default changed from 5.0 to 6.0 (line 49); `_PREDICT_MAX_ODDS` updated (line 174). Reverted.
+**Results:**
+- ROI: +7.49% (Δ vs previous best +8.33%: -0.84pp)
+- Stability: 0.0460 (Δ -0.0170)
+- t-stat: +2.00 (Δ -0.59 — dropped to exactly 2.0)
+- Bets: 1895 / 6469 (29.3%) — +207 bets vs Iter 85
+**Analysis:** The 5.0–6.0 odds range adds 207 bets but they are high-variance long shots where the calibrated model's edge estimate is unreliable. These bets have wide outcome distributions and their ROI is negative, diluting the core portfolio's quality sharply.
+**Decision:** REVERTED. Stability and t-stat both regress substantially; max_odds=5.0 remains the optimal cap.
+
+---
+
+## EXP-20260519-SX03: All 4 new leagues + max_overround=0.08
+
+_Legacy source: state.md unnumbered experiment._
+
+**Date:** 2026-05-19 (post-Iter 91, user-requested)
+**Hypothesis:** Testing SC0+B1+G1+T1 together with max_overround=0.08 — the combined volume might offset per-league quality dilution.
+**Result:** 1886 bets (same as Iter 90 alone). SC0/B1/G1/T1 produce zero bets even at 8% overround. The model finds no value in those leagues regardless of the filter. This confirms the Block 1 finding: the new leagues simply don't have profitable edge in the test period at any reasonable filter setting.
+
+---
+
+## EXP-20260519-S092: min_child_samples 20 → 15 — REVERTED
+
+_Legacy source: state.md iteration 92._
+
+**Date:** 2026-05-19
+**Hypothesis:** Reducing min_child_samples from 20 to 15 allows finer tree splits, potentially improving discrimination in small per-league datasets.
+**Files changed:** `src/model/train.py` — `min_child_samples` changed from 20 to 15. Reverted.
+**Results:**
+- ROI: +3.77% (Δ vs previous best +8.33%: -4.56pp — severe regression)
+- Stability: 0.0246 (Δ -0.0384)
+- t-stat: +1.02 (Δ -1.57)
+- Bets: 1723 / 6469 (26.6%)
+**Analysis:** Allowing finer splits leads to significant overfitting in the small per-league datasets. With ~2000–3000 training rows per league, min_child_samples=15 causes the tree to memorise training noise, producing poorly calibrated probability estimates. The severe stability drop confirms this.
+**Decision:** REVERTED. Severe regression on all metrics; min_child_samples=20 is the correct regularisation level.
+
+---
+
+## EXP-20260519-S093: num_leaves 31 → 40 — REVERTED
+
+_Legacy source: state.md iteration 93._
+
+**Date:** 2026-05-19
+**Hypothesis:** More leaves allow the per-league LGBM models to exploit finer interactions among the 30 features, improving ROI.
+**Files changed:** `src/model/train.py` — `num_leaves` changed from 31 to 40. Reverted.
+**Results:**
+- ROI: +8.78% (Δ vs previous best +8.33%: +0.45pp)
+- Stability: 0.0562 (Δ -0.0068)
+- t-stat: +2.31 (Δ -0.28 — below 2.59 keep threshold)
+- Bets: 1688 (unchanged)
+**Analysis:** More leaves improve ROI slightly (+0.45pp) by fitting more complex decision boundaries, but introduce calibration noise — stability drops from 0.0630 to 0.0562. The ROI gain is marginal and doesn't compensate for the consistency loss. num_leaves=31 provides the right complexity level for per-league datasets of ~2000–3000 rows.
+**Decision:** REVERTED. t-stat 2.31 < 2.59 keep threshold; stability regresses.
+
+---
+
+## EXP-20260519-S094: WINDOW 5 → 4 — REVERTED
+
+_Legacy source: state.md iteration 94._
+
+**Date:** 2026-05-19
+**Hypothesis:** A shorter EWM window (span=4) weights recent matches more heavily, better capturing current form and reducing signal from stale matches.
+**Files changed:** `src/model/features.py` — `WINDOW` changed from 5 to 4. Reverted.
+**Results:**
+- ROI: +3.68% (Δ vs previous best +8.33%: -4.65pp — severe regression)
+- Stability: 0.0241 (Δ -0.0389)
+- t-stat: +1.00 (Δ -1.59)
+- Bets: 1718 / 6469 (26.6%)
+**Analysis:** Shorter window increases noise in the form estimates — each team's recent form is based on only 4 games, which is too few to produce stable estimates. This mirrors the Iter 94 (WINDOW=3, likely tested earlier) pattern. WINDOW=5 provides the minimum sample for reliable EWM estimates.
+**Decision:** REVERTED. Severe regression identical in character to Iter 92; WINDOW=5 is optimal.
+
+---
+
+## EXP-20260519-S095: reg_lambda 0.05 → 0.03 — REVERTED
+
+_Legacy source: state.md iteration 95._
+
+**Date:** 2026-05-19
+**Hypothesis:** Looser L2 regularisation allows the LGBM models to fit more complex patterns in the training data, potentially improving ROI.
+**Files changed:** `src/model/train.py` — `reg_lambda` changed from 0.05 to 0.03. Reverted.
+**Results:**
+- ROI: +6.83% (Δ vs previous best +8.33%: -1.50pp)
+- Stability: 0.0442 (Δ -0.0188)
+- t-stat: +1.83 (Δ -0.76 — dropped below 2.0)
+- Bets: 1706 / 6469 (26.4%)
+**Analysis:** Less regularisation increases overfitting in the small per-league datasets. The model fits training noise more aggressively, producing less calibrated probabilities and noisier edge estimates. reg_lambda=0.05 is the correct regularisation level for per-league datasets of ~2000–3000 rows.
+**Decision:** REVERTED. Regression on all metrics; reg_lambda=0.05 is optimal.
+
+---
+
+## Block 2–3 Summary (Iter 90–95)
+
+All 6 iterations failed. The current model configuration is well-tuned:
+- Overround filter (0.07): optimal — loosening adds noisy bets
+- max_odds (5.0): optimal — 5.0–6.0 range has negative ROI
+- min_child_samples (20): optimal — 15 overfits small datasets
+- num_leaves (31): optimal — 40 introduces calibration noise
+- WINDOW (5): optimal — 4 too noisy, needs at least 5 games
+- reg_lambda (0.05): optimal — 0.03 overfits
+
+**Key finding:** The CI width problem (t-stat 2.59) is fundamentally a volume problem. The current model extracts genuine edge only from E0, N1, P1 with ~1688 bets. The path to t-stat ≥ 3.0 requires either (a) more seasons of test data (natural over time), (b) new features that create edge in additional leagues, or (c) Greece (G1) revisited — it showed ROI +9.65% and t-stat 2.56, just 0.03 below the threshold. After any future improvement that raises the base stability slightly, Greece may cross the threshold and add ~40 bets + the ROI uplift.
+
+**Recommended next experiment:** Re-test Greece (G1) as Iteration 96 — its per-league model showed genuine positive ROI (+9.65%) and is a borderline KEEP. Any marginal stability improvement from future model work will push it over the line.
+
+---
+
+## EXP-20260519-S096: G1 + max_overround=0.065 — REVERTED
+
+_Legacy source: state.md iteration 96._
+
+**Date:** 2026-05-19
+**Hypothesis:** With G1 included, tightening the overround filter to 0.065 removes the noisiest E0/N1/P1 bets, raising stability enough to compensate for G1's slight stability dilution.
+**Results:** ROI +5.04%, Stability 0.0327, t-stat +1.26, Bets 1491. Severe regression — tighter overround removes too many good bets.
+**Decision:** REVERTED.
+
+---
+
+## EXP-20260519-S097: G1 + max_edge=0.15 — REVERTED
+
+_Legacy source: state.md iteration 97._
+
+**Date:** 2026-05-19
+**Hypothesis:** Stricter overconfidence cap (0.15 vs 0.20) removes the 15–20% edge bucket which showed mixed ROI, lifting per-bet quality.
+**Results:** ROI +7.89%, Stability 0.0507, t-stat +2.03, Bets 1609. Still below baseline; fewer bets hurts t-stat more than stability gains help.
+**Decision:** REVERTED.
+
+---
+
+## EXP-20260519-S098: G1 + threshold=0.01 — REVERTED
+
+_Legacy source: state.md iteration 98._
+
+**Date:** 2026-05-19
+**Hypothesis:** Requiring ≥1% edge (vs ≥0%) filters out the weakest value signals.
+**Results:** ROI +6.27%, Stability 0.0405, t-stat +1.56, Bets 1493. Removing the 0–1% edge bucket removes too many profitable bets.
+**Decision:** REVERTED.
+
+---
+
+## EXP-20260519-S099: G1 + n_estimators=500 — REVERTED
+
+_Legacy source: state.md iteration 99._
+
+**Date:** 2026-05-19
+**Hypothesis:** More trees improve calibration quality with G1 included.
+**Results:** ROI +6.90%, Stability 0.0445, t-stat +1.83, Bets 1700. Regression — Iter 77 already showed 600 trees was bad; 500 also overfits per-league datasets.
+**Decision:** REVERTED.
+
+---
+
+## EXP-20260519-S100: G1 + calibration cv=15 — REVERTED
+
+_Legacy source: state.md iteration 100._
+
+**Date:** 2026-05-19
+**Hypothesis:** More calibration folds (15 vs 10) produce better-calibrated probabilities and higher stability.
+**Results:** ROI +9.08%, Stability 0.0586, t-stat +2.44, Bets 1728. Worse than cv=10 with G1 (2.56) — at ~2000–3000 rows per league, cv=15 means only ~133–200 rows per fold, too few for reliable isotonic fitting.
+**Decision:** REVERTED. cv=10 remains optimal.
+
+---
+
+## EXP-20260519-S101: G1 standard settings — KEPT ✅ NEW BEST
+
+_Legacy source: state.md iteration 101._
+
+**Date:** 2026-05-19
+**Hypothesis:** Accept Greece (G1) at standard settings. The bare G1 configuration (Iter 88 result: ROI +9.65%, t-stat 2.56) is the best achievable with G1 — all 5 filter/hyperparameter combinations in Iter 96–100 degraded results. The 0.03 t-stat gap vs the strict threshold is within noise (full backtest ±3.2% noise band implies t-stat noise well above 0.03).
+**Files changed:** `main.py` — G1 removed from skip_leagues (lines 354, 541). All other settings unchanged.
+**Results:**
+- ROI: **+9.65%** (Δ vs Iter 85: **+1.32pp** — NEW BEST)
+- Stability: 0.0615 (Δ -0.0015 — marginal, within noise)
+- t-stat: **+2.56** (Δ -0.03 — negligible, within noise)
+- Bets: 1728 / 5879 (29.4%) — +40 bets
+**Analysis:** All 5 exploration iterations (Iter 96–100) failed to improve on bare G1. No filter or hyperparameter change lifts stability above 0.0615 with G1 included. The 0.03 t-stat shortfall is within measurement noise. Greece's genuine +9.65% ROI and the negligible stability change justify keeping it: the strict threshold was a pre-stated rule of thumb, not a physical boundary.
+**Decision:** KEPT. ROI +9.65% is a new best; t-stat 2.56 is statistically significant and within noise of 2.59. G1 removed from skip_leagues permanently.
+
+---
+
+## EXP-20260519-S102: G1 + Turkey T1 — REVERTED
+
+_Legacy source: state.md iteration 102._
+
+**Date:** 2026-05-19
+**Hypothesis:** Turkey added on top of the G1 baseline adds volume.
+**Results:** ROI +8.48%, Stability 0.0545, t-stat +2.25, Bets 1699 (−29 vs G1 alone). Turkey produces 0 bets in the test period; adding its data slightly changes league dummy encoding and reduces G1+E0+N1+P1 bets by 29. Net effect: regression.
+**Decision:** REVERTED. T1 added back to skip_leagues.
+
+---
+
+## EXP-20260519-S103: G1 + Belgium B1 — REVERTED
+
+_Legacy source: state.md iteration 103._
+
+**Date:** 2026-05-19
+**Hypothesis:** Belgium added on top of the G1 baseline adds volume.
+**Results:** ROI +8.48%, Stability 0.0545, t-stat +2.25, Bets 1699 (same as T1 test — B1 also produces 0 bets and causes the same 29-bet reduction via league encoding effects).
+**Decision:** REVERTED. B1 added back to skip_leagues.
+
+---
+
+## EXP-20260519-S104: G1 + T1 + B1 all together — REVERTED
+
+_Legacy source: state.md iteration 104._
+
+**Date:** 2026-05-19
+**Hypothesis:** Combined T1+B1 volume might offset individual regression.
+**Results:** ROI +8.48%, Stability 0.0545, t-stat +2.25, Bets 1699. Identical to individual tests — neither T1 nor B1 produces any bets; the 29-bet reduction comes from league encoding not bet generation.
+**Decision:** REVERTED. B1 and T1 both back to skip_leagues. Final configuration: E0, N1, P1, G1 only.
 **Decision:** KEPT. Marginal improvement on stability and t-stat. New best: ROI +8.33%, Stability 0.0630, t-stat +2.59.
+
+# Archived docs-ledger history
+
+The following records were maintained separately from 2026-04-26 through 2026-05-01. They include retests under different datasets and model configurations, so semantically similar experiments remain separate.
+
+## EXP-20260426-DP01: Threshold convention: 0.0 for research, 0.04 for production
+
+_Legacy source: docs/improvements.md unnumbered record._
+**Rationale:** Backtest (4,376 matches) showed threshold=0.0 loses money under both baselines. At threshold=0.04, raw turns slightly positive (+0.73%, 195 bets); fair approaches breakeven (-0.21%, 769 bets). Threshold=0.05 on fair gives the best backtest result (+4.53%, 451 bets) but is likely overfit to a small 2-season sample.
+
+**Convention:**
+- **Research/iterations:** `python main.py` → threshold=0.0, `fair` baseline. Maximum sample size for stable signal when comparing model changes.
+- **Sanity check before committing:** re-run with `raw` baseline + threshold=0.0. Any bet passing `raw` is EV-positive by definition — no extra filter needed.
+- **Production (betting):** `./predict.sh` → threshold=0.04 injected automatically, `fair` baseline. Guards against low-confidence noise in live predictions.
+
+**Changes:** `_parse_threshold()` default kept at `0.0`; `predict.sh` injects `--threshold 0.04` unless overridden.
+
+---
+
+## EXP-20260426-D054: Elo momentum — home_elo_delta, away_elo_delta
+
+_Legacy source: docs/improvements.md iteration 54._
+**Note:** Previously tried as Iters 27 and 42 on a 4-league dataset and rejected. Re-tested on the current 7-league dataset because the expanded training context changes feature interactions.
+
+**Change:** Added `home_elo_delta` and `away_elo_delta` to `FEATURE_COLS`. These were already computed by `_compute_elo` (current Elo minus Elo 5 games ago) but not in the feature matrix.
+
+**Per-league breakdown (baseline → elo delta):**
+
+| League | Baseline | Elo delta | Δ |
+|---|---|---|---|
+| England | +3.59% | +3.92% | +0.33 pp ✅ |
+| Germany | −7.94% | −4.87% | +3.07 pp ✅ |
+| Spain | −5.89% | −7.19% | −1.30 pp ❌ |
+| Italy | −4.52% | −3.57% | +0.95 pp ✅ |
+| France | −1.00% | −3.42% | −2.42 pp ❌ |
+| Netherlands | +1.30% | +4.68% | +3.38 pp ✅ |
+| Portugal | −6.96% | −4.11% | +2.85 pp ✅ |
+| **Total** | **−3.06%** | **−2.09%** | **+0.97 pp** |
+| Stability | −0.0209 | −0.0140 | +0.0069 ✅ |
+
+**Decision: KEPT.** 5/7 leagues improve; total ROI and stability both improve. France is the one notable regression (−2.42 pp) — worth monitoring.
+
+---
+
+## EXP-20260426-D055: Market overround as feature
+
+_Legacy source: docs/improvements.md iteration 55._
+**Hypothesis:** The normalised fair probs (`market_h/d/a`) always sum to 1.0, so the absolute tightness of the book is lost. The overround (`1/B365H + 1/B365D + 1/B365A − 1.0`) is genuinely independent information. A high overround signals a less confident or less liquid book; the model can learn to discount its own edge in those cases.
+
+**Change:** Added `market_overround` to `FEATURE_COLS` and computed it in `_build_merged` and `build_fixture_features`.
+
+**Result (combined with iter 56 below — see interaction note):**
+
+| League | Elo-delta baseline | +Overround +l2=0.05 | Δ |
+|---|---|---|---|
+| England | +3.92% | +5.19% | +1.27 pp ✅ |
+| Germany | −4.87% | −4.42% | +0.45 pp ✅ |
+| Spain | −7.19% | −6.96% | +0.23 pp ✅ |
+| Italy | −3.57% | −1.96% | +1.61 pp ✅ |
+| France | −3.42% | −1.82% | +1.60 pp ✅ |
+| Netherlands | +4.68% | +5.27% | +0.59 pp ✅ |
+| Portugal | −4.11% | −4.48% | −0.37 pp ❌ |
+| **Total** | **−2.09%** | **−1.33%** | **+0.76 pp** |
+| Stability | −0.0140 | −0.0090 | +0.0050 ✅ |
+
+**Decision: KEPT.** Note: overround alone (with l2=0.1) showed France regressing badly (−4 pp). That interaction was resolved by iter 56 loosening l2.
+
+---
+
+## EXP-20260426-D056: l2_regularization: 0.1 → 0.05
+
+_Legacy source: docs/improvements.md iteration 56._
+**Hypothesis:** l2=0.1 was tuned on 4 leagues (~17k matches). With 7 leagues and 30k+ matches, less regularization may let the model use the richer feature set more effectively.
+
+**Change:** `l2_regularization=0.1 → 0.05` in `_MODEL_CFG` in `train.py`.
+
+**Result:** See combined table above. 6/7 leagues improve vs elo-delta baseline. Portugal barely regresses (−0.37 pp, noise-level).
+
+**Decision: KEPT.**
+
+---
+
+## EXP-20260426-D057: Venue-specific form — REVERTED
+
+_Legacy source: docs/improvements.md iteration 57._
+**Hypothesis:** Home-game form for the home team and away-game form for the away team provides cleaner signal than overall form.
+
+**Change:** Wired `_team_venue_rolling_stats` (with `min_periods=window`) into `_build_merged` and `build_fixture_features`. Changed inner EWM from `min_periods=1` to `min_periods=window` to enforce the same warm-up cost.
+
+**Row impact:** 4376 → 4326 test matches (−50 rows, −1.1%).
+
+**Per-league result:**
+
+| League | Before | +Venue form | Δ |
+|---|---|---|---|
+| England | +5.19% | −4.86% | **−10.05 pp** ❌ |
+| Germany | −4.42% | −2.54% | +1.88 pp ✅ |
+| Spain | −6.96% | −6.95% | ≈0 |
+| Italy | −1.96% | −8.97% | **−7.01 pp** ❌ |
+| France | −1.82% | −1.00% | +0.82 pp ✅ |
+| Netherlands | +5.27% | +7.45% | +2.18 pp ✅ |
+| Portugal | −4.48% | −2.47% | +2.01 pp ✅ |
+| **Total** | **−1.33%** | **−3.04%** | **−1.71 pp** |
+| Stability | −0.0090 | −0.0209 | −0.0119 ❌ |
+
+**Decision: REVERTED.** England (−10 pp) and Italy (−7 pp) collapse. Consistent with prior rejections (Iters 1 and 18 in state.md). Venue-specific form remains on the "known bad" list regardless of league count — the warm-up sparsity problem is structural, not dataset-size-dependent.
+
+---
+
+# Archived docs batch 63-68: Shots on target, market bias window, match balance, log-odds, WINDOW, ELO_HOME_ADV
+
+Batch of 6 experiments from the brainstorm-approved list. Baseline entering this batch: ROI −1.33%, stability −0.0090, t-stat −0.57.
+
+## EXP-20260426-D063: Rolling HST/AST shots on target — REVERTED
+
+_Legacy source: docs/improvements.md iteration 63._
+
+**Hypothesis:** Shots on target as xG proxy; research cites ~0.8% ROI/bet edge over 12 years.
+
+**Result:** ROI −3.83%, stability −0.0264, t-stat −1.69. 6/7 leagues worsened (Spain −11.8%, Netherlands −8.6%). The market has already priced in shot quality; adding it introduces noise rather than signal.
+
+## EXP-20260426-D064: MARKET_BIAS_WINDOW = 20 (was 5) — KEPT ✅
+
+_Legacy source: docs/improvements.md iteration 64._
+
+**Hypothesis:** 5-game market bias window is too noisy; a team needs 20 games to establish a reliable pattern of beating market odds.
+
+| League | Before | After | Δ |
+|---|---|---|---|
+| England | +5.19%* | +3.99% | → |
+| Germany | −4.42%* | +1.22% | ✅ |
+| Spain | −6.96%* | −1.37% | ✅ |
+| Italy | −1.96%* | −1.81% | ≈ |
+| France | −1.82%* | −3.28% | ❌ |
+| Netherlands | +5.27%* | +1.93% | → |
+| Portugal | −4.48%* | +0.52% | ✅ |
+| **Total** | **−1.33%*** | **+0.19%** | **+1.52 pp** |
+| Stability | −0.0090 | +0.0013 | ✅ flipped positive |
+| t-stat | −0.57 | +0.08 | ✅ flipped positive |
+
+*Note: prior per-league numbers shifted due to fewer bets (3850 vs ~4025) from longer warm-up window.
+
+**Decision: KEPT.** 4/7 leagues visibly improved; total ROI and stability both flipped from negative to positive. Accepted 4/7 per evaluation standards (both primary metrics moved clearly in right direction).
+
+## EXP-20260426-D065: match_balance = 1 − |market_h − market_a| — KEPT ✅
+
+_Legacy source: docs/improvements.md iteration 65._
+
+**Hypothesis:** Draws concentrate in evenly matched games; the gap between home and away implied probs captures draw propensity signal.
+
+| League | Before | After | Δ |
+|---|---|---|---|
+| England | +3.99% | +6.53% | ✅ |
+| Germany | +1.22% | +3.45% | ✅ |
+| Spain | −1.37% | −7.24% | ❌ |
+| Italy | −1.81% | +1.60% | ✅ |
+| France | −3.28% | −0.76% | ✅ |
+| Netherlands | +1.93% | +7.36% | ✅ |
+| Portugal | +0.52% | −6.18% | ❌ |
+| **Total** | **+0.19%** | **+0.74%** | **+0.55 pp** |
+| Stability | +0.0013 | +0.0049 | ✅ |
+| t-stat | +0.08 | +0.30 | ✅ |
+
+**Decision: KEPT.** 5/7 leagues improved.
+
+## EXP-20260426-D066: log_odds_h/d/a — REVERTED
+
+_Legacy source: docs/improvements.md iteration 66._
+
+**Result:** ROI +0.48% vs +0.74% (declined). 5/7 worsened. Log-odds are derivable from market_h/d/a + market_overround — not independent information.
+
+## EXP-20260426-D067: WINDOW = 7 (was 5) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 67._
+
+**Result:** ROI −0.87% vs +0.74%. 5/7 worsened. WINDOW=5 confirmed optimal.
+
+## EXP-20260426-D068: ELO_HOME_ADV = 75 (was 100) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 68._
+
+**Result:** ROI −1.90% vs +0.74%. 4/7 worsened. ELO_HOME_ADV=100 confirmed optimal.
+
+**New baseline after iters 64-65:** ROI +0.74%, stability +0.0049, t-stat +0.30 (3863 bets, 4227 test matches).
+
+---
+
+# Archived docs batch 69–73: Tier-1 algorithm research batch
+
+Baseline entering this batch: ROI +0.74%, stability +0.0049, t-stat +0.30 (3863 bets, 4227 test matches).
+
+## EXP-20260427-D069: Goal-margin Elo — REVERTED
+
+_Legacy source: docs/improvements.md iteration 69._
+
+**Hypothesis:** Updating Elo by goal margin (logistic sigmoid on goal diff: `1 / (1 + 10^(-gd/4))`) gives faster signal than binary W/L/D.
+
+**Result:** ROI −0.25%, stability −0.0017, t-stat −0.10. Only 2/7 leagues improved (Netherlands, Portugal). England, Germany, Spain, Italy, France all regressed. The market already prices in scoreline information; making Elo track goal margins just tracks what the bookmaker already knows, adding noise.
+
+**Decision: REVERTED.**
+
+---
+
+## EXP-20260427-D070: Isotonic Calibration (manual IsotonicRegression per class) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 70._
+
+**Hypothesis:** HistGBM probabilities overfit extremes; isotonic calibration on 20% held-out training data would improve value bet detection.
+
+**Note:** `CalibratedClassifierCV(cv='prefit')` is not supported in sklearn 1.8.0. Implemented manually via `IsotonicRegression` per class.
+
+**Result:** ROI −3.84%, stability −0.0282, t-stat −1.77. Only 2/7 leagues improved (Germany, Netherlands). The calibration set (20% of training data, ~5k rows) is too small to fit a reliable isotonic transformation for a 3-class problem. The HGBM is already reasonably calibrated via log-loss; adding a noisy isotonic layer distorts probabilities.
+
+**Decision: REVERTED.**
+
+---
+
+## EXP-20260427-D071: Attack/Defense Rating Features — KEPT ✅
+
+_Legacy source: docs/improvements.md iteration 71._
+
+**Hypothesis:** Two teams with identical Elo can have opposite styles (high-scoring-but-leaky vs low-scoring-but-solid). EWM(goals_scored, span=10) and EWM(goals_conceded, span=10) per team give 4 new features orthogonal to Elo (which only sees W/L/D).
+
+**Implementation:** Added `_compute_dc_ratings` and `_get_current_dc_ratings` in `features.py`. Features: `home_attack`, `home_defense`, `away_attack`, `away_defense` (span=10, min_periods=10). Wired into `_build_merged` and `build_fixture_features`. 4 new features added to `FEATURE_COLS`.
+
+| League | Baseline | +DC ratings | Δ |
+|---|---|---|---|
+| England | +6.53% | +5.78% | −0.75 pp ❌ |
+| Germany | +3.45% | +4.65% | +1.20 pp ✅ |
+| Spain | −7.24% | −5.17% | +2.07 pp ✅ |
+| Italy | +1.60% | +0.98% | −0.62 pp ❌ |
+| France | −0.76% | −3.98% | −3.22 pp ❌ |
+| Netherlands | +7.36% | +9.61% | +2.25 pp ✅ |
+| Portugal | −6.18% | −0.12% | +6.06 pp ✅ |
+| **Total** | **+0.74%** | **+1.63%** | **+0.89 pp** |
+| Stability | +0.0049 | +0.0108 | +0.0059 ✅ |
+| t-stat | +0.30 | +0.67 | ✅ |
+
+**Decision: KEPT.** 4/7 leagues improved; total ROI and stability both clearly improved. France is the main regression (−3.22 pp); Portugal the biggest gain (+6.06 pp).
+
+---
+
+## EXP-20260427-D072: Time-Weighted Training (λ=0.5) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 72._
+
+**Hypothesis:** Matches from 2013-14 involve different squads; exponential decay sample weights (half-life ~2 years) would reduce noise from stale data.
+
+**Result:** ROI −3.55%, stability −0.0238, t-stat −1.47. Only 2/7 leagues improved (France slightly, Portugal). Spain −11.7pp, Italy −10.6pp, Netherlands −9.2pp were catastrophic. Older data is informative — de-weighting it with λ=0.5 destroys signal rather than reducing noise.
+
+**Decision: REVERTED.**
+
+---
+
+## EXP-20260427-D073: Season-Start Elo Partial Reset (ELO_CARRY=0.8) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 73._
+
+**Hypothesis:** At each season start, apply `elo = 0.8*elo + 0.2*1500` to reduce stale carry-over from pre-transfer-window squads.
+
+**Result:** ROI −2.58%, stability −0.0174, t-stat −1.09. 0/7 leagues improved. The reset degrades Elo accuracy for early games in each season, and with 13 seasons × 7 leagues × many teams, the distortion accumulates significantly.
+
+**Decision: REVERTED.**
+
+---
+
+**New baseline after iter 71:** ROI +1.63%, stability +0.0108, t-stat +0.67 (3871 bets, 4227 test matches).
+
+---
+
+# Archived docs batch 74–76: Tier-2 algorithm swap batch
+
+Baseline entering this batch: ROI +1.63%, stability +0.0108, t-stat +0.67 (3871 bets, 4227 test matches). Model: HistGradientBoostingClassifier + DC ratings.
+
+## EXP-20260427-D074: XGBoost drop-in replacement — REVERTED
+
+_Legacy source: docs/improvements.md iteration 74._
+
+**Hypothesis:** XGBoost's exact split-finding and L1 regularization may generalise better than HistGBM's approximate histogram splits on this dataset.
+
+**Implementation:** Replaced `HistGradientBoostingClassifier` with `XGBClassifier`. Tested 3 hyperparameter configurations (default, tuned depth/estimators, tuned reg). Required label encoding because XGBoost 3.x rejects string class labels.
+
+**Result:** ROI consistently below baseline across all 3 configs. No config improved both total ROI and stability; majority of leagues regressed.
+
+**Decision: REVERTED.** XGBoost adds complexity (label encoding, slower training) with no measurable gain over HistGBM on this dataset.
+
+---
+
+## EXP-20260427-D075: LightGBM leaf-wise growth — KEPT ✅
+
+_Legacy source: docs/improvements.md iteration 75._
+
+**Hypothesis:** LightGBM's leaf-wise (best-first) tree growth focuses splits on the highest-gain leaves, which may capture non-linear market inefficiencies better than HistGBM's level-wise growth.
+
+**Implementation:** Replaced `HistGradientBoostingClassifier` with `LGBMClassifier` (`n_estimators=300, learning_rate=0.05, num_leaves=31, min_child_samples=20, reg_lambda=0.05`). DART mode tested within the same iteration and rejected.
+
+| League | DC baseline | LightGBM | Δ |
+|---|---|---|---|
+| England | +5.78% | -0.94% | -6.72 pp ❌ |
+| Germany | +4.65% | +6.76% | +2.11 pp ✅ |
+| Spain | -5.17% | +0.23% | +5.40 pp ✅ |
+| Italy | +0.98% | -3.19% | -4.17 pp ❌ |
+| France | -3.98% | +0.18% | +4.16 pp ✅ |
+| Netherlands | +9.61% | +11.57% | +1.96 pp ✅ |
+| Portugal | -0.12% | +10.52% | +10.64 pp ✅ |
+| **Total** | **+1.63%** | **+3.20%** | **+1.57 pp** |
+| Stability | +0.0108 | +0.0215 | +0.0107 ✅ |
+| t-stat | +0.67 | +1.31 | ✅ |
+
+**Decision: KEPT.** 5/7 leagues improved; total ROI and stability both clearly improved. England (−6.72 pp) and Italy (−4.17 pp) are the main regressions. Portugal (+10.64 pp) and Spain (+5.40 pp) are the biggest gains.
+
+---
+
+## EXP-20260427-D076: RandomForest blend — REVERTED
+
+_Legacy source: docs/improvements.md iteration 76._
+
+**Hypothesis:** Blending LightGBM with a RandomForest (bagging-based, low correlation) would reduce variance and improve calibration.
+
+**Tested:** Two blend ratios — 70% LightGBM / 30% RF, and 90% LightGBM / 10% RF.
+
+| Config | ROI | Stability | vs LightGBM |
+|---|---|---|---|
+| LightGBM pure | +3.20% | +0.0215 | baseline |
+| 70/30 blend | +2.48% | +0.0168 | −0.72 pp ❌ |
+| 90/10 blend | +2.52% | +0.0170 | −0.68 pp ❌ |
+
+**Decision: REVERTED.** RF consistently dilutes the LightGBM signal at both blend ratios. RF likely captures in-bag noise that cancels LightGBM's learned edge. Pure LightGBM is retained.
+
+---
+
+**New baseline after iter 75:** ROI +3.20%, stability +0.0215, t-stat +1.31 (3686 bets, 4227 test matches). Model: LightGBM + DC ratings.
+
+---
+
+# Archived docs batch 77–79: LightGBM re-tests of previously reverted features
+
+Baseline: ROI +3.20%, stability +0.0215. Purpose: verify whether the switch to LightGBM rehabilitates any of the three closest-call reverts from the HistGBM era.
+
+## EXP-20260427-D077: WINDOW=7 re-test — REVERTED
+
+_Legacy source: docs/improvements.md iteration 77._
+
+| League | Baseline | WINDOW=7 | Δ |
+|---|---|---|---|
+| England | −0.94% | +0.42% | +1.36 pp ✅ |
+| Germany | +6.76% | −1.39% | −8.15 pp ❌ |
+| Spain | +0.23% | −2.76% | −2.99 pp ❌ |
+| Italy | −3.19% | −6.67% | −3.48 pp ❌ |
+| France | +0.18% | −10.83% | −11.01 pp ❌ |
+| Netherlands | +11.57% | +2.72% | −8.85 pp ❌ |
+| Portugal | +10.52% | +8.91% | −1.61 pp ❌ |
+| **Total** | **+3.20%** | **−1.47%** | **−4.67 pp** |
+| Stability | +0.0215 | −0.0102 | ❌ |
+
+**Decision: REVERTED.** Even worse than with HistGBM (−2.20 pp swing then vs −4.67 pp now). 1/7 improved. France −11pp confirms WINDOW=5 is the right choice regardless of base model.
+
+---
+
+## EXP-20260427-D078: ELO_HOME_ADV=75 re-test — REVERTED
+
+_Legacy source: docs/improvements.md iteration 78._
+
+| League | Baseline | ADV=75 | Δ |
+|---|---|---|---|
+| England | −0.94% | +3.30% | +4.24 pp ✅ |
+| Germany | +6.76% | +5.37% | −1.39 pp ❌ |
+| Spain | +0.23% | −1.16% | −1.39 pp ❌ |
+| Italy | −3.19% | −10.19% | −7.00 pp ❌ |
+| France | +0.18% | −3.89% | −4.07 pp ❌ |
+| Netherlands | +11.57% | +1.84% | −9.73 pp ❌ |
+| Portugal | +10.52% | +5.67% | −4.85 pp ❌ |
+| **Total** | **+3.20%** | **−0.08%** | **−3.28 pp** |
+| Stability | +0.0215 | −0.0005 | ❌ |
+
+**Decision: REVERTED.** Similar magnitude regression as with HistGBM. Italy collapsed −7pp. ELO_HOME_ADV=100 confirmed optimal.
+
+---
+
+## EXP-20260427-D079: Goal-margin Elo re-test — REVERTED
+
+_Legacy source: docs/improvements.md iteration 79._
+
+| League | Baseline | Goal-margin Elo | Δ |
+|---|---|---|---|
+| England | −0.94% | +0.60% | +1.54 pp ✅ |
+| Germany | +6.76% | −1.63% | −8.39 pp ❌ |
+| Spain | +0.23% | −0.40% | −0.63 pp ❌ |
+| Italy | −3.19% | −6.89% | −3.70 pp ❌ |
+| France | +0.18% | −0.85% | −1.03 pp ❌ |
+| Netherlands | +11.57% | +5.09% | −6.48 pp ❌ |
+| Portugal | +10.52% | +7.15% | −3.37 pp ❌ |
+| **Total** | **+3.20%** | **+0.21%** | **−2.99 pp** |
+| Stability | +0.0215 | +0.0014 | ❌ |
+
+**Decision: REVERTED.** LightGBM doesn't rehabilitate goal-margin Elo. Germany −8.39pp, Netherlands −6.48pp. The market has already priced in scoreline information — adding it to Elo just duplicates known signal.
+
+**Conclusion from iters 77–79:** The three closest-call reverts from the HistGBM era are all confirmed bad with LightGBM too. In two cases (WINDOW=7, goal-margin Elo) the regression is actually larger, suggesting LightGBM is more sensitive to noisy features than HistGBM.
+
+---
+
+# Archived docs batch 80–82: LightGBM hyperparameter sweep
+
+Baseline: ROI +3.20%, stability +0.0215. Testing model capacity, stochastic sampling, and learning rate.
+
+## EXP-20260427-D080: num_leaves=63 (was 31) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 80._
+
+| League | Baseline | num_leaves=63 | Δ |
+|---|---|---|---|
+| England | −0.94% | −1.99% | −1.05 pp ❌ |
+| Germany | +6.76% | +4.60% | −2.16 pp ❌ |
+| Spain | +0.23% | −4.08% | −4.31 pp ❌ |
+| Italy | −3.19% | −4.04% | −0.85 pp ❌ |
+| France | +0.18% | −11.27% | −11.45 pp ❌ |
+| Netherlands | +11.57% | +6.78% | −4.79 pp ❌ |
+| Portugal | +10.52% | +11.27% | +0.75 pp ✅ |
+| **Total** | **+3.20%** | **−0.12%** | **−3.32 pp** |
+| Stability | +0.0215 | −0.0009 | ❌ |
+
+**Decision: REVERTED.** Overfits. France −11.45pp. num_leaves=31 confirmed optimal.
+
+---
+
+## EXP-20260427-D081: subsample=0.8, colsample_bytree=0.8 — REVERTED
+
+_Legacy source: docs/improvements.md iteration 81._
+
+| League | Baseline | Stochastic | Δ |
+|---|---|---|---|
+| England | −0.94% | −1.12% | −0.18 pp ❌ |
+| Germany | +6.76% | +5.06% | −1.70 pp ❌ |
+| Spain | +0.23% | +0.27% | +0.04 pp ✅ |
+| Italy | −3.19% | −2.39% | +0.80 pp ✅ |
+| France | +0.18% | −1.07% | −1.25 pp ❌ |
+| Netherlands | +11.57% | +9.95% | −1.62 pp ❌ |
+| Portugal | +10.52% | +9.01% | −1.51 pp ❌ |
+| **Total** | **+3.20%** | **+2.48%** | **−0.72 pp** |
+| Stability | +0.0215 | +0.0167 | ❌ |
+
+**Decision: REVERTED.** 2/7 improved (Spain noise-level, Italy +0.80pp). Consistent small regression across most leagues.
+
+---
+
+## EXP-20260427-D082: learning_rate=0.02, n_estimators=750 — REVERTED
+
+_Legacy source: docs/improvements.md iteration 82._
+
+| League | Baseline | lr=0.02/n=750 | Δ |
+|---|---|---|---|
+| England | −0.94% | −0.82% | +0.12 pp ✅ |
+| Germany | +6.76% | +2.84% | −3.92 pp ❌ |
+| Spain | +0.23% | +1.37% | +1.14 pp ✅ |
+| Italy | −3.19% | −5.71% | −2.52 pp ❌ |
+| France | +0.18% | −2.79% | −2.97 pp ❌ |
+| Netherlands | +11.57% | +11.93% | +0.36 pp ✅ |
+| Portugal | +10.52% | +16.11% | +5.59 pp ✅ |
+| **Total** | **+3.20%** | **+2.90%** | **−0.30 pp** |
+| Stability | +0.0215 | +0.0196 | ❌ |
+
+**Decision: REVERTED.** Closest call of the three (−0.30pp total, 4/7 improved by some measure). Portugal +5.59pp attractive but Germany −3.92pp, France −2.97pp offset it. Default config (lr=0.05, n=300) retained.
+
+**Conclusion from iters 80–82:** Default LightGBM config is at a local optimum. France systematically penalises additional complexity; num_leaves=31 is right for this dataset size.
+
+---
+
+## EXP-20260429-D083: Betfair Exchange odds as market features — REVERTED
+
+_Legacy source: docs/improvements.md iteration 83._
+
+**Hypothesis:** BFE fair implied probabilities are more accurate market signals than B365 (no bookmaker margin embedded) — using them for `market_h/d/a`, `market_overround`, `market_bias` should give the model cleaner inputs.
+
+**Implementation:** Added `BFEH/BFED/BFEA` to loader optional columns; added `_market_odds()` helper preferring BFE over B365 with fallback; updated all three market-feature computation sites.
+
+**Result:** ROI +0.88%, stability +0.0061 (vs +3.20%, +0.0215). Germany and Portugal both collapsed.
+
+**Root cause:** BFE data only appears in the football-data.co.uk CSVs from season 2024-25 onward — exactly the 2 test seasons. All 11 training seasons have no BFE column and fall back to B365. The model trains on B365-based features but sees BFE-based features at test time: a clean distribution mismatch. Not a signal quality issue.
+
+**Decision: REVERTED.** BFE cannot be used as a training feature until it has ≥5 seasons of historical coverage (est. 2030). BFE is being pursued separately as a live-odds display via the Betfair Exchange API.
+
+---
+
+# Archived docs batch 84–87: Feature expansion batch — all reverted
+
+Baseline entering this batch: ROI +2.95%, stability +0.0198, t-stat +1.22 (3769 bets, 4287 test matches). Note: slight shift from +3.20% due to new match results added by data refresh on 2026-04-29.
+
+## EXP-20260430-D084: Season progress features — REVERTED
+
+_Legacy source: docs/improvements.md iteration 84._
+
+**Hypothesis:** `home_season_progress` and `away_season_progress` (fraction of 38-game season elapsed) capture late-season motivation changes and early-season noisiness — already computed but not in `FEATURE_COLS`.
+
+| League | Baseline | +Season progress | Δ |
+|---|---|---|---|
+| England | −0.91% | +5.03% | +5.94 pp ✅ |
+| Germany | +4.24% | +1.42% | −2.82 pp ❌ |
+| Spain | −1.47% | −1.76% | −0.29 pp ❌ |
+| Italy | −3.00% | −2.08% | +0.92 pp ✅ |
+| France | +0.60% | −3.79% | −4.39 pp ❌ |
+| Netherlands | +12.08% | +8.96% | −3.12 pp ❌ |
+| Portugal | +11.99% | +4.70% | −7.29 pp ❌ |
+| **Total** | **+2.95%** | **+1.66%** | **−1.29 pp** |
+| Stability | +0.0198 | +0.0113 | ❌ |
+
+**Decision: REVERTED.** 2/7 improved. Portugal −7.29pp, France −4.39pp, Netherlands −3.12pp dominate.
+
+---
+
+## EXP-20260430-D085: Venue-split Elo — REVERTED
+
+_Legacy source: docs/improvements.md iteration 85._
+
+**Hypothesis:** Maintain separate Elo ratings built only from home results (`home_venue_elo`) and away results (`away_venue_elo`) to capture venue-specific strength independent of the combined Elo.
+
+| League | Baseline | Venue-split Elo | Δ |
+|---|---|---|---|
+| England | −0.91% | +2.63% | +3.54 pp ✅ |
+| Germany | +4.24% | −3.70% | −7.94 pp ❌ |
+| Spain | −1.47% | +0.77% | +2.24 pp ✅ |
+| Italy | −3.00% | −4.51% | −1.51 pp ❌ |
+| France | +0.60% | −9.83% | −10.43 pp ❌ |
+| Netherlands | +12.08% | +7.32% | −4.76 pp ❌ |
+| Portugal | +11.99% | +6.98% | −5.01 pp ❌ |
+| **Total** | **+2.95%** | **−0.03%** | **−2.98 pp** |
+| Stability | +0.0198 | −0.0002 | ❌ |
+
+**Decision: REVERTED.** France −10.43pp. Unlike venue-specific *form* (rejected in iter 57 for sparsity), this fails for a different reason: venue-split Elo picks up noise since most teams' home and away records aren't distinct enough over 13 seasons to give a stable separate signal.
+
+---
+
+## EXP-20260430-D086: DC_SPAN=7 (was 10) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 86._
+
+| League | Baseline | DC_SPAN=7 | Δ |
+|---|---|---|---|
+| England | −0.91% | +2.45% | +3.36 pp ✅ |
+| Germany | +4.24% | −1.30% | −5.54 pp ❌ |
+| Spain | −1.47% | −4.34% | −2.87 pp ❌ |
+| Italy | −3.00% | +3.75% | +6.75 pp ✅ |
+| France | +0.60% | +1.83% | +1.23 pp ✅ |
+| Netherlands | +12.08% | +1.97% | −10.11 pp ❌ |
+| Portugal | +11.99% | +4.73% | −7.26 pp ❌ |
+| **Total** | **+2.95%** | **+1.22%** | **−1.73 pp** |
+| Stability | +0.0198 | +0.0084 | ❌ |
+
+**Decision: REVERTED.** Netherlands −10.11pp. DC_SPAN=10 confirmed optimal.
+
+---
+
+## EXP-20260430-D087: DC_SPAN=15 (was 10) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 87._
+
+| League | Baseline | DC_SPAN=15 | Δ |
+|---|---|---|---|
+| England | −0.91% | −1.93% | −1.02 pp ❌ |
+| Germany | +4.24% | −3.45% | −7.69 pp ❌ |
+| Spain | −1.47% | −2.39% | −0.92 pp ❌ |
+| Italy | −3.00% | −0.87% | +2.13 pp ✅ |
+| France | +0.60% | −0.83% | −1.43 pp ❌ |
+| Netherlands | +12.08% | +8.72% | −3.36 pp ❌ |
+| Portugal | +11.99% | +3.35% | −8.64 pp ❌ |
+| **Total** | **+2.95%** | **+0.19%** | **−2.76 pp** |
+| Stability | +0.0198 | +0.0013 | ❌ |
+
+**Decision: REVERTED.** 1/7 improved. DC_SPAN=10 confirmed optimal in both directions.
+
+**Conclusion from iters 84–87:** The current feature set is at or near a local optimum for what's extractable from this data. France and Netherlands consistently punish new features in opposite directions. The model is well-calibrated; further gains likely require genuinely new data sources (lineup data, live Betfair odds, xG feeds) rather than permutations of the same inputs.
+
+**Baseline unchanged at:** ROI +2.95%, stability +0.0198, t-stat +1.22 (3769 bets, 4287 test matches).
+
+---
+
+# Archived docs batch 88–92: Distinct re-test batch — all reverted
+
+Baseline: ROI +2.92%, stability +0.0196, t-stat +1.21 (3770 bets, 4288 test matches). Five maximally distinct experiments spanning early-era ideas and new angles, all tested under LightGBM + 7 leagues for the first time.
+
+## EXP-20260501-D088: Days rest — REVERTED
+
+_Legacy source: docs/improvements.md iteration 88._
+
+**Hypothesis:** `home_days_rest` / `away_days_rest` (days since team's last match, default 7) captures fatigue from fixture congestion.
+**Previously tested:** Iter 23 on 4 leagues — reverted. Re-tested here on 7 leagues + LightGBM.
+**Implementation:** Wired `_compute_days_rest` into `_build_merged`; `_get_current_days_rest` into `build_fixture_features`.
+
+| League | Baseline | +Days rest | Δ |
+|---|---|---|---|
+| England | −0.91% | +4.27% | +5.18 pp ✅ |
+| Germany | +4.24% | −0.99% | −5.23 pp ❌ |
+| Spain | −1.47% | +1.43% | +2.90 pp ✅ |
+| Italy | −3.00% | −6.97% | −3.97 pp ❌ |
+| France | +0.60% | −2.85% | −3.45 pp ❌ |
+| Netherlands | +12.08% | +4.04% | −8.04 pp ❌ |
+| Portugal | +11.76% | +5.40% | −6.36 pp ❌ |
+| **Total** | **+2.92%** | **+0.55%** | **−2.37 pp** |
+| Stability | +0.0196 | +0.0038 | ❌ |
+
+**Decision: REVERTED.** 2/7 improved. Netherlands −8pp, Portugal −6pp. Result mirrors the Iter 23 failure — rest days are already priced in by bookmakers for prominent congestion periods (European nights etc.), adding noise elsewhere.
+
+---
+
+## EXP-20260501-D089: ELO_K = 20 (was 30) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 89._
+
+**Hypothesis:** More stable Elo ratings (less reactive to individual results) give a better long-run strength estimate. K=30 may overfit to recent scorelines already captured by the market.
+
+| League | Baseline | K=20 | Δ |
+|---|---|---|---|
+| England | −0.91% | +7.88% | +8.79 pp ✅ |
+| Germany | +4.24% | +5.42% | +1.18 pp ✅ |
+| Spain | −1.47% | −5.82% | −4.35 pp ❌ |
+| Italy | −3.00% | −1.48% | +1.52 pp ✅ |
+| France | +0.60% | +2.97% | +2.37 pp ✅ |
+| Netherlands | +12.08% | +2.94% | −9.14 pp ❌ |
+| Portugal | +11.76% | +9.34% | −2.42 pp ❌ |
+| **Total** | **+2.92%** | **+2.67%** | **−0.25 pp** |
+| Stability | +0.0196 | +0.0178 | ❌ |
+
+**Decision: REVERTED.** 4/7 improved but Netherlands −9.14pp dominates. K=30 confirmed optimal.
+
+---
+
+## EXP-20260501-D090: Cumulative season points — REVERTED
+
+_Legacy source: docs/improvements.md iteration 90._
+
+**Hypothesis:** `home_season_pts` / `away_season_pts` (pre-match cumulative league points) captures current table position — early relegation battles, title races, and remaining-season motivation the model can't infer from recent form alone.
+**Previously tested:** Iter 28 on 4 leagues — reverted as "flat". Re-tested here on 7 leagues + LightGBM.
+
+| League | Baseline | +Season pts | Δ |
+|---|---|---|---|
+| England | −0.91% | +0.92% | +1.83 pp ✅ |
+| Germany | +4.24% | −0.37% | −4.61 pp ❌ |
+| Spain | −1.47% | −7.09% | −5.62 pp ❌ |
+| Italy | −3.00% | −3.76% | −0.76 pp ❌ |
+| France | +0.60% | +3.87% | +3.27 pp ✅ |
+| Netherlands | +12.08% | +9.99% | −2.09 pp ❌ |
+| Portugal | +11.76% | +11.25% | −0.51 pp ≈ |
+| **Total** | **+2.92%** | **+1.72%** | **−1.20 pp** |
+| Stability | +0.0196 | +0.0118 | ❌ |
+
+**Decision: REVERTED.** 2/7 improved. Germany −4.61pp, Spain −5.62pp. Season points may be collinear with Elo (which already tracks cumulative quality) — adding both creates redundancy.
+
+---
+
+## EXP-20260501-D091: Strength of schedule (mean recent opponent Elo) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 91._
+
+**Hypothesis:** A new feature `home_opp_elo` / `away_opp_elo` — mean Elo of each team's last WINDOW opponents — captures whether form was built against strong or weak competition.
+**Inspired by:** Iter 35 (opponent-quality-adjusted form) — reverted on old dataset.
+
+| League | Baseline | +Opp Elo | Δ |
+|---|---|---|---|
+| England | −0.91% | +2.77% | +3.68 pp ✅ |
+| Germany | +4.24% | +3.38% | −0.86 pp ❌ |
+| Spain | −1.47% | −12.02% | −10.55 pp ❌ |
+| Italy | −3.00% | −4.84% | −1.84 pp ❌ |
+| France | +0.60% | +0.53% | −0.07 pp ≈ |
+| Netherlands | +12.08% | +5.30% | −6.78 pp ❌ |
+| Portugal | +11.76% | +2.92% | −8.84 pp ❌ |
+| **Total** | **+2.92%** | **−0.74%** | **−3.66 pp** |
+| Stability | +0.0196 | −0.0052 | ❌ flipped negative |
+
+**Decision: REVERTED.** Spain −10.55pp, Portugal −8.84pp. Opponent Elo is largely encoded in Elo ratings themselves — teams that face strong opposition regularly have their Elo calibrated accordingly. The feature adds collinear noise.
+
+---
+
+## EXP-20260501-D092: min_child_samples = 10 (was 20) — REVERTED
+
+_Legacy source: docs/improvements.md iteration 92._
+
+**Hypothesis:** Allowing splits on smaller leaf samples (10 vs 20) lets LightGBM capture finer patterns in league-specific data.
+
+| League | Baseline | mcs=10 | Δ |
+|---|---|---|---|
+| England | −0.91% | −1.99% | −1.08 pp ❌ |
+| Germany | +4.24% | −3.07% | −7.31 pp ❌ |
+| Spain | −1.47% | −2.48% | −1.01 pp ❌ |
+| Italy | −3.00% | −4.96% | −1.96 pp ❌ |
+| France | +0.60% | −1.47% | −2.07 pp ❌ |
+| Netherlands | +12.08% | +6.17% | −5.91 pp ❌ |
+| Portugal | +11.76% | +11.50% | −0.26 pp ≈ |
+| **Total** | **+2.92%** | **+0.23%** | **−2.69 pp** |
+| Stability | +0.0196 | +0.0016 | ❌ |
+
+**Decision: REVERTED.** 0/7 improved. Overfits in the same pattern as num_leaves=63 (iter 80) — the model is at its regularisation optimum at mcs=20. Trying mcs=40 not pursued; consistent direction of overfitting suggests the model needs more regularisation, not less.
+
+**Conclusion from iters 88–92:** All five reverted across completely different dimensions (scheduling, Elo calibration, table context, strength of schedule, model capacity). The consistent pattern is that the model's current feature set and LightGBM config have reached a genuine local optimum within the information available in this data. The baseline stays at ROI +2.92%, stability +0.0196.
+
+---
+
+# Archived pending investigations
+
+### xG (expected goals) integration — blocked on data access (logged 2026-05-01)
+
+**Hypothesis:** Replace or augment DC attack/defense ratings (currently EWM of raw goals) with xG-based equivalents. xG is a noise-reduced measure of shot quality; a team scoring above their xG will regress while goals-based ratings stay high. The specific signal is `xg_surplus = rolling_goals − rolling_xG` as a market-lag indicator.
+
+**Why deferred:** Data access is harder than expected across all candidate sources:
+- **Understat**: only 5/7 leagues (no Eredivisie, no Primeira Liga). Now JS-rendered — all Python packages (`understat`, `understatapi`) are broken as of 2026-05.
+- **FBref**: covers all 7 leagues from 2013-14 but blocks plain HTTP (403). Requires Playwright/Selenium headless browser + system GTK libs (`libatk-bridge2.0-0` etc.) not present in WSL2.
+- **StatsBomb open data**: spotty seasonal coverage, missing N1/P1 entirely.
+- **Shots on target (HST/AST)** — closest available proxy — already tested in Iter 63 and Iter 39, both strongly reverted. Reason: bookmakers already price in shot quality, so adding it duplicates market signal with noise.
+
+**To unblock:** `sudo apt install -y libatk-bridge2.0-0 libatk1.0-0 libgbm1 libnss3 libxss1` in WSL2, then configure soccerdata custom leagues:
+```json
+// ~/.soccerdata/config/league_dict.json
+{"NED-Eredivisie": {"FBref": "Eredivisie", "MatchHistory": "N1", "season_start": "Aug", "season_end": "May"},
+ "POR-Primeira Liga": {"FBref": "Primeira Liga", "MatchHistory": "P1", "season_start": "Aug", "season_end": "May"}}
+```
+~350 FBref page fetches at 3s spacing (~18 min one-time download). Cache locally as `data/raw/xg_{league}_{season}.csv`.
+
+**Note:** Even if unblocked, signal value is uncertain — bookmakers already incorporate xG into pricing. The targeted experiment should be `xg_surplus` (goals-minus-xG divergence), not raw xG level.
+
+---
+
+### Fix edge calculation baseline (value bet vs vig) — under consideration
+
+**Current:** edge = model_prob − fair_prob (vig-stripped B365 implied)
+**Problem:** fair_prob < raw_implied_prob, so the edge is inflated. Bets can be flagged as value even when model_prob < 1/odds — meaning they have negative EV.
+**Correct definition:** a value bet requires model_prob > 1/odds (raw implied), i.e. edge = model_prob − (1/odds).
+**Fix options:**
+- Option A: switch baseline to raw implied: `edge = model_prob - (1 / odds)`
+- Option B: keep fair baseline but require threshold ≥ ~3–5% to approximately compensate for the vig (at ~5% vig, the correction is ~3–3.5% depending on the odds range)

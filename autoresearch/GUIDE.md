@@ -1,136 +1,99 @@
-# Autoresearch Guide: Football Prediction Improvement
+# Autoresearch guide
 
 ## Mission
 
-You are an autoresearch LLM tasked with iteratively improving the football match prediction model's **ROI** and **profit stability**. Your job is to run hypothesis-driven experiments, measure their impact using the established evaluation pipeline, and document findings.
+Run one hypothesis-driven experiment at a time to improve football betting ROI and profit stability. Use the inference-realistic configuration and preserve enough evidence to distinguish an observed result from a plausible explanation.
 
-## Single Source of Truth
+## Sources of truth
 
-**`autoresearch/state.md` is the only file used to track iteration results.**
+Read these files before starting an iteration:
 
-- `docs/improvements.md` is archived — do not read or write to it.
-- `autoresearch/state.md` is structured with the **Current Best** at the top (lines 1–30) and the **iteration log** growing at the bottom (chronological, newest last).
+1. `autoresearch/current.md` for the latest verified configuration and active hypotheses.
+2. `autoresearch/EVALUATION.md` for the mandatory comparison and keep/revert rules.
+3. The most recent entries in `autoresearch/experiments.md` for experimental context.
 
-## Constraints
+Do not add current-state summaries or experiment results elsewhere.
 
-**DO NOT touch:**
-- `src/data/` — data loading and download logic is frozen
-- `src/evaluation/report.py` — HTML report generation is frozen
-- `tests/` — existing tests must continue to pass
+## File boundaries
 
-**You MAY modify:**
-- `src/model/features.py` — add or change features
-- `src/model/train.py` — change model type, hyperparameters, training strategy
-- `src/evaluation/metrics.py` — betting strategy and metric computation
-- `main.py` — pipeline wiring
-- `autoresearch/state.md` — update after every iteration
+Do not modify:
 
-## Iteration Protocol
+- `src/data/`
+- `src/evaluation/report.py`
+- existing tests, except when an intentional behaviour change requires a regression test
 
-Each iteration MUST follow these steps exactly:
+The normal experiment scope is:
 
-### 1. Read Current State
+- `src/model/features.py`
+- `src/model/train.py`
+- `src/evaluation/metrics.py`
+- `src/config.py`
+- `main.py`
+- new or directly relevant tests
+- `autoresearch/current.md`
+- `autoresearch/experiments.md`
 
-Read `autoresearch/state.md` in two parts:
+## Iteration protocol
 
-```python
-# Part 1 — Current Best (always at the top)
-Read(file_path="autoresearch/state.md", offset=0, limit=30)
+### 1. Establish the baseline
 
-# Part 2 — Recent iterations (last 300 lines = newest experiments)
-# First get the line count:
-#   wc -l autoresearch/state.md  → N lines
-# Then read:
-Read(file_path="autoresearch/state.md", offset=N-300, limit=300)
-```
+Read the current state, evaluation policy, and recent experiment entries. Confirm the working tree and run the relevant tests before editing.
 
-Do NOT read the entire file — it is large. The two reads above give you everything you need: the current best metrics and the recent experimental context.
+### 2. Form one hypothesis
 
-### 2. Form a Hypothesis
+State a falsifiable expected outcome and mechanism. Identify the primary metrics and any expected change in rows or bets.
 
-Write a clear, falsifiable hypothesis. Example:
-> "Adding Elo ratings as features will improve ROI by at least 2% because Elo captures relative team strength better than simple rolling form."
+Example:
 
-### 3. Implement
+> Reducing `min_child_samples` from 20 to 15 will improve ROI without reducing stability because it permits moderately finer splits while avoiding the overfitting observed at 10.
 
-Make minimal changes. One hypothesis per iteration — do not bundle unrelated changes.
+### 3. Implement the smallest change
 
-### 4. Run the Pipeline
+Do not bundle unrelated features, training changes, and betting filters. Add or update tests when runtime behaviour changes.
+
+### 4. Run the primary comparison
 
 ```bash
-uv run python main.py --per-league
+uv run python main.py --per-league --threshold 0.0
 ```
 
-Record the output metrics (Accuracy, Bets, ROI, Stability, t-stat).
+Record accuracy, ROI, stability, t-statistic, bets, test matches, and the per-league breakdown. Secondary thresholds may be diagnostic only.
 
-### 5. Run Tests
+### 5. Run tests
 
 ```bash
 uv run pytest tests/ -v
 ```
 
-All tests must pass. Fix failures before recording results.
+Separate pre-existing failures from failures introduced by the iteration. Do not record an iteration as kept while related tests fail.
 
-### 6. Analyse Results
+### 6. Apply the evaluation policy
 
-Compare to the current best (from step 1). Consider:
-- Did ROI improve? By how much?
-- Did stability improve or degrade?
-- Is the result statistically meaningful (t-stat > 2.0)?
-- Is the improvement likely to generalize, or could it be overfitting?
+Use `autoresearch/EVALUATION.md`. Explain metric deltas, league concentration, sample changes, statistical uncertainty, and whether the mechanism is likely to generalize.
 
-**Keep if:** ROI improves AND stability does not significantly degrade.
-**Revert if:** Either metric regresses. Use `git checkout` to revert files.
+### 7. Keep or revert
 
-### 7. Update state.md
+Keep the implementation only when it satisfies the evaluation policy. Otherwise revert only the experiment's changes; preserve unrelated work in the repository.
 
-**Append** the new iteration entry at the **bottom** of `autoresearch/state.md`. Do not insert it near the top or in the middle.
+### 8. Record the result
 
-Also update the **Current Best** block at the very top of the file if this iteration beats the record.
-
-Use this format for the appended entry:
+Append the experiment to `autoresearch/experiments.md` using the next globally unique ID:
 
 ```markdown
-## Iteration N: [Short Name] — [KEPT / REVERTED]
+## EXP-YYYYMMDD-NNN: Short name — KEPT / REVERTED
 
 **Date:** YYYY-MM-DD
 **Hypothesis:** One sentence.
-**Files changed:** List of files and what changed.
+**Files changed:** File and purpose.
+**Baseline:** The exact experiment ID and metrics used for comparison.
 **Results:**
-- ROI: +X.XX% (Δ vs previous best: +X.XXpp)
+- ROI: +X.XX% (change: +X.XX percentage points)
 - Stability: X.XXXX
-- t-stat: +X.XX
-- Bets: NNNN / MMMM (XX.X%)
-**Analysis:** 2–3 sentences on why it worked or didn't.
-**Decision:** KEPT / REVERTED. [One sentence reason.]
+- t-statistic: +X.XX
+- Bets: N / M (X.X%)
+- Leagues improved: N / M
+**Analysis:** Why the observed result supports or rejects the hypothesis, including caveats.
+**Decision:** KEPT / REVERTED and why.
 ```
 
-For reverted iterations with no notable findings, a compact 3-line entry is fine.
-
-## What Good Looks Like
-
-- **ROI > 0%** at `threshold=0.0` — beating the bookmakers on all bets
-- **t-stat > 2.0** — statistically significant (t = stability × √N_bets)
-- **Both metrics improving** is the goal — a high ROI from few lucky bets is not enough
-
-Bookmakers have ~5% margin (vig), so ROI > 0% is genuinely hard.
-
-## Ideas to Explore
-
-You are not limited to these — they are jumping-off points:
-
-**Feature Engineering:**
-- More leagues (Belgium B1, Greece G1, Scotland SC0, Turkey T1)
-- xG-based features (blocked on data access — see state.md notes)
-- Referee ID or referee tendency features
-- Market movement features (opening vs closing odds)
-
-**Model / Training:**
-- Weighted training (up-weight recent seasons)
-- Ensemble of league models
-- Calibrated probabilities
-
-**Betting Strategy:**
-- Pinnacle margin tuning (currently 1.5% — try 1.0%, 2.0%)
-- Maximum odds cap adjustment (currently 4.0)
-- Staking strategy experiments
+If kept, update `autoresearch/current.md`. Remove the hypothesis from the active queue whether it was kept or reverted.

@@ -105,7 +105,7 @@ def compute_value_betting_results(
     Staking (in priority order):
       inv_odds_factor > 0  — stake = max(min_stake, factor / B365_odds)
                              Bets proportionally to win-likelihood; reduces longshot variance.
-                             Validated config: factor=20, min_stake=3 (see docs/improvements.md).
+                             Validated config: factor=20, min_stake=3 (see autoresearch/experiments.md).
       kelly_fraction > 0   — fractional Kelly sizing; ROI% identical to flat but scales
                              absolute bankroll growth.
       default (both = 0)   — flat 1-unit staking.
