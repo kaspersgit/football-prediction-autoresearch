@@ -101,9 +101,37 @@ def test_generate_predictions_html_no_forecast_card_without_historical():
     assert "forecast-card-container" not in html
 
 
-def test_generate_predictions_html_includes_forecast_js():
+def test_generate_predictions_html_empty_fixtures_notice():
+    html = generate_predictions_html(
+        [], threshold=0.0, fetched_at=datetime(2026, 5, 3),
+        historical_bets=None,
+    )
+    assert "empty-fixtures-notice" in html
+    assert "No upcoming production fixtures available" in html
+    assert "0 fixtures" in html
+
+
+def test_generate_predictions_html_no_empty_notice_with_fixtures():
     html = generate_predictions_html(
         _pred_rows(), threshold=0.0, fetched_at=datetime(2026, 5, 3),
-        historical_bets=_historical_bets(),
+        historical_bets=None,
     )
-    assert "rebuildForecastCard" in html
+    assert "No upcoming production fixtures available" not in html
+
+
+def test_top_bets_html_empty_is_valid_table_row():
+    html = _top_bets_html([])
+    assert html.startswith("<tr>")
+    assert "No value bets found at this threshold." in html
+
+
+def test_save_predictions_html_empty_writes_file(tmp_path):
+    from src.evaluation.predictions_report import save_predictions_html
+
+    out = tmp_path / "predictions_empty.html"
+    path = save_predictions_html(
+        [], threshold=0.0, fetched_at=datetime(2026, 5, 3), output_path=out,
+    )
+    assert path.exists()
+    content = path.read_text(encoding="utf-8")
+    assert "empty-fixtures-notice" in content

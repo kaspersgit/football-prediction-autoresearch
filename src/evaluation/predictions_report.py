@@ -72,9 +72,19 @@ def _odds_cell(b365: float, cmax: float, bk: str, outcome: str, edge: float | No
 
 # ── top value bets table ─────────────────────────────────────────────────────
 
+def _empty_fixtures_notice_html() -> str:
+    """Banner shown when live inference produced no production fixtures."""
+    return (
+        '<div class="empty-fixtures-notice">'
+        "No upcoming production fixtures available. "
+        "The page will refresh when the next scheduled prediction run finds matches."
+        "</div>"
+    )
+
+
 def _top_bets_html(all_bets: list[dict]) -> str:
     if not all_bets:
-        return "<p>No value bets found at this threshold.</p>"
+        return '<tr><td colspan="8"><p>No value bets found at this threshold.</p></td></tr>'
     rows = []
     for i, b in enumerate(all_bets, 1):
         color = _OUTCOME_COLOR[b["outcome"]]
@@ -672,6 +682,7 @@ def generate_predictions_html(
     fetch_str = fetched_at.strftime("%d %b %Y, %H:%M")
     total_fixtures = len(pred_rows)
     total_value = len(all_bets)
+    empty_notice_html = _empty_fixtures_notice_html() if total_fixtures == 0 else ""
     profit_html = _profit_curve_html(historical_bets)
     monthly_html = _monthly_league_table_html(historical_bets)
     forecast_html = _forecast_card_html(historical_bets)
@@ -709,6 +720,11 @@ def generate_predictions_html(
   .stat-pill {{
     background: rgba(255,255,255,.18); border-radius: 20px;
     padding: 6px 16px; font-size: .9em; font-weight: 600;
+  }}
+  .empty-fixtures-notice {{
+    background: #fff8e1; border: 1px solid #ffe082; color: #6d4c00;
+    border-radius: 12px; padding: 16px 20px; margin-bottom: 20px;
+    font-size: .95em;
   }}
 
   /* Filter bar */
@@ -829,6 +845,8 @@ def generate_predictions_html(
   </div>
 
   {filter_html}
+
+  {empty_notice_html}
 
   {forecast_html}
 

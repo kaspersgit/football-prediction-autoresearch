@@ -59,7 +59,13 @@ jobs:
       - name: Stage HTML for Pages
         run: |
           mkdir -p docs
-          latest=$(ls -t reports/predictions_*.html | head -1)
+          shopt -s nullglob
+          files=(reports/predictions_*.html)
+          if (( ${#files[@]} == 0 )); then
+            echo "::error::No prediction HTML produced by --predict (expected reports/predictions_*.html)"
+            exit 1
+          fi
+          latest=$(ls -t "${files[@]}" | head -1)
           cp "$latest" docs/predictions.html
           touch docs/.nojekyll
 

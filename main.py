@@ -123,6 +123,38 @@ def _save_profit_chart(betting_results, output_path: Path) -> None:
     print(f"Profit chart saved to {output_path}")
 
 
+def _load_historical_bets() -> pd.DataFrame | None:
+    """Load production backtest bets for the live prediction report, if present."""
+    bets_path = Path("reports/backtest_bets.csv")
+    if bets_path.exists():
+        return pd.read_csv(bets_path, parse_dates=["Date"])
+    return None
+
+
+def _save_empty_predictions_report(threshold: float, fetched_at, reason: str) -> None:
+    """Write empty prediction artifacts so CI Pages staging always has an HTML file.
+
+    Early exits (no fixtures / allowlist / missing models) must still produce
+    ``reports/predictions_*.html``; otherwise the GitHub Actions deploy step fails.
+    """
+    print(reason)
+    historical_bets = _load_historical_bets()
+    ts = fetched_at.strftime("%Y%m%d_%H%M")
+    csv_path = Path(f"reports/predictions_{ts}.csv")
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        columns=[
+            "fetched_at", "Date", "League", "HomeTeam", "AwayTeam",
+            "B365H", "B365D", "B365A",
+            "ModelH", "ModelD", "ModelA",
+            "FairH", "FairD", "FairA",
+            "ValueBets",
+        ]
+    ).to_csv(csv_path, index=False)
+    print(f"Predictions saved to {csv_path}  (empty — {reason})")
+    _save_predictions_html([], threshold, fetched_at, historical_bets=historical_bets)
+
+
 def _run_predict():
     from datetime import datetime
 
@@ -161,7 +193,10 @@ def _run_predict():
     print("Building fixture features...")
     fixture_features = build_fixture_features(df, fixtures_df)
     if fixture_features.empty:
-        print("No fixtures could be featurised (teams may lack sufficient history).")
+        _save_empty_predictions_report(
+            threshold, fetched_at,
+            "No fixtures could be featurised (teams may lack sufficient history).",
+        )
         return
 
     dropped = len(fixtures_df) - len(fixture_features)
@@ -170,7 +205,10 @@ def _run_predict():
 
     fixture_features = filter_production_fixtures(fixture_features)
     if fixture_features.empty:
-        print("No upcoming fixtures are in the production market allowlist.")
+        _save_empty_predictions_report(
+            threshold, fetched_at,
+            "No upcoming fixtures are in the production market allowlist.",
+        )
         return
 
     modelled_leagues = set(models)
@@ -181,7 +219,10 @@ def _run_predict():
             fixture_features["league"].isin(modelled_leagues)
         ].reset_index(drop=True)
     if fixture_features.empty:
-        print("No production fixtures have a trained model.")
+        _save_empty_predictions_report(
+            threshold, fetched_at,
+            "No production fixtures have a trained model.",
+        )
         return
 
     # Per-league inference: use each league's own model
@@ -200,11 +241,7 @@ def _run_predict():
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
                                        league_thresholds=league_thresholds)
 
-    # Load historical backtest bets for the monthly performance table in the report
-    historical_bets = None
-    bets_path = Path("reports/backtest_bets.csv")
-    if bets_path.exists():
-        historical_bets = pd.read_csv(bets_path, parse_dates=["Date"])
+    historical_bets = _load_historical_bets()
 
     _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at,
                        league_thresholds=league_thresholds)
