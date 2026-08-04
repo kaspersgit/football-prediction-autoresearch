@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.config import LEAGUE_NAMES, SUPPORTED_LEAGUES
+from src.evaluation.uncertainty import weekly_roi_interval
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
@@ -61,6 +62,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <div class="metric-card"><div class="value" id="summary-bets">{n_bets}</div><div class="label">Bets Placed</div></div>
   <div class="metric-card"><div class="value" id="summary-roi" style="color:{roi_color}">{roi:+.2f}%</div><div class="label">ROI (stake-weighted)</div></div>
   <div class="metric-card"><div class="value" id="summary-tstat">{tstat:+.2f}</div><div class="label">t-stat (≥2 = significant)</div></div>
+  <div class="metric-card"><div class="value">{weekly_roi_interval}</div><div class="label">Weekly 95% ROI interval<br><small>Initial all-market evaluation; filters do not change this interval.</small></div></div>
 </div>
 <div class="explanation">
   <b>ROI</b>: total profit / total staked × 100. Uses flat staking: 1 unit per bet.<br>
@@ -861,6 +863,14 @@ def _observed_leagues(
     return canonical + sorted(observed - set(canonical))
 
 
+def _weekly_roi_interval_text(results_df: pd.DataFrame) -> str:
+    interval = weekly_roi_interval(results_df)
+    if interval is None:
+        return "Not enough completed weeks"
+    lower, upper = interval
+    return f"{lower:+.2f}% to {upper:+.2f}%"
+
+
 def generate_report(
     results_df: pd.DataFrame,
     accuracy: float,
@@ -878,6 +888,7 @@ def generate_report(
     n_wrong = n_bets - n_correct
     roi_color = "#2e7d32" if roi >= 0 else "#c62828"
     tstat = stability * (n_bets ** 0.5)
+    weekly_interval = _weekly_roi_interval_text(results_df)
     observed_leagues = _observed_leagues(results_df, all_predictions)
     league_buttons = "\n      ".join(
         f'<button class="outcome-btn active" id="btn-lg-{league}" '
@@ -906,6 +917,7 @@ def generate_report(
         n_correct=n_correct,
         n_wrong=n_wrong,
         tstat=tstat,
+        weekly_roi_interval=weekly_interval,
         league_buttons=league_buttons,
         active_leagues_json=active_leagues_json,
         production_leagues_json=production_leagues_json,

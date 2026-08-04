@@ -10,6 +10,7 @@ Modes:
   python main.py --threshold 0.05   # override minimum edge filter (default: 0.03)
   python main.py --max-odds 5.0     # override max B365 odds filter (default: 5.0)
   python main.py --predict          # train on all data, predict upcoming fixtures
+  python main.py --settle-shadow    # settle existing shadow predictions without inference
   python main.py --update           # re-download latest season results, then backtest
   python main.py --monthly          # monthly walk-forward retrain (experimental)
 
@@ -17,6 +18,8 @@ Default staking: flat 1 unit per bet
   Threshold: 0.03  (3% minimum edge over B365 fair price)
   Max odds:  5.0   (B365 odds above 5.0 excluded; model signal degrades above this)
 """
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -37,10 +40,21 @@ from src.config import (
     SUPPORTED_LEAGUES,
     filter_production_fixtures,
 )
+from src.data.download import update_current_season
 from src.data.loader import load_all_data
 from src.evaluation.artifacts import save_bet_artifacts
+from src.evaluation.eligibility import is_execution_eligible
 from src.evaluation.metrics import compute_roi, compute_stability, compute_value_betting_results
 from src.evaluation.report import generate_report
+from src.evaluation.shadow import (
+    PREDICTIONS_PATH,
+    SETTLEMENTS_PATH,
+    append_ledger,
+    build_prediction_records,
+    read_shadow_ledgers,
+    settle_shadow_predictions,
+)
+from src.evaluation.shadow_report import generate_shadow_report
 from src.evaluation.threshold_selector import select_league_thresholds
 from src.model.features import FEATURE_COLS, build_fixture_features
 from src.model.train import _CLASSES as _TRAIN_CLASSES
@@ -51,6 +65,15 @@ from src.model.train import (
 )
 
 _THRESHOLD_GRID = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10]
+_SHADOW_MODEL_REVISION_PATHS = (
+    ".github/workflows/predict.yml",
+    "main.py",
+    "models",
+    "predict.sh",
+    "pyproject.toml",
+    "src",
+    "uv.lock",
+)
 
 
 def _parse_threshold() -> float:
@@ -155,14 +178,78 @@ def _save_empty_predictions_report(threshold: float, fetched_at, reason: str) ->
     _save_predictions_html([], threshold, fetched_at, historical_bets=historical_bets)
 
 
-def _run_predict():
-    from datetime import datetime
+def _generate_shadow_report() -> None:
+    """Regenerate the monitoring-only report from the immutable shadow ledgers."""
+    predictions, settlements = read_shadow_ledgers(PREDICTIONS_PATH, SETTLEMENTS_PATH)
+    path = generate_shadow_report(
+        predictions, settlements, Path("reports/shadow_evaluation.html")
+    )
+    print(f"Shadow evaluation report saved to {path}")
 
-    from src.data.download import download_fixtures, update_current_season
+
+def _settle_and_report_shadow(results_df, settled_at) -> None:
+    """Settle completed shadow fixtures and refresh the monitoring report."""
+    settled = settle_shadow_predictions(results_df, settled_at=settled_at)
+    print(f"Settled {settled} shadow prediction record(s)")
+    _generate_shadow_report()
+
+
+def _shadow_run_id(fetched_at) -> str:
+    """Return the scheduler run ID, with a UTC timestamp fallback for local runs."""
+    return os.environ.get("GITHUB_RUN_ID", pd.Timestamp(fetched_at).strftime("%Y%m%dT%H%M%S%fZ"))
+
+
+def _shadow_model_commit() -> str:
+    """Return the latest commit that changed production code or configuration."""
+    try:
+        revision = subprocess.run(
+            ["git", "log", "-1", "--format=%H", "--", *_SHADOW_MODEL_REVISION_PATHS],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        return revision or "unknown"
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def _record_shadow_predictions(
+    fixture_features,
+    y_proba,
+    classes,
+    fetched_at,
+    threshold,
+    league_thresholds,
+) -> int:
+    """Append all outcome snapshots for retained production fixtures."""
+    records = build_prediction_records(
+        fixture_features=fixture_features,
+        y_proba=y_proba,
+        classes=classes,
+        fetched_at=fetched_at,
+        threshold=threshold,
+        league_thresholds=league_thresholds or {},
+        run_id=_shadow_run_id(fetched_at),
+        model_commit=_shadow_model_commit(),
+    )
+    return append_ledger(records, PREDICTIONS_PATH, "prediction_id")
+
+
+def _run_settle_shadow() -> None:
+    """Refresh completed results and settle the shadow ledger without inference."""
+    print("Updating latest season results...")
+    update_current_season()
+    print("Loading completed results...")
+    results_df = load_all_data()
+    _settle_and_report_shadow(results_df, pd.Timestamp.now(tz="UTC"))
+
+
+def _run_predict():
+    from src.data.download import download_fixtures
     from src.data.loader import load_fixtures
 
     threshold = _parse_threshold()
-    fetched_at = datetime.now()
+    fetched_at = pd.Timestamp.now(tz="UTC")
 
     import json as _json
     _lt_path = Path("models/league_thresholds.json")
@@ -181,6 +268,7 @@ def _run_predict():
 
     print("Loading data...")
     df = load_all_data()
+    _settle_and_report_shadow(df, pd.Timestamp.now(tz="UTC"))
     print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
 
     print("Training per-league models on full dataset...")
@@ -238,6 +326,17 @@ def _run_predict():
         col_order = [model_classes.index(c) for c in classes if c in model_classes]
         y_proba[mask] = proba[:, col_order]
 
+    appended = _record_shadow_predictions(
+        fixture_features,
+        y_proba,
+        classes,
+        fetched_at,
+        threshold,
+        league_thresholds,
+    )
+    print(f"Recorded {appended} immutable shadow prediction record(s)")
+    _generate_shadow_report()
+
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
                                        league_thresholds=league_thresholds)
 
@@ -282,13 +381,16 @@ def _build_prediction_rows(
         for o in ["H", "D", "A"]:
             edge = probs[o] - fair[o]
             b365_odds = {"H": b365h, "D": b365d, "A": b365a}[o]
-            if edge <= t:
-                continue
-            if edge > _PREDICT_MAX_EDGE:
-                continue
-            if b365_odds > _PREDICT_MAX_ODDS:
-                continue
-            value_bets.append((o, edge))
+            if is_execution_eligible(
+                edge=edge,
+                threshold=t,
+                b365_odds=b365_odds,
+                fixture_overround=overround,
+                max_edge=_PREDICT_MAX_EDGE,
+                max_odds=_PREDICT_MAX_ODDS,
+                max_overround=_PREDICT_MAX_OVERROUND,
+            ):
+                value_bets.append((o, edge))
 
         def _safe_float(v):
             try:
@@ -934,7 +1036,9 @@ def _run_compare_vig():
 
 
 def run_pipeline():
-    if "--predict" in sys.argv:
+    if "--settle-shadow" in sys.argv:
+        _run_settle_shadow()
+    elif "--predict" in sys.argv:
         _run_predict()
     elif "--compare-vig" in sys.argv:
         _run_compare_vig()

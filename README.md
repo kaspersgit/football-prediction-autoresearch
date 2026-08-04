@@ -55,6 +55,40 @@ Prediction reports use saved per-league thresholds when `models/league_threshold
 
 The run writes timestamped CSV and HTML reports under `reports/`.
 
+## Forward shadow monitoring
+
+Each scheduled prediction run also records an immutable snapshot of all three match
+outcomes in `data/shadow/predictions.csv`. Completed fixtures are appended to
+`data/shadow/settlements.csv`; existing rows are never updated. The scheduled workflow
+serializes these writes and commits only these two ledgers. This keeps the prediction
+snapshot available for later monitoring without committing generated reports or other
+workspace changes.
+
+The snapshot keeps all three outcomes, but marks an outcome as a qualifying value bet
+only when it passes the same threshold, maximum edge, maximum B365 odds, and fixture
+overround filters as the live prediction report. Report breakdowns use the latest Git
+commit that changed production code or configuration, so routine ledger-only commits do
+not appear as model changes.
+
+Use the recovery command when scheduled settlement did not run:
+
+```bash
+uv run python main.py --settle-shadow
+```
+
+It refreshes completed results, settles pending rows, and rebuilds
+`reports/shadow_evaluation.html` without training a model or generating a new prediction
+snapshot. Scheduled runs publish that artifact as
+[`shadow.html`](https://kaspersgit.github.io/football-prediction-autoresearch/shadow.html).
+The report measures hypothetical flat-stake execution at the price captured when the
+prediction was generated. It does not show accepted wagers or realised betting returns.
+
+Shadow data is an operational monitor, not another development dataset. Do not use its
+rows to train models, calibrate thresholds, select production leagues, or decide whether
+an autoresearch change is kept. Select model changes through the historical walk-forward
+evaluation described below; use shadow observations to investigate a production mismatch
+or consider a rollback.
+
 ## Model
 
 The recommended mode trains one LightGBM classifier per league and test season, followed by isotonic probability calibration (`cv=10`, `ensemble=False`). Features cover recent form, Elo and Elo momentum, B365-implied fair probabilities, market overround and bias, league identity, head-to-head results, draw tendency, match balance, and attack/defence ratings.

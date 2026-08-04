@@ -61,3 +61,38 @@ def test_report_enables_all_observed_leagues_and_offers_production_preset(tmp_pa
     assert 'var _activeLeagues={"E0":true,"D1":true,"G1":true,"B1":true};' in content
     assert 'var _productionLeagues=["E0","G1"];' in content
     assert "Production markets" in content
+
+
+def test_report_renders_static_weekly_roi_interval_for_initial_all_market_bets(tmp_path):
+    df = _make_results().iloc[:4].copy()
+    df["Date"] = ["2026-08-04", "2026-08-05", "2026-08-11", "2026-08-12"]
+    df["profit"] = [1.0, -1.0, 2.0, -1.0]
+    out = tmp_path / "report.html"
+
+    generate_report(
+        results_df=df,
+        accuracy=0.5,
+        roi=25.0,
+        stability=0.1,
+        output_path=out,
+    )
+
+    content = out.read_text()
+    assert "Weekly 95% ROI interval" in content
+    assert "+0.00% to +50.00%" in content
+    assert "Initial all-market evaluation; filters do not change this interval." in content
+
+
+def test_report_labels_weekly_roi_interval_when_there_are_not_enough_completed_weeks(tmp_path):
+    df = _make_results().iloc[:1].copy()
+    out = tmp_path / "report.html"
+
+    generate_report(
+        results_df=df,
+        accuracy=0.5,
+        roi=100.0,
+        stability=0.1,
+        output_path=out,
+    )
+
+    assert "Not enough completed weeks" in out.read_text()

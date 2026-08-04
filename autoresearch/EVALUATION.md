@@ -70,3 +70,18 @@ Prefer conclusions supported by multiple independent experiments. Stronger evide
 - consistent results after accounting for changes in sample size.
 
 Do not re-test a known-bad feature unless the model, dataset, or evaluation setup changed enough to invalidate the earlier conclusion. Explain that change in the new hypothesis.
+
+## Forward shadow monitoring boundary
+
+The forward shadow ledger is for monitoring the scheduled production model, not for
+model development. It begins with the prediction-time snapshot and records later
+settlements at the captured quote. Its `reports/shadow_evaluation.html` output therefore
+describes hypothetical flat-stake execution, not accepted wagers or realised returns.
+
+Do not use shadow rows to add training features, tune an edge threshold, select
+production leagues, or apply the keep/revert rules above. Repeatedly comparing changes
+against the same forward period would turn the limited monitoring data into a development
+set and weaken its value as an independent check. Continue to choose changes using the
+four-season, all-market walk-forward evaluation. A shadow result may identify a
+production mismatch or support a rollback; it is not evidence to promote a replacement
+model on its own.
