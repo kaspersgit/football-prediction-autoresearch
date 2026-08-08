@@ -2,7 +2,7 @@
 
 ## Current best
 
-The latest recorded inference-realistic result is iteration `EXP-20260519-S101`. It was measured on 2026-05-19; it has not been re-run as part of the documentation consolidation.
+The latest recorded production-portfolio result is iteration `EXP-20260519-S101`. It was measured on 2026-05-19 and predates the all-market evaluation split, so it should not be compared directly with new all-market headline metrics.
 
 | Metric | `threshold=0.0` |
 |---|---:|
@@ -22,8 +22,9 @@ The result is above the approximate `t > 2` screening threshold, but it remains 
 - Features: 30 features covering EWM form, Elo, Elo momentum, market probabilities and overround, league identity, head-to-head, draw rate, market bias, match balance, and attack/defence ratings.
 - Betting edge: model probability minus vig-normalized B365 fair probability.
 - Filters: maximum odds `5.0`, maximum edge `0.20`, and maximum overround `0.07`.
-- Recorded betting leagues: England (`E0`), Netherlands (`N1`), Portugal (`P1`), and Greece (`G1`). France, Spain, Germany, Italy, Scotland, Belgium, and Turkey are excluded from default bets.
-- Thresholds: backtesting calibrates one threshold per active league from prior test seasons and writes `models/league_thresholds.json`; prediction uses that file when present and otherwise uses the CLI threshold.
+- Evaluation leagues: England, Germany, Spain, Italy, France, Netherlands, Portugal, Greece, Scotland, Belgium, and Turkey. The research headline and report default include every observed supported league at the fixed CLI threshold.
+- Production leagues: England (`E0`), Netherlands (`N1`), Portugal (`P1`), and Greece (`G1`). Only these leagues may appear in live predictions.
+- Thresholds: backtesting calibrates one threshold per supported league from prior test seasons and writes `models/league_thresholds.json`; the production simulation and live prediction use those thresholds only for production leagues.
 - Pinnacle: not used because its odds are unavailable for live fixtures.
 - Staking: flat one unit per backtest bet.
 
@@ -49,7 +50,7 @@ uv run pytest tests/ -v
 
 These ideas are not recorded as completed experiments in the consolidated ledger:
 
-1. Validate the new per-season league-threshold calibration and its live artifact flow.
+1. Re-run the all-market baseline and record the new aggregate and per-league metrics.
 2. Add referee tendency features if stable historical coverage can be obtained.
 3. Test opening-to-closing market movement without introducing inference-only features.
 4. Test an ensemble only if its component model adds independent out-of-sample signal.

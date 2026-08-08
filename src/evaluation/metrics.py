@@ -206,18 +206,21 @@ def compute_value_betting_results(
                 "Date": row["Date"],
                 "HomeTeam": row.get("HomeTeam", ""),
                 "AwayTeam": row.get("AwayTeam", ""),
+                "league": row.get("league", ""),
                 "y_true": y_true,
                 "y_pred": outcome,
                 "odds": odds,
                 "model_prob": model_prob,
                 "implied_prob": baseline_prob,
+                "edge": edge,
                 "stake": stake,
                 "profit": profit,
             })
 
     if not bet_rows:
-        return pd.DataFrame(columns=["Date", "y_true", "y_pred", "odds",
-                                     "model_prob", "implied_prob", "stake", "profit",
+        return pd.DataFrame(columns=["Date", "HomeTeam", "AwayTeam", "league",
+                                     "y_true", "y_pred", "odds", "model_prob",
+                                     "implied_prob", "edge", "stake", "profit",
                                      "cumulative_profit"])
 
     result = pd.DataFrame(bet_rows).sort_values("Date").reset_index(drop=True)

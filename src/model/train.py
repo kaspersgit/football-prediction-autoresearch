@@ -6,6 +6,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.calibration import CalibratedClassifierCV
 
+from src.config import SUPPORTED_LEAGUES
 from src.model.features import build_features_with_odds
 
 MODEL_PATH = Path("models/baseline.joblib")
@@ -60,7 +61,7 @@ def split_by_season(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return train, test
 
 
-_LEAGUES = ["E0", "D1", "SP1", "I1", "F1", "N1", "P1"]
+_LEAGUES = SUPPORTED_LEAGUES
 _CLASSES = np.array(["A", "D", "H"])  # canonical alphabetical order
 
 
@@ -154,9 +155,9 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
     Features are computed on the full dataset so Elo ratings carry forward
     from training seasons into each test season (no cold-start reset).
 
-    per_league=True:      one model per league per test season (4 models)
+    per_league=True:      one model per supported league per test season
     binary_outcomes=True: one binary classifier per outcome per test season (3 models)
-    both=True:            one binary classifier per outcome per league (12 models)
+    both=True:            one binary classifier per outcome per supported league
     """
     full_X, full_y, full_odds = build_features_with_odds(df)
     full_X = full_X.reset_index(drop=True)
