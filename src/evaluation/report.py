@@ -51,9 +51,11 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   }}
   .top-bets-card h3 {{ margin: 0 0 14px 0; color: #283593; font-size: 1.05em; }}
   canvas {{ display: block; width: 100%; }}
+  .back-link {{ display: inline-block; margin-bottom: 16px; color: #1565c0; }}
 </style>
 </head>
 <body>
+<a class="back-link" href="index.html">&larr; Back to index</a>
 <h1>Football Prediction Evaluation Report</h1>
 <h2>Summary Metrics</h2>
 <p style="color:#777;font-size:.88em;margin:4px 0 12px">Accuracy is over all test matches. Bets, ROI, and t-stat react to the filters below.</p>

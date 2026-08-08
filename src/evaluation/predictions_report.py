@@ -828,11 +828,14 @@ def generate_predictions_html(
   .perf-total {{ font-weight: 700; }}
 
   .page-footer {{ text-align: center; color: #aaa; font-size: .82em; margin-top: 32px; }}
+  .back-link {{ display: inline-block; margin-bottom: 16px; color: #1565c0; }}
 </style>
 {backtest_script}
 </head>
 <body>
 <div class="container">
+
+  <a class="back-link" href="index.html">&larr; Back to index</a>
 
   <div class="page-header">
     <h1>⚽ Match Week Predictions</h1>
