@@ -156,9 +156,11 @@ def generate_shadow_report(
     table {{ border-collapse: collapse; margin: 12px 0 28px; width: 100%; }}
     th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
     th {{ background: #e8eaf6; }}
+    .back-link {{ display: inline-block; margin-bottom: 16px; color: #1565c0; }}
   </style>
 </head>
 <body>
+  <a class="back-link" href="index.html">&larr; Back to index</a>
   <h1>Forward shadow evaluation</h1>
   <div class="notice"><strong>Informational — monitoring only.</strong> Sparse data is informational and is not a release gate. This report records hypothetical flat-stake execution at captured quotes, not accepted real wagers. Shadow data must not select features, tune thresholds, or choose production leagues.</div>
   <h2>Monitoring summary</h2>
