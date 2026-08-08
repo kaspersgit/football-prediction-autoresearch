@@ -31,6 +31,27 @@ for _suffix, _name in [
     _BK_COL_TO_NAME[f"{_suffix}A"] = _name
 
 
+def _parse_dates(series: pd.Series) -> pd.Series:
+    """Parse a football-data.co.uk Date column without pandas' per-row dateutil fallback.
+
+    Source files use `DD/MM/YY` in older seasons and `DD/MM/YYYY` in newer ones, but
+    each file/column is internally consistent. Passing dayfirst=True with no explicit
+    format makes pandas fall back to parsing every value individually via dateutil
+    (slow, and emits a UserWarning) even when the column is uniform. Picking the format
+    from the first non-null value keeps parsing fast and silent.
+    """
+    first_valid = series.dropna().astype(str).iloc[:1]
+    if first_valid.empty:
+        return pd.to_datetime(series, dayfirst=True, errors="coerce")
+    fmt = "%d/%m/%Y" if len(first_valid.iloc[0]) > 8 else "%d/%m/%y"
+    parsed = pd.to_datetime(series, format=fmt, errors="coerce")
+    # Fall back for any rows that didn't match the inferred format (rare/malformed rows).
+    unparsed = parsed.isna() & series.notna()
+    if unparsed.any():
+        parsed.loc[unparsed] = pd.to_datetime(series[unparsed], dayfirst=True, errors="coerce")
+    return parsed
+
+
 def _parse_filename(path: Path) -> tuple[str, str]:
     # filename like E0_2324.csv → league=E0, season=2324
     stem = path.stem  # "E0_2324"
@@ -72,7 +93,7 @@ def _load_file(path: Path) -> pd.DataFrame | None:
     league, season = _parse_filename(path)
     df["league"] = league
     df["season"] = season
-    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
+    df["Date"] = _parse_dates(df["Date"])
     df = df.dropna(subset=["Date"])
     return df
 
@@ -89,7 +110,7 @@ def load_fixtures() -> pd.DataFrame:
     missing_odds = [c for c in _FIXTURE_ODDS_COLS if c not in df.columns]
     if missing_odds:
         raise ValueError(f"fixtures.csv missing columns: {missing_odds}")
-    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
+    df["Date"] = _parse_dates(df["Date"])
     df = df.dropna(subset=["Date", "HomeTeam", "AwayTeam"] + _FIXTURE_ODDS_COLS)
     for col in _FIXTURE_ODDS_COLS:
         df[col] = pd.to_numeric(df[col], errors="coerce")
