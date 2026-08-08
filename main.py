@@ -75,10 +75,6 @@ _SHADOW_MODEL_REVISION_PATHS = (
     "uv.lock",
 )
 
-_THRESHOLD_GRID = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10]
-_ACTIVE_LEAGUES = ["E0", "N1", "P1", "G1"]
-_ALL_KNOWN_LEAGUES = {"E0", "D1", "SP1", "I1", "F1", "N1", "P1", "G1", "SC0", "B1", "T1"}
-
 
 def _parse_threshold() -> float:
     for i, arg in enumerate(sys.argv):
@@ -254,15 +250,6 @@ def _run_predict():
 
     threshold = _parse_threshold()
     fetched_at = pd.Timestamp.now(tz="UTC")
-
-    import json as _json
-    _lt_path = Path("models/league_thresholds.json")
-    league_thresholds: dict | None = _json.loads(_lt_path.read_text()) if _lt_path.exists() else None
-    if league_thresholds:
-        print("Using per-league thresholds: " +
-              ", ".join(f"{lg}={v:+.2f}" for lg, v in sorted(league_thresholds.items())))
-    else:
-        print(f"No league_thresholds.json found — using global threshold {threshold:+.2f}")
 
     import json as _json
     _lt_path = Path("models/league_thresholds.json")
