@@ -840,6 +840,7 @@ def _run_backtest():
         max_edge=max_edge,
         min_season_games=min_season_games,
         max_overround=DEFAULT_MAX_OVERROUND,
+        pinnacle_confirmation_margin=pinnacle_margin,
     )
 
     roi = compute_roi(evaluation_results) if not evaluation_results.empty else float("nan")
