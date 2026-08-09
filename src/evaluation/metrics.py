@@ -99,6 +99,7 @@ def compute_value_betting_results(
     min_season_games: int = 0,
     max_overround: float = float("inf"),
     pinnacle_confirmation_margin: float | None = None,
+    pinnacle_odds_cols: tuple[str, str, str] = ("PSCH", "PSCD", "PSCA"),
 ) -> pd.DataFrame:
     """
     Multi-outcome value betting.
@@ -120,10 +121,16 @@ def compute_value_betting_results(
 
     threshold:   minimum edge over fair prob required to place a bet.
     max_edge:    maximum allowed edge; bets with edge > max_edge are skipped (caps extreme predictions).
-    pinnacle_confirmation_margin: if set, only place a bet when the historical Pinnacle
-                      fair probability (PSCH/PSCD/PSCA) exceeds the B365 fair probability
-                      by more than this margin. None (default) disables the check.
-                      Rows with null Pinnacle columns are never vetoed.
+    pinnacle_confirmation_margin: if set, only place a bet when the Pinnacle fair
+                      probability (from pinnacle_odds_cols) exceeds the B365 fair
+                      probability by more than this margin. None (default) disables
+                      the check. Rows with null Pinnacle columns are never vetoed.
+    pinnacle_odds_cols: which 1X2 odds columns to read for the confirmation check.
+                      Defaults to ("PSCH", "PSCD", "PSCA") — Pinnacle's closing odds,
+                      as used in the original historical validation. Pass
+                      ("PSH", "PSD", "PSA") to test against Pinnacle's pre-match/opening
+                      odds instead — the only kind available from a live snapshot fetch,
+                      since a true closing line only exists after kickoff has passed.
     min_season_games: skip bets where either team has played fewer than this many games in the
                       current season (in that league). Requires df to have 'season' and 'league' cols.
                       Default 0 = no filter. Recommended value: 4 (skips first ~4 gameweeks).
@@ -178,7 +185,8 @@ def compute_value_betting_results(
 
         pinnacle_fair = None
         if pinnacle_confirmation_margin is not None:
-            psch, pscd, psca = row.get("PSCH"), row.get("PSCD"), row.get("PSCA")
+            _h_col, _d_col, _a_col = pinnacle_odds_cols
+            psch, pscd, psca = row.get(_h_col), row.get(_d_col), row.get(_a_col)
             if (
                 psch is not None and pscd is not None and psca is not None
                 and not (pd.isna(psch) or pd.isna(pscd) or pd.isna(psca))

@@ -117,7 +117,13 @@ def _parse_per_league() -> bool:
 
 
 def _parse_pinnacle_filter() -> bool:
-    return "--pinnacle-filter" in sys.argv
+    return "--pinnacle-filter" in sys.argv or "--pinnacle-filter-opening" in sys.argv
+
+
+def _parse_pinnacle_odds_cols() -> tuple[str, str, str]:
+    if "--pinnacle-filter-opening" in sys.argv:
+        return ("PSH", "PSD", "PSA")
+    return ("PSCH", "PSCD", "PSCA")
 
 
 def _parse_binary() -> bool:

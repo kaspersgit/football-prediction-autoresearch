@@ -18,6 +18,11 @@ def test_known_eredivisie_aliases_are_present():
     assert ODDS_API_TEAM_ALIASES["N1"]["FC Utrecht"] == "Utrecht"
     assert ODDS_API_TEAM_ALIASES["N1"]["FC Twente Enschede"] == "Twente"
     assert ODDS_API_TEAM_ALIASES["N1"]["FC Zwolle"] == "Zwolle"
+    assert ODDS_API_TEAM_ALIASES["N1"]["SC Telstar"] == "Telstar"
+    assert ODDS_API_TEAM_ALIASES["N1"]["NEC Nijmegen"] == "Nijmegen"
+    assert ODDS_API_TEAM_ALIASES["N1"]["Fortuna Sittard"] == "For Sittard"
+    assert ODDS_API_TEAM_ALIASES["N1"]["SC Cambuur"] == "Cambuur"
+    assert ODDS_API_TEAM_ALIASES["N1"]["ADO Den Haag"] == "Den Haag"
 
 
 def test_known_premier_league_aliases_are_present():
@@ -28,6 +33,7 @@ def test_known_premier_league_aliases_are_present():
 def test_known_primeira_liga_aliases_are_present():
     assert ODDS_API_TEAM_ALIASES["P1"]["FC Porto"] == "Porto"
     assert ODDS_API_TEAM_ALIASES["P1"]["Sporting Lisbon"] == "Sp Lisbon"
+    assert ODDS_API_TEAM_ALIASES["P1"]["CF Estrela"] == "Estrela"
 
 
 def test_known_super_league_greece_aliases_are_present():

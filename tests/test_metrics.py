@@ -144,3 +144,29 @@ def test_pinnacle_confirmation_filter_is_off_by_default():
     result = compute_value_betting_results(matches, probabilities, classes)
 
     assert result["y_pred"].tolist() == ["H"]
+
+
+def test_pinnacle_confirmation_filter_can_use_opening_odds_columns():
+    matches = pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=1),
+        "HomeTeam": ["Home"],
+        "AwayTeam": ["Away"],
+        "league": ["E0"],
+        "y_true": ["H"],
+        "B365H": [2.0],
+        "B365D": [4.0],
+        "B365A": [4.0],
+        "PSH": [1.8],
+        "PSD": [6.0],
+        "PSA": [6.0],
+    })
+    probabilities = np.array([[0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    result = compute_value_betting_results(
+        matches, probabilities, classes,
+        pinnacle_confirmation_margin=0.015,
+        pinnacle_odds_cols=("PSH", "PSD", "PSA"),
+    )
+
+    assert result["y_pred"].tolist() == ["H"]

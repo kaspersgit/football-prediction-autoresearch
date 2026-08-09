@@ -31,6 +31,11 @@ ODDS_API_TEAM_ALIASES: dict[str, dict[str, str]] = {
         "FC Utrecht": "Utrecht",
         "FC Twente Enschede": "Twente",
         "FC Zwolle": "Zwolle",
+        "SC Telstar": "Telstar",
+        "NEC Nijmegen": "Nijmegen",
+        "Fortuna Sittard": "For Sittard",
+        "SC Cambuur": "Cambuur",
+        "ADO Den Haag": "Den Haag",
     },
     "P1": {
         "FC Porto": "Porto",
@@ -39,6 +44,7 @@ ODDS_API_TEAM_ALIASES: dict[str, dict[str, str]] = {
         "Rio Ave FC": "Rio Ave",
         "Sporting Lisbon": "Sp Lisbon",
         "Vitória SC": "Guimaraes",
+        "CF Estrela": "Estrela",
     },
     "G1": {
         "AEK Athens": "AEK",

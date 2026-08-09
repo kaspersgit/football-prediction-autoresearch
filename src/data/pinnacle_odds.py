@@ -25,7 +25,14 @@ _LEAGUE_TO_SPORT_KEY = {
     "B1": "soccer_belgium_first_div",
     "T1": "soccer_turkey_super_league",
 }
-_ODDS_COLUMNS = ["league", "HomeTeam", "AwayTeam", "PSH", "PSD", "PSA"]
+_ODDS_COLUMNS = ["league", "HomeTeam", "AwayTeam", "Date", "PSH", "PSD", "PSA"]
+# How many days apart a fixtures.csv row's Date and a live event's commence_time may be
+# and still be treated as the same match. The Odds API and football-data.co.uk are
+# fetched independently and are not always showing the same matchweek at any given
+# moment (e.g. fixtures.csv already on next weekend's round while the Odds API is
+# still pricing the round after); matching on team names alone would silently attach
+# one round's Pinnacle odds to a different round's fixture row.
+_MAX_DATE_DRIFT_DAYS = 1
 
 
 def _empty_odds_df() -> pd.DataFrame:
@@ -59,10 +66,17 @@ def _parse_event(league: str, event: dict) -> dict | None:
     except (TypeError, ValueError):
         return None
 
+    commence_time = event.get("commence_time")
+    try:
+        match_date = pd.Timestamp(commence_time).normalize().tz_localize(None)
+    except (TypeError, ValueError):
+        return None
+
     return {
         "league": league,
         "HomeTeam": _resolve_team_name(league, home_name),
         "AwayTeam": _resolve_team_name(league, away_name),
+        "Date": match_date,
         "PSH": psh,
         "PSD": psd,
         "PSA": psa,
@@ -119,7 +133,15 @@ def fetch_pinnacle_odds(leagues: set[str]) -> pd.DataFrame:
 
 
 def attach_pinnacle_odds(fixtures_df: pd.DataFrame) -> pd.DataFrame:
-    """Left-merge live Pinnacle odds onto fixtures_df, overwriting NaN PSH/PSD/PSA placeholders."""
+    """Left-merge live Pinnacle odds onto fixtures_df, overwriting NaN PSH/PSD/PSA placeholders.
+
+    Matches on (league, HomeTeam, AwayTeam) as the join key, then requires the two
+    sources' match dates to agree within _MAX_DATE_DRIFT_DAYS. football-data.co.uk's
+    fixtures.csv and The Odds API are fetched independently and are not always
+    showing the same round at the same moment; without this check, a team-name-only
+    match could silently attach one round's Pinnacle odds to a different round's
+    fixture — same teams, wrong match.
+    """
     from src.config import PRODUCTION_LEAGUES
 
     odds = fetch_pinnacle_odds(set(PRODUCTION_LEAGUES))
@@ -129,7 +151,20 @@ def attach_pinnacle_odds(fixtures_df: pd.DataFrame) -> pd.DataFrame:
     merged = fixtures_df.merge(
         odds, on=["league", "HomeTeam", "AwayTeam"], how="left", suffixes=("", "_live")
     )
+    date_drift = (merged["Date"] - merged["Date_live"]).abs()
+    same_round = date_drift <= pd.Timedelta(days=_MAX_DATE_DRIFT_DAYS)
+    mismatched = merged["Date_live"].notna() & ~same_round
+    if mismatched.any():
+        for _, row in merged[mismatched].iterrows():
+            print(
+                f"Skipping live Pinnacle odds for {row['league']} {row['HomeTeam']} v "
+                f"{row['AwayTeam']}: fixtures.csv has {row['Date'].date()}, "
+                f"live odds are for {row['Date_live'].date()} — different round"
+            )
+
     for col in ["PSH", "PSD", "PSA"]:
-        merged[col] = merged[f"{col}_live"].combine_first(merged[col])
+        live_col = merged[f"{col}_live"].where(same_round)
+        merged[col] = live_col.combine_first(merged[col])
         merged = merged.drop(columns=[f"{col}_live"])
+    merged = merged.drop(columns=["Date_live"])
     return merged
