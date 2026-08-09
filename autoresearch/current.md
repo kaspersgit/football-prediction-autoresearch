@@ -2,17 +2,27 @@
 
 ## Current best
 
-The latest recorded production-portfolio result is iteration `EXP-20260519-S101`. It was measured on 2026-05-19 and predates the all-market evaluation split, so it should not be compared directly with new all-market headline metrics.
+The latest recorded result is `EXP-20260804-001`, re-run on the current all-market/production-allowlist evaluation split. It measured on 2026-08-04. The earlier `EXP-20260519-S101` figures (ROI +9.65%) predate that split and are no longer comparable.
+
+Production portfolio (E0, N1, P1, G1 — the metric that determines keep/revert decisions):
 
 | Metric | `threshold=0.0` |
 |---|---:|
-| Accuracy | 0.359 |
-| ROI | +9.65% |
-| Stability | 0.0615 |
-| t-statistic | +2.56 |
-| Bets | 1,728 / 5,879 (29.4%) |
+| Bets | 2,101 |
+| ROI | +1.03% |
+| Per-league | England +1.80%, Netherlands +7.97%, Portugal +0.21%, Greece −5.81% |
 
-The result is above the approximate `t > 2` screening threshold, but it remains a historical backtest and may include selection effects from repeated experimentation.
+All-market diagnostic (11 leagues, no max-edge/overround cap — informational, not a decision metric):
+
+| Metric | `threshold=0.0` |
+|---|---:|
+| Accuracy | 0.518 |
+| ROI | −4.35% |
+| Stability | −0.0290 |
+| t-statistic | −2.76 |
+| Bets | 9,096 / 9,906 (91.8%) |
+
+Production ROI is positive but well below screening significance and far weaker than the stale historical number. Greece is the weakest production league (−5.81%) and a candidate for re-evaluation.
 
 ## Verified configuration
 
@@ -50,12 +60,13 @@ uv run pytest tests/ -v
 
 These ideas are not recorded as completed experiments in the consolidated ledger:
 
-1. Re-run the all-market baseline and record the new aggregate and per-league metrics.
-2. Add referee tendency features if stable historical coverage can be obtained.
-3. Test opening-to-closing market movement without introducing inference-only features.
-4. Test an ensemble only if its component model adds independent out-of-sample signal.
-5. Evaluate an xG-surplus feature after acquiring consistent historical coverage for all target leagues.
-6. Compare fair-probability edge with raw implied-probability edge on a separately held-out period.
+1. Add referee tendency features if stable historical coverage can be obtained.
+2. Test opening-to-closing market movement without introducing inference-only features.
+3. Test an ensemble only if its component model adds independent out-of-sample signal.
+4. Evaluate an xG-surplus feature after acquiring consistent historical coverage for all target leagues.
+5. Fix `main.py:_run_compare_vig`'s per-league breakdown, which crashes with `KeyError: 'league'` (merges on a column not present in `results["odds_test"]`). Found in `EXP-20260804-002`.
+
+Cleared this iteration: item 1 (all-market baseline re-run) done in `EXP-20260804-001`; item 6 (fair vs raw edge baseline) tested and reverted in `EXP-20260804-002`.
 
 ## File responsibilities
 

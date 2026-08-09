@@ -2610,3 +2610,86 @@ _Legacy source: docs/improvements.md iteration 92._
 **Fix options:**
 - Option A: switch baseline to raw implied: `edge = model_prob - (1 / odds)`
 - Option B: keep fair baseline but require threshold ≥ ~3–5% to approximately compensate for the vig (at ~5% vig, the correction is ~3–3.5% depending on the odds range)
+
+---
+
+## EXP-20260804-001: Re-run all-market baseline on current evaluation split — RECORDED (no code change)
+
+**Date:** 2026-08-04
+**Hypothesis:** N/A — bookkeeping task from `current.md` active hypothesis 1. The previously recorded production result (`EXP-20260519-S101`, ROI +9.65%) predates the all-market/production-allowlist split introduced in the "Improve autoresearch evaluation workflow" change and is not comparable to headline metrics produced by the current code.
+**Command:** `uv run python main.py --update --per-league --threshold 0.0` (required a fresh full history download; `data/raw` was empty in this environment).
+**Files changed:** none — diagnostic run only.
+
+**Results (all-market, 11 leagues, no max-edge/overround cap):**
+- Accuracy: 0.518 (9,906 test matches, seasons 2324/2425/2526/2627)
+- Bets: 9,096 / 9,906 (91.8%)
+- ROI: −4.35%
+- Stability: −0.0290
+- t-statistic: −2.76
+
+**Results (production portfolio — E0, N1, P1, G1, with max_edge=0.20 and max_overround=0.07 filters):**
+- Bets: 2,101
+- ROI: +1.03%
+- Per-league ROI: England +1.80%, Netherlands +7.97%, Portugal +0.21%, Greece −5.81%
+
+**Per-league ROI (all-market, informational only, filters not applied):** England +1.80%, Germany −5.31%, Spain −9.07%, Italy −2.96%, France −9.48%, Netherlands +7.97%, Portugal +0.21%, Greece −5.81%, Scotland +1.73%, Belgium −17.63%, Turkey −13.59%.
+
+**Analysis:** The unfiltered all-market number is dominated by non-production leagues (Belgium, Turkey, Spain, France) that were already known to be unprofitable and are excluded from live betting — it is a diagnostic ceiling/floor, not a decision metric. The number that matters for keep/revert decisions is the production portfolio, which is positive but far below the stale +9.65% figure. Greece is the weak link in the current production allowlist (−5.81%, largest bet count among the negative production leagues after the filters).
+**Decision:** RECORDED. No code changed. `current.md`'s "Current best" table is updated to this run and the stale `EXP-20260519-S101` comparison note is removed. Active hypothesis 1 is cleared from the queue.
+
+---
+
+## EXP-20260804-002: Raw implied-probability edge baseline vs vig-stripped fair baseline — REVERTED (not pursued)
+
+**Date:** 2026-08-04
+**Hypothesis:** Switching the value-bet edge baseline from vig-stripped fair probability (`edge = model_prob - fair_prob`) to raw implied probability (`edge = model_prob - 1/odds`) removes bets that are technically negative-EV at the actual offered odds, improving ROI and stability.
+**Files changed:** none — the existing `--compare-vig` diagnostic (`main.py:_run_compare_vig`, `edge_baseline` param on `compute_value_betting_results`) already supports both baselines, so no implementation was needed to test the hypothesis at the diagnostic (global-model) level first, before committing to a full per-league confirmatory run.
+**Command:** `uv run python main.py --compare-vig --threshold 0.0`
+**Baseline:** global (non-per-league) walk-forward model, same run for both baselines, 9,906 test matches.
+
+**Results:**
+
+| Threshold | fair bets | fair ROI | raw bets | raw ROI |
+|---|---:|---:|---:|---:|
+| 0.00 | 13,914 | −1.51% | 9,530 | −1.74% |
+| 0.01 | 11,725 | −0.57% | 7,629 | −0.47% |
+| 0.02 | 9,652 | −0.73% | 6,040 | −1.24% |
+| 0.03 (current default) | 7,911 | −0.88% | 4,769 | −1.82% |
+| 0.04 | 6,400 | −1.04% | 3,671 | −1.51% |
+| 0.05 | 5,138 | −1.18% | 2,854 | +0.15% |
+| 0.07 | 3,247 | +0.49% | 1,705 | −4.32% |
+
+Stability at threshold 0.0: fair −0.0103 vs raw −0.0115.
+
+**Analysis:** No consistent direction. Raw is worse than fair at 5 of 7 thresholds, including the current production default (0.03: −0.88% vs −1.82%, a 0.94pp regression) and threshold 0.07 (−4.32% vs +0.49%, a 4.8pp regression). It is only better at 0.01 and 0.05, both within the "usually noise" band per `EVALUATION.md` except 0.05's +1.33pp gap, which is a single favorable threshold amid an otherwise unfavorable or flat pattern — not the majority-of-conditions support the evaluation policy requires. This is also a global (not per-league) model, one level short of the mandatory primary comparison, but the diagnostic result is unfavorable enough that a full per-league re-run (≈28 minutes) is not justified before ruling out the change.
+**Decision:** REVERTED (not implemented). The vig-stripped fair baseline remains the default `edge_baseline`. Active hypothesis 6 is cleared from the queue with this conclusion recorded.
+
+**Note (tooling bug found, unrelated to this hypothesis):** `_run_compare_vig`'s per-league breakdown crashes with `KeyError: 'league'` — it merges on a `"league"` column that does not exist in `results["odds_test"]`. The aggregate/threshold-sweep comparison above still printed correctly before the crash. Left unfixed as out of scope for this iteration; added to the active queue below for a future small tooling fix.
+
+---
+
+## EXP-20260809-001: Dixon-Coles Poisson goal-model probabilities as engineered features — REVERTED
+
+**Date:** 2026-08-09
+**Hypothesis:** Adding Dixon-Coles-fitted match outcome probabilities (`poisson_home_prob`, `poisson_draw_prob`, `poisson_away_prob`) as three new features — additive to, not replacing, the existing raw EWM attack/defense features — would improve ROI without hurting stability, because a Poisson score-matrix model with a home-advantage parameter and the Dixon-Coles low-score correlation (τ) adjustment captures nonlinear, correlated goal-scoring structure that LightGBM has to approximate from 4 raw scalar features today, and might help most in data-sparse leagues (Greece, Portugal).
+**Files changed:**
+- `src/model/dixon_coles.py` (new): MLE fit (`scipy.optimize.minimize`, analytic gradient) of per-team attack/defense ratings, home advantage, and ρ; `predict_probs` sums the Poisson score grid (0–9 goals each side, τ-adjusted) into a 1X2 probability triple.
+- `src/model/features.py`: added `_compute_poisson_probs` (walk-forward, one DC model per league, refit every 180 days using the trailing 1,200 matches, strictly leakage-free) and `_get_current_poisson_state` (live-fixture path); added 3 columns to `FEATURE_COLS`.
+- `pyproject.toml` / `uv.lock`: added `scipy` as an explicit dependency (was previously only transitive via scikit-learn).
+- `tests/test_dixon_coles.py` (new): fit/predict correctness, probability-sums-to-one, unseen-team handling, stronger-attacker-favoured sanity check.
+
+All changes were reverted after evaluation; none remain in the tree.
+
+**Baseline:** Same-session re-run of the primary comparison on identical data (`uv run python main.py --per-league --threshold 0.0`, 45,092 matches through 2026-08-03) with the Dixon-Coles code removed — reproduces `EXP-20260804-001` exactly (accuracy 0.518, all-market ROI −4.35%, stability −0.0290, t-stat −2.76, bets 9,096/9,906; production portfolio 2,101 bets, ROI +1.03%).
+
+**Results (with Dixon-Coles features):**
+- All-market accuracy: 0.520 (baseline 0.518)
+- All-market ROI: −4.74% (baseline −4.35%, 0.39pp worse)
+- Stability: −0.0316 (baseline −0.0290, worse)
+- t-statistic: −3.03 (baseline −2.76, worse)
+- All-market bets: 9,176 / 9,777 (93.9%) — 129 fewer test matches than baseline (9,906), from the new feature's minimum-history requirement (`POISSON_MIN_MATCHES=40`) dropping the earliest rows per league via the existing `dropna(subset=FEATURE_COLS)` step; expected and explained, not a driver of the result.
+- **Production portfolio (decision metric): 2,032 bets, ROI −2.76%** (baseline 2,101 bets, +1.03% — a 3.79pp regression)
+- Production per-league ROI: England −1.69% (baseline +1.80%), Netherlands −5.30% (baseline +7.97%), Portugal −2.48% (baseline +0.21%), Greece −2.27% (baseline −5.81%, the one league that improved)
+
+**Analysis:** 3 of 4 production leagues moved sharply negative, including Netherlands flipping from the strongest positive contributor (+7.97%) to the weakest (−5.30%), a 13.27pp swing. Only Greece improved, and it remains negative. The all-market diagnostic moved in the same unfavorable direction (ROI, stability, and t-stat all worse), so this isn't a case of one noisy metric contradicting another — every metric that matters under `EVALUATION.md` degraded together. The mechanism may simply be that per-league LightGBM models with only ~4 walk-forward test seasons of data don't have enough per-league history to benefit from 3 additional probability features on top of the already-present attack/defense EWM signals and market-derived probabilities; the DC probabilities may be adding correlated noise (derived from goals, same underlying signal as `home_attack`/`home_defense`/Elo) rather than independent information, consistent with `EVALUATION.md`'s general note that features must supply information not already encoded in market odds or existing ratings to help.
+**Decision:** REVERTED. All code, dependency, and test changes rolled back (`git checkout -- pyproject.toml uv.lock src/model/features.py`; new files deleted). `reports/backtest_bets.csv` regenerated from the reverted code to restore the production-baseline artifact. This was explored ad hoc (not from the active-hypothesis queue in `current.md`), so no queue entry needs clearing.
