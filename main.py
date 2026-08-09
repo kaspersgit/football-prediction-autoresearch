@@ -360,6 +360,7 @@ _PREDICT_MAX_OVERROUND = DEFAULT_MAX_OVERROUND
 def _build_prediction_rows(
     fixture_features, y_proba, classes, threshold: float,
     league_thresholds: dict | None = None,
+    pinnacle_confirmation_margin: float | None = None,
 ) -> list[dict]:
     """Build a list of per-fixture prediction dicts (used by both print and CSV export)."""
     fixture_features = fixture_features.reset_index(drop=True)
@@ -376,6 +377,21 @@ def _build_prediction_rows(
         if overround > _PREDICT_MAX_OVERROUND:
             continue
 
+        pinnacle_fair = None
+        if pinnacle_confirmation_margin is not None:
+            psh, psd, psa = row.get("PSH"), row.get("PSD"), row.get("PSA")
+            if (
+                psh is not None and psd is not None and psa is not None
+                and not (pd.isna(psh) or pd.isna(psd) or pd.isna(psa))
+            ):
+                pinnacle_raw = {
+                    "H": 1.0 / float(psh),
+                    "D": 1.0 / float(psd),
+                    "A": 1.0 / float(psa),
+                }
+                pinnacle_total = sum(pinnacle_raw.values())
+                pinnacle_fair = {o: pinnacle_raw[o] / pinnacle_total for o in pinnacle_raw}
+
         league = row.get("league", "")
         t = (league_thresholds or {}).get(league, threshold)
 
@@ -383,6 +399,11 @@ def _build_prediction_rows(
         for o in ["H", "D", "A"]:
             edge = probs[o] - fair[o]
             b365_odds = {"H": b365h, "D": b365d, "A": b365a}[o]
+            if (
+                pinnacle_fair is not None
+                and pinnacle_fair[o] <= fair[o] + pinnacle_confirmation_margin
+            ):
+                continue
             if is_execution_eligible(
                 edge=edge,
                 threshold=t,
