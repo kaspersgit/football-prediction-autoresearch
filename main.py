@@ -34,6 +34,7 @@ from src.config import (
     DEFAULT_MAX_EDGE,
     DEFAULT_MAX_ODDS,
     DEFAULT_MAX_OVERROUND,
+    DEFAULT_PINNACLE_CONFIRMATION_MARGIN,
     EXCLUDED_BETTING_LEAGUES,
     LEAGUE_NAMES,
     PRODUCTION_LEAGUES,
@@ -113,6 +114,10 @@ def _parse_kelly() -> float:
 
 def _parse_per_league() -> bool:
     return "--per-league" in sys.argv
+
+
+def _parse_pinnacle_filter() -> bool:
+    return "--pinnacle-filter" in sys.argv
 
 
 def _parse_binary() -> bool:
@@ -709,6 +714,7 @@ def _run_backtest():
     max_odds         = _parse_max_odds()
     max_edge         = _parse_max_edge()
     min_season_games = _parse_min_season_games()
+    pinnacle_margin  = DEFAULT_PINNACLE_CONFIRMATION_MARGIN if _parse_pinnacle_filter() else None
 
     print("Loading data...")
     df = load_all_data()
@@ -781,6 +787,7 @@ def _run_backtest():
                     max_edge=max_edge,
                     min_season_games=min_season_games,
                     max_overround=DEFAULT_MAX_OVERROUND,
+                    pinnacle_confirmation_margin=pinnacle_margin,
                 )
                 season_chunks.append(lg_bets)
 
@@ -815,6 +822,7 @@ def _run_backtest():
             max_edge=max_edge,
             min_season_games=min_season_games,
             max_overround=DEFAULT_MAX_OVERROUND,
+            pinnacle_confirmation_margin=pinnacle_margin,
         )
         final_threshold_map = {lg: threshold for lg in SUPPORTED_LEAGUES}
 
