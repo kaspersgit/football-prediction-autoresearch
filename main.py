@@ -247,6 +247,7 @@ def _run_settle_shadow() -> None:
 def _run_predict():
     from src.data.download import download_fixtures
     from src.data.loader import load_fixtures
+    from src.data.pinnacle_odds import attach_pinnacle_odds
 
     threshold = _parse_threshold()
     fetched_at = pd.Timestamp.now(tz="UTC")
@@ -276,6 +277,7 @@ def _run_predict():
 
     print("Loading fixtures...")
     fixtures_df = load_fixtures()
+    fixtures_df = attach_pinnacle_odds(fixtures_df)
     print(f"Found {len(fixtures_df)} upcoming fixtures in tracked leagues")
 
     print("Building fixture features...")
