@@ -98,6 +98,7 @@ def compute_value_betting_results(
     max_edge: float = float("inf"),
     min_season_games: int = 0,
     max_overround: float = float("inf"),
+    pinnacle_confirmation_margin: float | None = None,
 ) -> pd.DataFrame:
     """
     Multi-outcome value betting.
@@ -119,6 +120,10 @@ def compute_value_betting_results(
 
     threshold:   minimum edge over fair prob required to place a bet.
     max_edge:    maximum allowed edge; bets with edge > max_edge are skipped (caps extreme predictions).
+    pinnacle_confirmation_margin: if set, only place a bet when the historical Pinnacle
+                      fair probability (PSCH/PSCD/PSCA) exceeds the B365 fair probability
+                      by more than this margin. None (default) disables the check.
+                      Rows with null Pinnacle columns are never vetoed.
     min_season_games: skip bets where either team has played fewer than this many games in the
                       current season (in that league). Requires df to have 'season' and 'league' cols.
                       Default 0 = no filter. Recommended value: 4 (skips first ~4 gameweeks).
@@ -171,6 +176,21 @@ def compute_value_betting_results(
         # Vig-corrected fair probabilities (sum to 1.0)
         fair = {outcome: raw[outcome] / total_implied for outcome in raw}
 
+        pinnacle_fair = None
+        if pinnacle_confirmation_margin is not None:
+            psch, pscd, psca = row.get("PSCH"), row.get("PSCD"), row.get("PSCA")
+            if (
+                psch is not None and pscd is not None and psca is not None
+                and not (pd.isna(psch) or pd.isna(pscd) or pd.isna(psca))
+            ):
+                pinnacle_raw = {
+                    "H": 1.0 / float(psch),
+                    "D": 1.0 / float(pscd),
+                    "A": 1.0 / float(psca),
+                }
+                pinnacle_total = sum(pinnacle_raw.values())
+                pinnacle_fair = {o: pinnacle_raw[o] / pinnacle_total for o in pinnacle_raw}
+
         for j, outcome in enumerate(outcomes):
             if skip_outcomes and outcome in skip_outcomes:
                 continue
@@ -184,6 +204,12 @@ def compute_value_betting_results(
 
             edge = model_prob - baseline_prob
             if edge <= threshold or edge > max_edge:
+                continue
+
+            if (
+                pinnacle_fair is not None
+                and pinnacle_fair[outcome] <= fair[outcome] + pinnacle_confirmation_margin
+            ):
                 continue
 
             # Execution odds: best available (CustomMax) or fall back to B365

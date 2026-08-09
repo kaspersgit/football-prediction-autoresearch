@@ -20,6 +20,7 @@ PRODUCTION_LEAGUES = frozenset({"E0", "N1", "P1", "G1"})
 DEFAULT_MAX_ODDS = 5.0
 DEFAULT_MAX_EDGE = 0.20
 DEFAULT_MAX_OVERROUND = 0.07
+DEFAULT_PINNACLE_CONFIRMATION_MARGIN = 0.015
 
 # Compatibility helper for APIs expressed as a skip set. Evaluation must not use
 # this value; it is derived solely from the production allowlist.
