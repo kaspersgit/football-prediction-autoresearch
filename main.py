@@ -126,6 +126,13 @@ def _parse_pinnacle_odds_cols() -> tuple[str, str, str]:
     return ("PSCH", "PSCD", "PSCA")
 
 
+def _parse_all_leagues_production() -> bool:
+    """Diagnostic only: apply the production per-league threshold+cap methodology to
+    every supported league instead of just PRODUCTION_LEAGUES, to screen league
+    candidates on equal footing. Never changes what main.py --predict bets on."""
+    return "--all-leagues-production" in sys.argv
+
+
 def _parse_binary() -> bool:
     return "--binary" in sys.argv
 
@@ -722,6 +729,9 @@ def _run_backtest():
     min_season_games = _parse_min_season_games()
     pinnacle_margin  = DEFAULT_PINNACLE_CONFIRMATION_MARGIN if _parse_pinnacle_filter() else None
     pinnacle_odds_cols = _parse_pinnacle_odds_cols()
+    production_league_set = (
+        set(SUPPORTED_LEAGUES) if _parse_all_leagues_production() else set(PRODUCTION_LEAGUES)
+    )
 
     print("Loading data...")
     df = load_all_data()
@@ -775,7 +785,7 @@ def _run_backtest():
             leagues_in_season = set(sr["eval_df"]["league"].unique())
             season_chunks: list[pd.DataFrame] = []
             for league in SUPPORTED_LEAGUES:
-                if league not in PRODUCTION_LEAGUES:
+                if league not in production_league_set:
                     continue
                 if league not in leagues_in_season:
                     continue
@@ -890,8 +900,12 @@ def _run_backtest():
         production_roi = compute_roi(production_results)
         print(
             f"Production portfolio: {len(production_results)} bets | "
-            f"ROI {production_roi:+.2f}% | leagues {', '.join(sorted(PRODUCTION_LEAGUES))}"
+            f"ROI {production_roi:+.2f}% | leagues {', '.join(sorted(production_league_set))}"
         )
+        print("Production portfolio per league:")
+        for lg, lg_df in production_results.groupby("league"):
+            lg_roi = lg_df["profit"].sum() / lg_df["stake"].sum() * 100
+            print(f"  {LEAGUE_NAMES.get(lg, lg):<12} {len(lg_df):>5} bets  {lg_roi:+7.2f}%")
         _save_profit_chart(production_results, Path("reports/profit_curve.png"))
 
     evaluation_path, bets_path = save_bet_artifacts(evaluation_results, production_results)
