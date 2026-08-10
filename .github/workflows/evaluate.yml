@@ -53,7 +53,7 @@ jobs:
           EOF
 
       - name: Run backtest
-        run: uv run python main.py --per-league --threshold 0.0 --update
+        run: uv run python main.py --per-league --threshold 0.0 --pinnacle-filter --update
 
       - name: Commit updated evaluation artifacts
         run: |
