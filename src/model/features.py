@@ -120,11 +120,11 @@ def _compute_market_bias(df: pd.DataFrame, window: int = MARKET_BIAS_WINDOW) -> 
 
     df = df.merge(
         bias_df.rename(columns={"team": "HomeTeam", "market_bias": "home_market_bias"}),
-        on=["Date", "HomeTeam"], how="left",
+        on=["Date", "HomeTeam"], how="left", validate="many_to_one",
     )
     df = df.merge(
         bias_df.rename(columns={"team": "AwayTeam", "market_bias": "away_market_bias"}),
-        on=["Date", "AwayTeam"], how="left",
+        on=["Date", "AwayTeam"], how="left", validate="many_to_one",
     )
     return df
 
@@ -274,11 +274,11 @@ def _compute_draw_rates(df: pd.DataFrame, window: int = WINDOW) -> pd.DataFrame:
     df = df.sort_values("Date").reset_index(drop=True)
     df = df.merge(
         dr_df.rename(columns={"team": "HomeTeam", "draw_rate": "home_draw_rate"}),
-        on=["Date", "HomeTeam"], how="left",
+        on=["Date", "HomeTeam"], how="left", validate="many_to_one",
     )
     df = df.merge(
         dr_df.rename(columns={"team": "AwayTeam", "draw_rate": "away_draw_rate"}),
-        on=["Date", "AwayTeam"], how="left",
+        on=["Date", "AwayTeam"], how="left", validate="many_to_one",
     )
     return df
 
@@ -312,20 +312,20 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     merged = df.merge(
         stats.rename(columns={"team": "HomeTeam", "form_pts": "home_form_pts",
                                "form_gf": "home_form_gf", "form_ga": "home_form_ga"}),
-        on=["Date", "HomeTeam"], how="left",
+        on=["Date", "HomeTeam"], how="left", validate="many_to_one",
     )
     merged = merged.merge(
         stats.rename(columns={"team": "AwayTeam", "form_pts": "away_form_pts",
                                "form_gf": "away_form_gf", "form_ga": "away_form_ga"}),
-        on=["Date", "AwayTeam"], how="left",
+        on=["Date", "AwayTeam"], how="left", validate="many_to_one",
     )
     merged = merged.merge(
         dc.rename(columns={"team": "HomeTeam", "attack": "home_attack", "defense": "home_defense"}),
-        on=["Date", "HomeTeam"], how="left",
+        on=["Date", "HomeTeam"], how="left", validate="many_to_one",
     )
     merged = merged.merge(
         dc.rename(columns={"team": "AwayTeam", "attack": "away_attack", "defense": "away_defense"}),
-        on=["Date", "AwayTeam"], how="left",
+        on=["Date", "AwayTeam"], how="left", validate="many_to_one",
     )
     total_imp = 1/merged["B365H"] + 1/merged["B365D"] + 1/merged["B365A"]
     merged["market_h"] = (1/merged["B365H"]) / total_imp
