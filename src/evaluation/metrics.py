@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 
 _ODDS_COL = {"H": "B365H", "D": "B365D", "A": "B365A"}
@@ -124,7 +126,8 @@ def compute_value_betting_results(
     pinnacle_confirmation_margin: if set, only place a bet when the Pinnacle fair
                       probability (from pinnacle_odds_cols) exceeds the B365 fair
                       probability by more than this margin. None (default) disables
-                      the check. Rows with null Pinnacle columns are never vetoed.
+                      the check entirely. When set, rows with null/missing Pinnacle
+                      columns are vetoed (never bet without Pinnacle confirmation).
     pinnacle_odds_cols: which 1X2 odds columns to read for the confirmation check.
                       Defaults to ("PSCH", "PSCD", "PSCA") — Pinnacle's closing odds,
                       as used in the original historical validation. Pass
@@ -214,9 +217,9 @@ def compute_value_betting_results(
             if edge <= threshold or edge > max_edge:
                 continue
 
-            if (
-                pinnacle_fair is not None
-                and pinnacle_fair[outcome] <= fair[outcome] + pinnacle_confirmation_margin
+            if pinnacle_confirmation_margin is not None and (
+                pinnacle_fair is None
+                or pinnacle_fair[outcome] <= fair[outcome] + pinnacle_confirmation_margin
             ):
                 continue
 
@@ -241,6 +244,7 @@ def compute_value_betting_results(
                 "HomeTeam": row.get("HomeTeam", ""),
                 "AwayTeam": row.get("AwayTeam", ""),
                 "league": row.get("league", ""),
+                "season": row.get("season", ""),
                 "y_true": y_true,
                 "y_pred": outcome,
                 "odds": odds,
@@ -252,7 +256,7 @@ def compute_value_betting_results(
             })
 
     if not bet_rows:
-        return pd.DataFrame(columns=["Date", "HomeTeam", "AwayTeam", "league",
+        return pd.DataFrame(columns=["Date", "HomeTeam", "AwayTeam", "league", "season",
                                      "y_true", "y_pred", "odds", "model_prob",
                                      "implied_prob", "edge", "stake", "profit",
                                      "cumulative_profit"])
@@ -278,3 +282,34 @@ def compute_stability(results: pd.DataFrame) -> float:
     if std == 0:
         return 0.0
     return float(profits.mean() / std)
+
+
+def compute_season_breadth(results: pd.DataFrame, min_fraction: float = 0.75) -> dict:
+    """
+    Breadth-of-improvement check: is ROI positive in most walk-forward test seasons,
+    not just in the pooled total (where one strong season can mask several weak ones)?
+
+    min_fraction: fraction of seasons that must be individually profitable to "pass"
+    (default 0.75 -> 3 of 4 seasons). Rounded up, so it never requires zero seasons.
+
+    Returns a dict with per-season ROI, the profitable count/total, and a pass/fail bool.
+    Empty or season-less input returns n_seasons=0 and passes=False.
+    """
+    if results.empty or "season" not in results.columns:
+        return {"per_season_roi": {}, "n_seasons": 0, "n_profitable": 0, "passes": False}
+
+    per_season_roi = {}
+    for season, group in results.groupby("season"):
+        per_season_roi[season] = compute_roi(group)
+
+    n_seasons = len(per_season_roi)
+    n_profitable = sum(1 for roi in per_season_roi.values() if roi > 0)
+    required = max(1, math.ceil(n_seasons * min_fraction))
+
+    return {
+        "per_season_roi": per_season_roi,
+        "n_seasons": n_seasons,
+        "n_profitable": n_profitable,
+        "required": required,
+        "passes": n_profitable >= required,
+    }

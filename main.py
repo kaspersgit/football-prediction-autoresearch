@@ -45,7 +45,12 @@ from src.data.download import update_current_season
 from src.data.loader import load_all_data
 from src.evaluation.artifacts import save_bet_artifacts
 from src.evaluation.eligibility import is_execution_eligible
-from src.evaluation.metrics import compute_roi, compute_stability, compute_value_betting_results
+from src.evaluation.metrics import (
+    compute_roi,
+    compute_season_breadth,
+    compute_stability,
+    compute_value_betting_results,
+)
 from src.evaluation.report import generate_report
 from src.evaluation.shadow import (
     PREDICTIONS_PATH,
@@ -420,9 +425,9 @@ def _build_prediction_rows(
         for o in ["H", "D", "A"]:
             edge = probs[o] - fair[o]
             b365_odds = {"H": b365h, "D": b365d, "A": b365a}[o]
-            if (
-                pinnacle_fair is not None
-                and pinnacle_fair[o] <= fair[o] + pinnacle_confirmation_margin
+            if pinnacle_confirmation_margin is not None and (
+                pinnacle_fair is None
+                or pinnacle_fair[o] <= fair[o] + pinnacle_confirmation_margin
             ):
                 continue
             if is_execution_eligible(
@@ -899,6 +904,18 @@ def _run_backtest():
     _thresholds_path.parent.mkdir(parents=True, exist_ok=True)
     _thresholds_path.write_text(_json.dumps(final_threshold_map, indent=2))
     print(f"League thresholds saved to {_thresholds_path}")
+
+    breadth = compute_season_breadth(evaluation_results)
+    if breadth["n_seasons"]:
+        print("\n=== SEASON BREADTH ===")
+        for season, season_roi in sorted(breadth["per_season_roi"].items()):
+            print(f"  {season}: {season_roi:+.2f}%")
+        verdict = "PASS" if breadth["passes"] else "FAIL"
+        print(
+            f"Seasons profitable: {breadth['n_profitable']}/{breadth['n_seasons']} "
+            f"(need >= {breadth['required']}) — {verdict}"
+        )
+        print("(consistency across seasons; guards against one strong season masking weak ones)")
 
     _print_edge_analysis(eval_df, results["y_proba"], results["classes"], threshold, max_odds)
     _print_split_analysis(evaluation_results, eval_df)

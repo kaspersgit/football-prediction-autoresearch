@@ -253,7 +253,7 @@ def test_build_prediction_rows_keeps_bet_when_pinnacle_agrees():
     assert [o for o, _ in rows[0]["ValueBets"]] == ["H"]
 
 
-def test_build_prediction_rows_skips_pinnacle_check_when_odds_are_null():
+def test_build_prediction_rows_vetoes_bet_when_pinnacle_odds_are_null():
     fixture_features = _make_pinnacle_fixture(float("nan"), float("nan"), float("nan"))
 
     rows = main._build_prediction_rows(
@@ -264,7 +264,7 @@ def test_build_prediction_rows_skips_pinnacle_check_when_odds_are_null():
         pinnacle_confirmation_margin=0.015,
     )
 
-    assert [o for o, _ in rows[0]["ValueBets"]] == ["H"]
+    assert rows[0]["ValueBets"] == []
 
 
 def test_build_prediction_rows_pinnacle_check_is_off_by_default():

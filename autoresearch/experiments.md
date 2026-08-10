@@ -2778,3 +2778,107 @@ Stability: 0.0069 → 0.1029. t-statistic: 0.32 → 2.81 (crosses the `|t| > 2` 
 **Analysis:** The filter's mechanism survives the transition from closing to opening odds — direction and magnitude hold up (+12.08pp over baseline, still above `EVALUATION.md`'s "+5pp = meaningful" bar), but the sample shrinks further (745→303) and t-stat drops below the significance screen (2.81→1.42). This is a moderate-confidence result, not a decisive one. The all-11-league screen disproves an earlier, cruder all-market (threshold=0, no caps) diagnostic that had shown France improving by +14.95pp to +5.47% — under the real per-league-threshold+cap methodology France is flat (−0.21%), not a standout. Belgium and Scotland show large ROI (+75–78%) on only 20–28 bets each — per `EVALUATION.md`'s own noise-interpretation guidance, this pattern (huge swing, thin sample) reads as noise, not signal, and was not added. Germany, Italy, Spain, and Turkey are clear, well-sampled negatives.
 
 **Decision:** KEPT AND MADE LIVE, per explicit user direction after reviewing the above. `PRODUCTION_LEAGUES` changed to `{E0, N1, G1, F1}`: Portugal dropped (flat/slightly negative under both odds proxies); France added despite its flat opening-odds result, on the user's explicit reasoning that live Predict runs close to kickoff should trend closer to Pinnacle's closing line than this worst-case test — a business judgment this iteration does not itself validate. `pinnacle_confirmation_margin` is now wired into all three live call sites in `_run_predict()`. Follow-up queued in `current.md`: monitor how close live-fetched odds actually land to closing-line behavior once enough live runs accumulate, and revisit France's inclusion if they don't.
+
+---
+
+## EXP-20260810-003: Team-level historical Pinnacle opening→closing market movement as a feature — REVERTED
+
+**Date:** 2026-08-10
+**Hypothesis:** Active hypothesis 2 in `current.md` — test opening-to-closing market movement "without introducing inference-only features." A live snapshot can never observe a true closing line, so the current match's own future movement is fundamentally uncomputable at prediction time; instead this iteration used each team's own **past** matches' realized Pinnacle opening→closing fair-probability delta (rolling mean, shift(1), window=20 — mirroring `_compute_market_bias`/`_get_current_market_bias` exactly), on the theory that a team's historical tendency for the market to move toward or away from it between open and close might itself be a genuinely live-computable signal (sharp money patterns, public-team bias, etc.).
+**Files changed:**
+- `src/model/features.py`: added `_compute_market_movement`/`_get_current_market_movement`, using `PSH/PSD/PSA` (opening) and `PSCH/PSCD/PSCA` (closing); added `home_market_movement`/`away_market_movement` to `FEATURE_COLS`.
+- `tests/test_features.py`: extended fixture to include valid Pinnacle odds (previously had none, since `_make_df()` predates any Pinnacle-derived feature) and added dedicated tests for the new feature and its null-safety.
+
+All changes were reverted after evaluation (`git revert 693f719`); none remain in the tree.
+
+**Pre-check before implementing:** 94.8% of historical rows have valid `PSH/PSD/PSA` + `PSCH/PSCD/PSCA` across all 11 leagues/seasons — ruled out a data-availability concern before spending engineering effort.
+
+**Baseline check:** immediately before this iteration, `dev` pulled in another session's merge-safety fix (`validate="many_to_one"` guards, `6b32b42`) and a new season-breadth diagnostic (`e6ed275`). A fresh feature-off baseline was **not** re-run before this iteration's first result was recorded below — a real process gap, corrected afterward (see "Correction" at the end of this entry, which supersedes some claims here).
+
+**Results (with the feature, `uv run python main.py --per-league --threshold 0.0`):**
+- All-market accuracy: 0.525 (vs. stale baseline 0.518)
+- All-market ROI: **−5.69%** (vs. stale baseline −4.35%)
+- Stability: **−0.0381** (vs. −0.0290)
+- t-statistic: **−3.99** (vs. −2.76)
+- Bets: 11,009 / 11,386 (96.7%)
+- Season breadth (new diagnostic): 0/4 seasons profitable (2223 −4.82%, 2324 −9.39%, 2425 −1.83%, 2526 −7.77%) — need ≥3, FAIL
+- Production portfolio (current leagues E0/N1/G1/F1, filter off): 2,533 bets, −1.91% ROI. England +1.62%, France −6.56%, Greece −0.93%, Netherlands −2.63%.
+
+**Analysis (as originally written — see correction below for what actually holds up):** Negative across every metric that matters — all-market ROI, stability, t-stat all moved the wrong way, and the season-breadth check (0/4) shows this isn't a one-bad-season artifact, it's uniformly bad. Production-portfolio England's collapse from a consistently strong league to barely positive is the clearest single tell that the feature is actively hurting the model rather than merely failing to help.
+**Decision:** REVERTED. `git revert 693f719` — all code and test changes rolled back cleanly, full suite green (123 passed) on the reverted tree. Active hypothesis 2 is cleared from the queue in `current.md`.
+
+**Correction (same day, requested by user after the fact):** the "baseline caveat" above was investigated properly by actually running the missing feature-off baseline on the current codebase, rather than assuming. Result: the clean baseline reproduces the stale `EXP-20260809-001` numbers **bit-for-bit** (accuracy 0.518, ROI −4.35%, stability −0.0290, t-stat −2.76, bets 9,096/9,906) — none of the concurrently-landed code (merge-safety fix, league re-selection, season-breadth tool) changed the all-market backtest at all. So the feature-vs-baseline comparison was in fact clean; the earlier confound worry was overstated.
+
+However, two specific claims in the original analysis above were **wrong**, not just under-qualified:
+1. **Season breadth is not distinguishing evidence.** The clean baseline *also* fails season breadth (0/3 profitable — every evaluated season is already net-negative in this diagnostic, feature or not). Citing "0/4 FAIL" as a sign specific to the feature was incorrect; the whole all-market diagnostic already looks like this regardless.
+2. **The England comparison mixed incompatible methodologies.** "The strongest performer in every prior test this session (+9%–18%)" referred to `EXP-20260810-002`'s *Pinnacle-filter-on* production screen — a different methodology (confirmation veto active) than this plain filter-off run. The correct filter-off baseline for England is **+0.72%**, not +9–18%. Comparing filter-off-with-feature (+1.62%) against filter-off-baseline (+0.72%), England actually **improved** with the feature — it did not collapse.
+
+**What actually holds up**, comparing clean baseline vs. feature (both filter-off, same methodology):
+
+| League | Baseline | With feature | Delta |
+|---|---:|---:|---:|
+| England | +0.72% | +1.62% | +0.90pp (better) |
+| France | −7.62% | −6.56% | +1.06pp (better) |
+| Greece | +1.09% | −0.93% | −2.02pp (worse) |
+| Netherlands | +4.55% | −2.63% | −7.18pp (worse) |
+| **Total** | **+0.35%** | **−1.91%** | **−2.26pp (worse)** |
+
+Production portfolio ROI moved from +0.35% to −1.91%, driven by Netherlands and Greece flipping negative, partially offset by England and France improving. Combined with all-market ROI/stability/t-stat all being genuinely worse (a clean, unconfounded comparison), **the REVERT decision still holds** — but on real evidence that the total production portfolio got worse, not on the two specific claims (uniquely-failing season breadth, England's collapse) that turned out to be incorrect. Those claims are retracted; this correction is the accurate record.
+
+---
+
+## EXP-20260810-004: Veto bets on missing Pinnacle data; switch reference methodology to closing odds — KEPT AND LIVE
+
+**Date:** 2026-08-10
+**Hypothesis:** Per explicit user direction, the Pinnacle-confirmation filter's null-handling was inverted: previously, a row with missing/invalid Pinnacle odds skipped the check and let the bet through on B365-edge alone (a data gap never blocked an otherwise-good bet); now, missing Pinnacle data vetoes the bet — the filter requires actual confirmation to place any bet, not just "confirmation or absence of contradiction."
+
+**Files changed:**
+- `src/evaluation/metrics.py` (`compute_value_betting_results`): `if pinnacle_confirmation_margin is not None and (pinnacle_fair is None or pinnacle_fair[outcome] <= fair[outcome] + margin): continue` — previously only vetoed on disagreement, now also vetoes on missing data.
+- `main.py` (`_build_prediction_rows`): identical inversion, live path.
+- `tests/test_metrics.py`, `tests/test_shadow_cli.py`: flipped the "skipped when null" tests to "vetoes when null."
+
+**Discovery made while testing this — a football-data.co.uk archive gap:** re-running with `--pinnacle-filter-opening` (opening odds) first showed a drastic bet drop (301→80) and a per-season breakdown dominated by stale seasons (75/80 bets from 2023/24–2024/25, only 5 from 2025/26). Investigation found Pinnacle-odds coverage (both `PSH/PSD/PSA` **and** `PSCH/PSCD/PSCA`) in football-data.co.uk's historical archive drops to a flat **0% for all four production leagues from mid-January 2026 onward** (E0 last full date 2026-01-08, F1 2026-01-04, N1 2026-01-11, G1 declining from 2025-11-01) — a hard cutoff, not gradual lag, and not resolved as of this run (2026-08-10, ~7 months later). This is an archive/vendor gap, not a live-data problem: live Pinnacle odds come from The Odds API independently, fetched fresh at prediction time, and are unaffected by football-data.co.uk's backfill. The gap only limits how much of the current season can be used as backtest evidence for the filter.
+
+Given that, and given closing odds don't behave meaningfully differently from opening odds with respect to this specific gap (same coverage collapse, same dates), the user chose to switch the **reference/backtest methodology from opening-odds back to closing-odds** (`PSCH/PSCD/PSCA`) — explicitly accepting this is optimistic relative to what live inference can ever observe (a true closing line only exists after kickoff), with the already-queued follow-up (comparing live-fetched odds to closing-line behavior over time) intended to eventually quantify that gap empirically.
+
+**Command:** `uv run python main.py --per-league --threshold 0.0 --pinnacle-filter` (closing odds, veto-on-missing).
+
+**Results (production portfolio, current leagues E0/N1/G1/F1):**
+
+| | Bets | ROI |
+|---|---:|---:|
+| England | 175 | +8.16% |
+| France | 106 | +24.97% |
+| Greece | 87 | +9.95% |
+| Netherlands | 171 | +41.79% |
+| **Total** | **539** | **+22.42%** |
+
+Stability: 0.1475. t-statistic: **+3.42** (crosses the `|t| > 2` significance screen).
+
+**Per-season breakdown** (bucketed from `Date`, Aug–Jul boundaries):
+
+| Season | Bets | ROI |
+|---|---:|---:|
+| 2023/24 | 328 | +24.58% |
+| 2024/25 | 168 | +19.40% |
+| 2025/26 (truncated by the archive gap at mid-January) | 43 | +17.81% |
+
+**All 3 seasons profitable, with strikingly consistent magnitude (17.8–24.6% ROI each)** — including the truncated current season, despite its much smaller sample. This is the strongest season-breadth result of any Pinnacle-filter variant tested this session (compare: the reverted opening-odds veto run had its 2025/26 slice reduced to 5 bets dominated by a single outlier; this run's 43 bets are far more representative even though still smaller than a full season would give).
+
+**Analysis:** Requiring actual Pinnacle confirmation (rather than treating missing data as a pass) produces a smaller but meaningfully higher-quality bet set than the prior "skip when missing" behavior — 539 bets at +22.42% vs. the old logic's various results in the +13–15% range on larger, noisier samples. Every production league is solidly positive, led by Netherlands (+41.79%) and France (+24.97%, notable since France was flat or negative under every prior opening-odds test — closing-odds coverage evidently gave a materially different, more favorable read for that league specifically). England's 2025/26 slice shows −71.43% on only 7 bets — a small-sample outlier, not weighted heavily given the season's overall positive result once other leagues are included.
+**Decision:** KEPT AND MADE LIVE. `pinnacle_confirmation_margin` remains wired into all three live call sites in `_run_predict()` (unchanged from `EXP-20260810-002`) — the null-handling inversion applies automatically since it's in the shared `compute_value_betting_results`/`_build_prediction_rows` logic. `reports/backtest_bets.csv` regenerated with this run's numbers as the new historical-context baseline for the live predictions page.
+
+**Follow-up queued in `current.md`:** keep an eye on whether football-data.co.uk's Pinnacle-odds coverage resumes for future seasons (the mid-January 2026 cutoff may or may not be permanent), and continue tracking how closely live-fetched Odds-API odds actually behave like historical closing lines — this run's headline number is explicitly optimistic pending that empirical check.
+
+## EXP-20260810-005: Fix walk-forward test-season selection silently including an in-progress season — KEPT
+
+**Date:** 2026-08-10
+**Hypothesis:** The user noticed the season breadth in `EXP-20260810-004` covered only 3 seasons (2023/24, 2024/25, 2025/26) despite `TEST_SEASONS = 4`, and asked why. Root cause: `train_walkforward`/`train_walkforward_monthly`/`split_by_season` all picked their trailing test-season window from `sorted(df["season"].unique())`, with no floor on how many rows a "season" needs. Now that 2026/27 fixtures have started appearing (11 rows so far), that season was silently entering the trailing-4 window, displacing 2022/23 and contributing a near-empty, unrepresentative slice.
+
+**Fix:** Added `_full_seasons(df)` (`MIN_FULL_SEASON_ROWS = 1000`, well below a full season's ~3400+ rows and well above the 11-row 2026/27 sliver) to filter test-season candidates to genuinely completed seasons. Set `TEST_SEASONS = 3` explicitly, per the user's stated preference ("I do think 3 full seasons is enough") — this makes "evaluate on 3 full seasons" a deliberate choice rather than an accident of when the code happens to run. Training data (`train_seasons` inside the walk-forward loop) still includes all seasons before the test season, in-progress ones included — only *test*-season selection is restricted to completed seasons.
+
+**Verification:** Re-ran `uv run python main.py --per-league --threshold 0.0 --pinnacle-filter` end to end. Production portfolio result is bit-for-bit identical to `EXP-20260810-004`: 539 bets, +22.42% ROI, same per-league split (England 175/+8.16%, France 106/+24.97%, Greece 87/+9.95%, Netherlands 171/+41.79%), same per-season breakdown (2324: 328/+24.58%, 2425: 168/+19.40%, 2526: 43/+17.81%). `reports/backtest_bets.csv` is unchanged (no diff) — confirms 2022/23 was never actually part of the effective window before this fix, so nothing about the *current* production numbers changes; this only removes the risk of a future partial season (2027/28, etc.) silently repeating the same displacement. Bonus: the all-market season-breadth diagnostic, which failed 0/3 at baseline since `EXP-20260810-003`, now reads **3/3 PASS** with the corrected season set (+4.40%, +9.04%, +4.10%) — the earlier failure was partly an artifact of the same bug diluting the test window with an unrepresentative season.
+
+**Files changed:** `src/model/train.py` (`_full_seasons`, `MIN_FULL_SEASON_ROWS`, `TEST_SEASONS = 3`), `tests/test_train.py` (new).
+
+**Decision:** KEPT. Full test suite (125 tests) passes. Committed as `314d870`.
