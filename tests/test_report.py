@@ -39,6 +39,45 @@ def test_generate_report_creates_html(tmp_path):
     assert "+0.85" in content
 
 
+def test_report_embeds_production_bets_as_a_separate_toggleable_dataset(tmp_path):
+    """The 'Production config' dashboard toggle must read from the actual production
+    portfolio (per-league thresholds + Pinnacle filter), not the all-market bets."""
+    all_market = _make_results()
+    production = _make_results().iloc[:3].copy()
+    production["league"] = "N1"
+    out = tmp_path / "report.html"
+
+    generate_report(
+        results_df=all_market,
+        accuracy=0.52,
+        roi=-3.5,
+        stability=0.12,
+        output_path=out,
+        production_results=production,
+    )
+
+    content = out.read_text()
+    assert "var PRODUCTION_BETS=" in content
+    assert content.count('"N1"') == 3
+    assert 'onclick="setMode(\'production\')"' in content
+    assert "var BACKTEST_BETS=" in content
+
+
+def test_report_without_production_results_still_renders_an_empty_production_dataset(tmp_path):
+    out = tmp_path / "report.html"
+
+    generate_report(
+        results_df=_make_results(),
+        accuracy=0.5,
+        roi=0.0,
+        stability=0.0,
+        output_path=out,
+    )
+
+    content = out.read_text()
+    assert "var PRODUCTION_BETS=[];" in content
+
+
 def test_report_enables_all_observed_leagues_and_offers_production_preset(tmp_path):
     df = _make_results().iloc[:2].copy()
     df["league"] = ["E0", "G1"]
