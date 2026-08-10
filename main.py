@@ -721,6 +721,7 @@ def _run_backtest():
     max_edge         = _parse_max_edge()
     min_season_games = _parse_min_season_games()
     pinnacle_margin  = DEFAULT_PINNACLE_CONFIRMATION_MARGIN if _parse_pinnacle_filter() else None
+    pinnacle_odds_cols = _parse_pinnacle_odds_cols()
 
     print("Loading data...")
     df = load_all_data()
@@ -794,6 +795,7 @@ def _run_backtest():
                     min_season_games=min_season_games,
                     max_overround=DEFAULT_MAX_OVERROUND,
                     pinnacle_confirmation_margin=pinnacle_margin,
+                    pinnacle_odds_cols=pinnacle_odds_cols,
                 )
                 season_chunks.append(lg_bets)
 
@@ -829,6 +831,7 @@ def _run_backtest():
             min_season_games=min_season_games,
             max_overround=DEFAULT_MAX_OVERROUND,
             pinnacle_confirmation_margin=pinnacle_margin,
+            pinnacle_odds_cols=pinnacle_odds_cols,
         )
         final_threshold_map = {lg: threshold for lg in SUPPORTED_LEAGUES}
 
@@ -847,6 +850,7 @@ def _run_backtest():
         min_season_games=min_season_games,
         max_overround=DEFAULT_MAX_OVERROUND,
         pinnacle_confirmation_margin=pinnacle_margin,
+        pinnacle_odds_cols=pinnacle_odds_cols,
     )
 
     roi = compute_roi(evaluation_results) if not evaluation_results.empty else float("nan")
