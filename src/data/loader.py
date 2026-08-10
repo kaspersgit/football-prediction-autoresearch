@@ -7,7 +7,7 @@ from src.config import LEAGUE_NAMES
 RAW_DIR = Path("data/raw")
 
 REQUIRED_COLS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "B365H", "B365D", "B365A"]
-_OPTIONAL_COLS = ["PSCH", "PSCD", "PSCA", "HST", "AST"]  # Pinnacle closing odds + shots on target
+_OPTIONAL_COLS = ["PSH", "PSD", "PSA", "PSCH", "PSCD", "PSCA", "HST", "AST"]  # Pinnacle opening/closing odds + shots on target
 
 # All non-Betfair bookmaker columns used for CustomMax computation (BFE* excluded)
 _BK_COLS_H = ["B365H", "BFDH", "BMGMH", "BVH", "BWH", "CLH", "LBH", "PSH", "WHH", "VCH", "SJH", "IWH", "GBH", "SBH"]
