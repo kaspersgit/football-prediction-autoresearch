@@ -3,11 +3,9 @@ import pandas as pd
 WINDOW = 5
 DC_SPAN = 10
 MARKET_BIAS_WINDOW = 20
-MARKET_MOVEMENT_WINDOW = 20
 ELO_K = 30
 ELO_HOME_ADV = 100
 ELO_DEFAULT = 1500
-_PINNACLE_OPEN_CLOSE_COLS = ["PSH", "PSD", "PSA", "PSCH", "PSCD", "PSCA"]
 
 FEATURE_COLS = [
     "home_form_pts", "home_form_gf", "home_form_ga",
@@ -22,7 +20,6 @@ FEATURE_COLS = [
     "home_market_bias", "away_market_bias",
     "match_balance",
     "home_attack", "home_defense", "away_attack", "away_defense",
-    "home_market_movement", "away_market_movement",
 ]
 
 
@@ -152,81 +149,6 @@ def _get_current_market_bias(df: pd.DataFrame, window: int = MARKET_BIAS_WINDOW)
         last_n = group.tail(window)
         if len(last_n) >= window:
             result[team] = float(last_n["bias"].mean())
-    return result
-
-
-def _fair_probs_1x2(h, d, a):
-    inv_h, inv_d, inv_a = 1.0 / h, 1.0 / d, 1.0 / a
-    total = inv_h + inv_d + inv_a
-    return inv_h / total, inv_d / total, inv_a / total
-
-
-def _pinnacle_movement_records(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-team-per-match Pinnacle opening->closing fair-probability delta for that
-    team's own side (home team uses H, away team uses A). Positive = the market grew
-    more confident in this team between line-open and kickoff. Only rows with valid
-    (non-null, >1) odds on all six columns are included; the rest are silently skipped,
-    same as the confirmation filter's null-safety elsewhere in this project."""
-    if not set(_PINNACLE_OPEN_CLOSE_COLS).issubset(df.columns):
-        return pd.DataFrame(columns=["Date", "team", "movement"])
-
-    df = df.copy()
-    for c in _PINNACLE_OPEN_CLOSE_COLS:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
-    has_odds = df[_PINNACLE_OPEN_CLOSE_COLS].notna().all(axis=1) & (
-        df[_PINNACLE_OPEN_CLOSE_COLS] > 1
-    ).all(axis=1)
-
-    records = []
-    for _, row in df.loc[has_odds].iterrows():
-        oh, _, oa = _fair_probs_1x2(row["PSH"], row["PSD"], row["PSA"])
-        ch, _, ca = _fair_probs_1x2(row["PSCH"], row["PSCD"], row["PSCA"])
-        records.append({"Date": row["Date"], "team": row["HomeTeam"], "movement": ch - oh})
-        records.append({"Date": row["Date"], "team": row["AwayTeam"], "movement": ca - oa})
-    return pd.DataFrame(records, columns=["Date", "team", "movement"])
-
-
-def _compute_market_movement(df: pd.DataFrame, window: int = MARKET_MOVEMENT_WINDOW) -> pd.DataFrame:
-    """Pre-match rolling mean of each team's own historical Pinnacle opening->closing
-    market movement. Uses only each team's PAST matches (shift(1)), so it is
-    computable at live-inference time even though a live snapshot itself can never
-    observe a true closing line -- unlike the current match's own (future, unknowable)
-    movement, this is a lagged team-level tendency."""
-    df = df.sort_values("Date").reset_index(drop=True)
-    move_df = _pinnacle_movement_records(df).sort_values("Date")
-
-    if move_df.empty:
-        move_df = move_df.assign(market_movement=[])
-    else:
-        move_df = move_df.groupby("team", group_keys=True).apply(
-            lambda g: g.assign(
-                market_movement=g["movement"].shift(1).rolling(window, min_periods=window).mean()
-            )
-        )
-        if "team" not in move_df.columns:
-            move_df = move_df.reset_index(level="team")
-    move_df = move_df[["Date", "team", "market_movement"]]
-
-    df = df.merge(
-        move_df.rename(columns={"team": "HomeTeam", "market_movement": "home_market_movement"}),
-        on=["Date", "HomeTeam"], how="left", validate="many_to_one",
-    )
-    df = df.merge(
-        move_df.rename(columns={"team": "AwayTeam", "market_movement": "away_market_movement"}),
-        on=["Date", "AwayTeam"], how="left", validate="many_to_one",
-    )
-    return df
-
-
-def _get_current_market_movement(df: pd.DataFrame, window: int = MARKET_MOVEMENT_WINDOW) -> dict[str, float]:
-    """Return each team's current market-movement state (rolling mean over the last
-    `window` of their own matches that had valid Pinnacle open/close odds)."""
-    move_df = _pinnacle_movement_records(df).sort_values("Date")
-    result = {}
-    for team, group in move_df.groupby("team"):
-        last_n = group.tail(window)
-        if len(last_n) >= window:
-            result[team] = float(last_n["movement"].mean())
     return result
 
 
@@ -383,7 +305,6 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     df = _compute_h2h(df)
     df = _compute_draw_rates(df)
     df = _compute_market_bias(df)
-    df = _compute_market_movement(df)
 
     stats = _team_rolling_stats(df)
     dc = _compute_dc_ratings(df)
@@ -499,7 +420,6 @@ def build_fixture_features(
     h2h_state = _get_current_h2h_state(historical_df)
     draw_rate_state = _get_current_draw_rates(historical_df)
     market_bias_state = _get_current_market_bias(historical_df)
-    market_movement_state = _get_current_market_movement(historical_df)
     dc_state = _get_current_dc_ratings(historical_df)
 
     rows = []
@@ -542,8 +462,6 @@ def build_fixture_features(
             "away_draw_rate": draw_rate_state.get(away, float("nan")),
             "home_market_bias": market_bias_state.get(home, float("nan")),
             "away_market_bias": market_bias_state.get(away, float("nan")),
-            "home_market_movement": market_movement_state.get(home, float("nan")),
-            "away_market_movement": market_movement_state.get(away, float("nan")),
             "match_balance": 1.0 - abs((1/row["B365H"]) / total_imp - (1/row["B365A"]) / total_imp),
             "home_attack": dc_state.get(home, {}).get("attack", float("nan")),
             "home_defense": dc_state.get(home, {}).get("defense", float("nan")),
