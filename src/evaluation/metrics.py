@@ -126,7 +126,8 @@ def compute_value_betting_results(
     pinnacle_confirmation_margin: if set, only place a bet when the Pinnacle fair
                       probability (from pinnacle_odds_cols) exceeds the B365 fair
                       probability by more than this margin. None (default) disables
-                      the check. Rows with null Pinnacle columns are never vetoed.
+                      the check entirely. When set, rows with null/missing Pinnacle
+                      columns are vetoed (never bet without Pinnacle confirmation).
     pinnacle_odds_cols: which 1X2 odds columns to read for the confirmation check.
                       Defaults to ("PSCH", "PSCD", "PSCA") — Pinnacle's closing odds,
                       as used in the original historical validation. Pass
@@ -216,9 +217,9 @@ def compute_value_betting_results(
             if edge <= threshold or edge > max_edge:
                 continue
 
-            if (
-                pinnacle_fair is not None
-                and pinnacle_fair[outcome] <= fair[outcome] + pinnacle_confirmation_margin
+            if pinnacle_confirmation_margin is not None and (
+                pinnacle_fair is None
+                or pinnacle_fair[outcome] <= fair[outcome] + pinnacle_confirmation_margin
             ):
                 continue
 

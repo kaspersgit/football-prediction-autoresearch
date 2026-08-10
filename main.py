@@ -425,9 +425,9 @@ def _build_prediction_rows(
         for o in ["H", "D", "A"]:
             edge = probs[o] - fair[o]
             b365_odds = {"H": b365h, "D": b365d, "A": b365a}[o]
-            if (
-                pinnacle_fair is not None
-                and pinnacle_fair[o] <= fair[o] + pinnacle_confirmation_margin
+            if pinnacle_confirmation_margin is not None and (
+                pinnacle_fair is None
+                or pinnacle_fair[o] <= fair[o] + pinnacle_confirmation_margin
             ):
                 continue
             if is_execution_eligible(

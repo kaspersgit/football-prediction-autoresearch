@@ -125,7 +125,7 @@ def test_pinnacle_confirmation_filter_vetoes_bet_when_pinnacle_disagrees():
     assert result.empty
 
 
-def test_pinnacle_confirmation_filter_skipped_when_pinnacle_odds_are_null():
+def test_pinnacle_confirmation_filter_vetoes_bet_when_pinnacle_odds_are_null():
     matches = _make_pinnacle_row(float("nan"), float("nan"), float("nan"))
     probabilities = np.array([[0.1, 0.2, 0.7]])
     classes = np.array(["A", "D", "H"])
@@ -134,7 +134,7 @@ def test_pinnacle_confirmation_filter_skipped_when_pinnacle_odds_are_null():
         matches, probabilities, classes, pinnacle_confirmation_margin=0.015,
     )
 
-    assert result["y_pred"].tolist() == ["H"]
+    assert result.empty
 
 
 def test_pinnacle_confirmation_filter_is_off_by_default():
