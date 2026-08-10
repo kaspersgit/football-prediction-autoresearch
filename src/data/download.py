@@ -27,14 +27,43 @@ def _all_seasons(from_year: int = 2013) -> list[str]:
 SEASONS = _all_seasons()
 
 
+def _first_data_row_div(content: bytes) -> str | None:
+    """Return the 'Div' value of the first data row of a football-data.co.uk CSV,
+    or None if the content isn't a parseable CSV with that column at all."""
+    lines = content.decode("utf-8-sig", errors="replace").splitlines()
+    if len(lines) < 2:
+        return None
+    header = lines[0].split(",")
+    if not header or header[0] != "Div":
+        return None
+    first_row = lines[1].split(",")
+    return first_row[0] if first_row else None
+
+
 def download_season(league_code: str, season: str, force: bool = False) -> Path:
+    """Download one league-season CSV.
+
+    football-data.co.uk sometimes hasn't published a not-yet-started season's
+    file for a given league yet: the URL can 301-redirect to a *different*
+    league's file (observed: SP1 2627 -> P1's data), or serve an ambiguous
+    "300 Multiple Choices" HTML page saved verbatim as if it were the CSV.
+    Both would silently corrupt training data with another league's results
+    under the wrong label, so the response's own 'Div' column must match the
+    requested league code before it's trusted and written to disk.
+    """
     url = f"{BASE_URL}/{season}/{league_code}.csv"
     dest = RAW_DIR / f"{league_code}_{season}.csv"
     if dest.exists() and not force:
         return dest
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
     response = requests.get(url, timeout=30)
     response.raise_for_status()
+    div = _first_data_row_div(response.content)
+    if div != league_code:
+        raise requests.HTTPError(
+            f"{league_code} {season} not yet available "
+            f"(got Div={div!r} instead of {league_code!r}, likely not published yet)"
+        )
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(response.content)
     print(f"Downloaded {dest.name}")
     return dest
