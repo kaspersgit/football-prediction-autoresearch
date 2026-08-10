@@ -2793,7 +2793,7 @@ All changes were reverted after evaluation (`git revert 693f719`); none remain i
 
 **Pre-check before implementing:** 94.8% of historical rows have valid `PSH/PSD/PSA` + `PSCH/PSCD/PSCA` across all 11 leagues/seasons — ruled out a data-availability concern before spending engineering effort.
 
-**Baseline caveat:** immediately before this iteration, `dev` pulled in another session's merge-safety fix (`validate="many_to_one"` guards on the team-rolling-stat merges in `_build_merged`, `6b32b42`) and a new season-breadth diagnostic (`e6ed275`). This iteration's run is therefore not a perfectly isolated single-variable comparison against the stale `EXP-20260809-001` baseline (accuracy 0.518, all-market ROI −4.35%, stability −0.0290, t-stat −2.76, bets 9,096/9,906) — total test-match count shifted from 9,906 to 11,386 independent of this feature, and the test-season window shifted from 2324–2526 to 2223–2526. A fresh same-codebase baseline (feature off) was not re-run before testing the feature on, given the decisiveness of the result below; if a cleaner isolated comparison is ever needed, re-run both with and without the feature on the current `dev` HEAD.
+**Baseline check:** immediately before this iteration, `dev` pulled in another session's merge-safety fix (`validate="many_to_one"` guards, `6b32b42`) and a new season-breadth diagnostic (`e6ed275`). A fresh feature-off baseline was **not** re-run before this iteration's first result was recorded below — a real process gap, corrected afterward (see "Correction" at the end of this entry, which supersedes some claims here).
 
 **Results (with the feature, `uv run python main.py --per-league --threshold 0.0`):**
 - All-market accuracy: 0.525 (vs. stale baseline 0.518)
@@ -2801,8 +2801,26 @@ All changes were reverted after evaluation (`git revert 693f719`); none remain i
 - Stability: **−0.0381** (vs. −0.0290)
 - t-statistic: **−3.99** (vs. −2.76)
 - Bets: 11,009 / 11,386 (96.7%)
-- **Season breadth (new diagnostic): 0/4 seasons profitable** (2223 −4.82%, 2324 −9.39%, 2425 −1.83%, 2526 −7.77%) — need ≥3, clean FAIL
-- Production portfolio (current leagues E0/N1/G1/F1, filter off): 2,533 bets, **−1.91% ROI**. England — the strongest performer in every prior test this session (+9% to +18%) — collapsed to +1.62%; France −6.56%, Greece −0.93%, Netherlands −2.63%.
+- Season breadth (new diagnostic): 0/4 seasons profitable (2223 −4.82%, 2324 −9.39%, 2425 −1.83%, 2526 −7.77%) — need ≥3, FAIL
+- Production portfolio (current leagues E0/N1/G1/F1, filter off): 2,533 bets, −1.91% ROI. England +1.62%, France −6.56%, Greece −0.93%, Netherlands −2.63%.
 
-**Analysis:** Negative across every metric that matters — all-market ROI, stability, t-stat all moved the wrong way, and the season-breadth check (0/4) shows this isn't a one-bad-season artifact, it's uniformly bad. Production-portfolio England's collapse from a consistently strong league to barely positive is the clearest single tell that the feature is actively hurting the model rather than merely failing to help. Despite the baseline-confound caveat above, the magnitude and multi-metric consistency of the regression make it implausible that the concurrent merge-safety fix alone explains this — a duplicate-key merge bug fix would be expected to produce a modest correction, not a multi-point ROI swing across all-market, production, and every test season simultaneously. Plausible mechanism: a lagged 20-game team-level average is a fairly coarse, slow-moving signal, and may simply be too noisy/thin relative to the well-established features (Elo, form, market_bias) already capturing similar "team tendency vs. market" information — consistent with `EVALUATION.md`'s general note that new features must supply information not already encoded in existing signals to help.
+**Analysis (as originally written — see correction below for what actually holds up):** Negative across every metric that matters — all-market ROI, stability, t-stat all moved the wrong way, and the season-breadth check (0/4) shows this isn't a one-bad-season artifact, it's uniformly bad. Production-portfolio England's collapse from a consistently strong league to barely positive is the clearest single tell that the feature is actively hurting the model rather than merely failing to help.
 **Decision:** REVERTED. `git revert 693f719` — all code and test changes rolled back cleanly, full suite green (123 passed) on the reverted tree. Active hypothesis 2 is cleared from the queue in `current.md`.
+
+**Correction (same day, requested by user after the fact):** the "baseline caveat" above was investigated properly by actually running the missing feature-off baseline on the current codebase, rather than assuming. Result: the clean baseline reproduces the stale `EXP-20260809-001` numbers **bit-for-bit** (accuracy 0.518, ROI −4.35%, stability −0.0290, t-stat −2.76, bets 9,096/9,906) — none of the concurrently-landed code (merge-safety fix, league re-selection, season-breadth tool) changed the all-market backtest at all. So the feature-vs-baseline comparison was in fact clean; the earlier confound worry was overstated.
+
+However, two specific claims in the original analysis above were **wrong**, not just under-qualified:
+1. **Season breadth is not distinguishing evidence.** The clean baseline *also* fails season breadth (0/3 profitable — every evaluated season is already net-negative in this diagnostic, feature or not). Citing "0/4 FAIL" as a sign specific to the feature was incorrect; the whole all-market diagnostic already looks like this regardless.
+2. **The England comparison mixed incompatible methodologies.** "The strongest performer in every prior test this session (+9%–18%)" referred to `EXP-20260810-002`'s *Pinnacle-filter-on* production screen — a different methodology (confirmation veto active) than this plain filter-off run. The correct filter-off baseline for England is **+0.72%**, not +9–18%. Comparing filter-off-with-feature (+1.62%) against filter-off-baseline (+0.72%), England actually **improved** with the feature — it did not collapse.
+
+**What actually holds up**, comparing clean baseline vs. feature (both filter-off, same methodology):
+
+| League | Baseline | With feature | Delta |
+|---|---:|---:|---:|
+| England | +0.72% | +1.62% | +0.90pp (better) |
+| France | −7.62% | −6.56% | +1.06pp (better) |
+| Greece | +1.09% | −0.93% | −2.02pp (worse) |
+| Netherlands | +4.55% | −2.63% | −7.18pp (worse) |
+| **Total** | **+0.35%** | **−1.91%** | **−2.26pp (worse)** |
+
+Production portfolio ROI moved from +0.35% to −1.91%, driven by Netherlands and Greece flipping negative, partially offset by England and France improving. Combined with all-market ROI/stability/t-stat all being genuinely worse (a clean, unconfounded comparison), **the REVERT decision still holds** — but on real evidence that the total production portfolio got worse, not on the two specific claims (uniquely-failing season breadth, England's collapse) that turned out to be incorrect. Those claims are retracted; this correction is the accurate record.
