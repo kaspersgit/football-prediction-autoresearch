@@ -2824,3 +2824,48 @@ However, two specific claims in the original analysis above were **wrong**, not 
 | **Total** | **+0.35%** | **−1.91%** | **−2.26pp (worse)** |
 
 Production portfolio ROI moved from +0.35% to −1.91%, driven by Netherlands and Greece flipping negative, partially offset by England and France improving. Combined with all-market ROI/stability/t-stat all being genuinely worse (a clean, unconfounded comparison), **the REVERT decision still holds** — but on real evidence that the total production portfolio got worse, not on the two specific claims (uniquely-failing season breadth, England's collapse) that turned out to be incorrect. Those claims are retracted; this correction is the accurate record.
+
+---
+
+## EXP-20260810-004: Veto bets on missing Pinnacle data; switch reference methodology to closing odds — KEPT AND LIVE
+
+**Date:** 2026-08-10
+**Hypothesis:** Per explicit user direction, the Pinnacle-confirmation filter's null-handling was inverted: previously, a row with missing/invalid Pinnacle odds skipped the check and let the bet through on B365-edge alone (a data gap never blocked an otherwise-good bet); now, missing Pinnacle data vetoes the bet — the filter requires actual confirmation to place any bet, not just "confirmation or absence of contradiction."
+
+**Files changed:**
+- `src/evaluation/metrics.py` (`compute_value_betting_results`): `if pinnacle_confirmation_margin is not None and (pinnacle_fair is None or pinnacle_fair[outcome] <= fair[outcome] + margin): continue` — previously only vetoed on disagreement, now also vetoes on missing data.
+- `main.py` (`_build_prediction_rows`): identical inversion, live path.
+- `tests/test_metrics.py`, `tests/test_shadow_cli.py`: flipped the "skipped when null" tests to "vetoes when null."
+
+**Discovery made while testing this — a football-data.co.uk archive gap:** re-running with `--pinnacle-filter-opening` (opening odds) first showed a drastic bet drop (301→80) and a per-season breakdown dominated by stale seasons (75/80 bets from 2023/24–2024/25, only 5 from 2025/26). Investigation found Pinnacle-odds coverage (both `PSH/PSD/PSA` **and** `PSCH/PSCD/PSCA`) in football-data.co.uk's historical archive drops to a flat **0% for all four production leagues from mid-January 2026 onward** (E0 last full date 2026-01-08, F1 2026-01-04, N1 2026-01-11, G1 declining from 2025-11-01) — a hard cutoff, not gradual lag, and not resolved as of this run (2026-08-10, ~7 months later). This is an archive/vendor gap, not a live-data problem: live Pinnacle odds come from The Odds API independently, fetched fresh at prediction time, and are unaffected by football-data.co.uk's backfill. The gap only limits how much of the current season can be used as backtest evidence for the filter.
+
+Given that, and given closing odds don't behave meaningfully differently from opening odds with respect to this specific gap (same coverage collapse, same dates), the user chose to switch the **reference/backtest methodology from opening-odds back to closing-odds** (`PSCH/PSCD/PSCA`) — explicitly accepting this is optimistic relative to what live inference can ever observe (a true closing line only exists after kickoff), with the already-queued follow-up (comparing live-fetched odds to closing-line behavior over time) intended to eventually quantify that gap empirically.
+
+**Command:** `uv run python main.py --per-league --threshold 0.0 --pinnacle-filter` (closing odds, veto-on-missing).
+
+**Results (production portfolio, current leagues E0/N1/G1/F1):**
+
+| | Bets | ROI |
+|---|---:|---:|
+| England | 175 | +8.16% |
+| France | 106 | +24.97% |
+| Greece | 87 | +9.95% |
+| Netherlands | 171 | +41.79% |
+| **Total** | **539** | **+22.42%** |
+
+Stability: 0.1475. t-statistic: **+3.42** (crosses the `|t| > 2` significance screen).
+
+**Per-season breakdown** (bucketed from `Date`, Aug–Jul boundaries):
+
+| Season | Bets | ROI |
+|---|---:|---:|
+| 2023/24 | 328 | +24.58% |
+| 2024/25 | 168 | +19.40% |
+| 2025/26 (truncated by the archive gap at mid-January) | 43 | +17.81% |
+
+**All 3 seasons profitable, with strikingly consistent magnitude (17.8–24.6% ROI each)** — including the truncated current season, despite its much smaller sample. This is the strongest season-breadth result of any Pinnacle-filter variant tested this session (compare: the reverted opening-odds veto run had its 2025/26 slice reduced to 5 bets dominated by a single outlier; this run's 43 bets are far more representative even though still smaller than a full season would give).
+
+**Analysis:** Requiring actual Pinnacle confirmation (rather than treating missing data as a pass) produces a smaller but meaningfully higher-quality bet set than the prior "skip when missing" behavior — 539 bets at +22.42% vs. the old logic's various results in the +13–15% range on larger, noisier samples. Every production league is solidly positive, led by Netherlands (+41.79%) and France (+24.97%, notable since France was flat or negative under every prior opening-odds test — closing-odds coverage evidently gave a materially different, more favorable read for that league specifically). England's 2025/26 slice shows −71.43% on only 7 bets — a small-sample outlier, not weighted heavily given the season's overall positive result once other leagues are included.
+**Decision:** KEPT AND MADE LIVE. `pinnacle_confirmation_margin` remains wired into all three live call sites in `_run_predict()` (unchanged from `EXP-20260810-002`) — the null-handling inversion applies automatically since it's in the shared `compute_value_betting_results`/`_build_prediction_rows` logic. `reports/backtest_bets.csv` regenerated with this run's numbers as the new historical-context baseline for the live predictions page.
+
+**Follow-up queued in `current.md`:** keep an eye on whether football-data.co.uk's Pinnacle-odds coverage resumes for future seasons (the mid-January 2026 cutoff may or may not be permanent), and continue tracking how closely live-fetched Odds-API odds actually behave like historical closing lines — this run's headline number is explicitly optimistic pending that empirical check.
