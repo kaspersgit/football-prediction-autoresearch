@@ -1,7 +1,9 @@
 data/raw/
-models/
+models/*
+!models/league_thresholds.json
 reports/*
 !reports/backtest_bets.csv
+!reports/evaluation_bets.csv
 __pycache__/
 *.pyc
 .pytest_cache/
