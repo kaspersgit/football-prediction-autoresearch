@@ -6,6 +6,7 @@ from src.config import EXCLUDED_BETTING_LEAGUES
 from src.evaluation.metrics import (
     compute_betting_results,
     compute_roi,
+    compute_season_breadth,
     compute_stability,
     compute_value_betting_results,
 )
@@ -170,3 +171,47 @@ def test_pinnacle_confirmation_filter_can_use_opening_odds_columns():
     )
 
     assert result["y_pred"].tolist() == ["H"]
+
+
+def _make_bets(profits, seasons):
+    return pd.DataFrame({"profit": profits, "stake": [1.0] * len(profits), "season": seasons})
+
+
+def test_season_breadth_all_profitable_passes():
+    bets = _make_bets([1.0, 1.0, 1.0, 1.0], ["s1", "s2", "s3", "s4"])
+    breadth = compute_season_breadth(bets)
+    assert breadth["n_seasons"] == 4
+    assert breadth["n_profitable"] == 4
+    assert breadth["required"] == 3
+    assert breadth["passes"] is True
+
+
+def test_season_breadth_one_bad_season_still_passes_at_default_threshold():
+    # 3 seasons net positive, 1 season net negative -> 3/4 profitable, default requires 3
+    bets = _make_bets([1.0, 1.0, 1.0, -1.0], ["s1", "s2", "s3", "s4"])
+    breadth = compute_season_breadth(bets)
+    assert breadth["n_profitable"] == 3
+    assert breadth["passes"] is True
+
+
+def test_season_breadth_fails_when_two_seasons_negative():
+    bets = _make_bets([1.0, 1.0, -1.0, -1.0], ["s1", "s2", "s3", "s4"])
+    breadth = compute_season_breadth(bets)
+    assert breadth["n_profitable"] == 2
+    assert breadth["passes"] is False
+
+
+def test_season_breadth_empty_input():
+    breadth = compute_season_breadth(pd.DataFrame())
+    assert breadth["n_seasons"] == 0
+    assert breadth["passes"] is False
+
+
+def test_season_breadth_ignores_pooled_total_masking():
+    # One huge win in s1 dominates pooled ROI, but only 1/4 seasons is actually profitable.
+    bets = _make_bets([10.0, -1.0, -1.0, -1.0], ["s1", "s2", "s3", "s4"])
+    pooled_roi = compute_roi(bets)
+    breadth = compute_season_breadth(bets)
+    assert pooled_roi > 0
+    assert breadth["n_profitable"] == 1
+    assert breadth["passes"] is False
