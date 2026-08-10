@@ -5,12 +5,13 @@ production allowlist — the production leagues may change, and this table
 should not need restructuring when they do.
 
 Built by diffing each league's Odds API team list against its football-data.co.uk
-team list. Production leagues (E0/N1/P1/G1) were diffed against a live Odds API
-call on 2026-08-09; the rest await a live call once they're actually fetched (see
-Task 2's ``fetch_pinnacle_odds`` unmatched-team log lines). Teams whose names
-already match exactly need no entry. Ambiguous or diacritic-heavy names
-(Portuguese, Greek, Turkish clubs) are resolved by hand here, never
-fuzzy-matched — a wrong match would silently misprice a bet.
+team list. Production leagues were diffed against a live Odds API call:
+E0/N1/P1/G1 on 2026-08-09, F1 on 2026-08-10 (when it entered the allowlist).
+The rest await a live call once they're actually fetched (see Task 2's
+``fetch_pinnacle_odds`` unmatched-team log lines). Teams whose names already
+match exactly need no entry. Ambiguous or diacritic-heavy names (Portuguese,
+Greek, Turkish clubs) are resolved by hand here, never fuzzy-matched — a
+wrong match would silently misprice a bet.
 """
 
 ODDS_API_TEAM_ALIASES: dict[str, dict[str, str]] = {
@@ -26,7 +27,11 @@ ODDS_API_TEAM_ALIASES: dict[str, dict[str, str]] = {
     "D1": {},
     "SP1": {},
     "I1": {},
-    "F1": {},
+    "F1": {
+        "RC Lens": "Lens",
+        "AS Monaco": "Monaco",
+        "Paris Saint Germain": "Paris SG",
+    },
     "N1": {
         "FC Utrecht": "Utrecht",
         "FC Twente Enschede": "Twente",

@@ -358,14 +358,17 @@ def _run_predict():
     _generate_shadow_report()
 
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
-                                       league_thresholds=league_thresholds)
+                                       league_thresholds=league_thresholds,
+                                       pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN)
 
     historical_bets = _load_historical_bets()
 
     _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at,
-                       league_thresholds=league_thresholds)
+                       league_thresholds=league_thresholds,
+                       pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN)
     _save_predictions_csv(fixture_features, y_proba, classes, threshold, fetched_at,
-                          league_thresholds=league_thresholds)
+                          league_thresholds=league_thresholds,
+                          pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN)
     _save_predictions_html(pred_rows, threshold, fetched_at, historical_bets=historical_bets)
 
 
@@ -465,7 +468,8 @@ def _build_prediction_rows(
 
 
 def _print_predictions(fixture_features, y_proba, classes, threshold: float, fetched_at=None,
-                       league_thresholds: dict | None = None) -> None:
+                       league_thresholds: dict | None = None,
+                       pinnacle_confirmation_margin: float | None = None) -> None:
     outcome_label = {"H": "Home", "D": "Draw", "A": "Away"}
 
     fetch_str = fetched_at.strftime("%Y-%m-%d %H:%M") if fetched_at else "unknown"
@@ -478,7 +482,8 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
     print(f"{'='*W}")
 
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
-                                       league_thresholds=league_thresholds)
+                                       league_thresholds=league_thresholds,
+                                       pinnacle_confirmation_margin=pinnacle_confirmation_margin)
 
     by_league: dict[str, list] = {}
     for r in pred_rows:
@@ -530,10 +535,12 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
 
 
 def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, fetched_at,
-                          league_thresholds: dict | None = None) -> None:
+                          league_thresholds: dict | None = None,
+                          pinnacle_confirmation_margin: float | None = None) -> None:
     """Save a timestamped CSV of all fixtures + odds + model probs for pre-bet verification."""
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
-                                       league_thresholds=league_thresholds)
+                                       league_thresholds=league_thresholds,
+                                       pinnacle_confirmation_margin=pinnacle_confirmation_margin)
     records = []
     for r in pred_rows:
         value_labels = "+".join(o for o, _ in r["ValueBets"]) if r["ValueBets"] else ""

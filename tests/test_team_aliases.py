@@ -39,3 +39,9 @@ def test_known_primeira_liga_aliases_are_present():
 def test_known_super_league_greece_aliases_are_present():
     assert ODDS_API_TEAM_ALIASES["G1"]["PAOK Thessaloniki"] == "PAOK"
     assert ODDS_API_TEAM_ALIASES["G1"]["Levadiakos"] == "Levadeiakos"
+
+
+def test_known_ligue_one_aliases_are_present():
+    assert ODDS_API_TEAM_ALIASES["F1"]["RC Lens"] == "Lens"
+    assert ODDS_API_TEAM_ALIASES["F1"]["AS Monaco"] == "Monaco"
+    assert ODDS_API_TEAM_ALIASES["F1"]["Paris Saint Germain"] == "Paris SG"
