@@ -2778,3 +2778,31 @@ Stability: 0.0069 → 0.1029. t-statistic: 0.32 → 2.81 (crosses the `|t| > 2` 
 **Analysis:** The filter's mechanism survives the transition from closing to opening odds — direction and magnitude hold up (+12.08pp over baseline, still above `EVALUATION.md`'s "+5pp = meaningful" bar), but the sample shrinks further (745→303) and t-stat drops below the significance screen (2.81→1.42). This is a moderate-confidence result, not a decisive one. The all-11-league screen disproves an earlier, cruder all-market (threshold=0, no caps) diagnostic that had shown France improving by +14.95pp to +5.47% — under the real per-league-threshold+cap methodology France is flat (−0.21%), not a standout. Belgium and Scotland show large ROI (+75–78%) on only 20–28 bets each — per `EVALUATION.md`'s own noise-interpretation guidance, this pattern (huge swing, thin sample) reads as noise, not signal, and was not added. Germany, Italy, Spain, and Turkey are clear, well-sampled negatives.
 
 **Decision:** KEPT AND MADE LIVE, per explicit user direction after reviewing the above. `PRODUCTION_LEAGUES` changed to `{E0, N1, G1, F1}`: Portugal dropped (flat/slightly negative under both odds proxies); France added despite its flat opening-odds result, on the user's explicit reasoning that live Predict runs close to kickoff should trend closer to Pinnacle's closing line than this worst-case test — a business judgment this iteration does not itself validate. `pinnacle_confirmation_margin` is now wired into all three live call sites in `_run_predict()`. Follow-up queued in `current.md`: monitor how close live-fetched odds actually land to closing-line behavior once enough live runs accumulate, and revisit France's inclusion if they don't.
+
+---
+
+## EXP-20260810-003: Team-level historical Pinnacle opening→closing market movement as a feature — REVERTED
+
+**Date:** 2026-08-10
+**Hypothesis:** Active hypothesis 2 in `current.md` — test opening-to-closing market movement "without introducing inference-only features." A live snapshot can never observe a true closing line, so the current match's own future movement is fundamentally uncomputable at prediction time; instead this iteration used each team's own **past** matches' realized Pinnacle opening→closing fair-probability delta (rolling mean, shift(1), window=20 — mirroring `_compute_market_bias`/`_get_current_market_bias` exactly), on the theory that a team's historical tendency for the market to move toward or away from it between open and close might itself be a genuinely live-computable signal (sharp money patterns, public-team bias, etc.).
+**Files changed:**
+- `src/model/features.py`: added `_compute_market_movement`/`_get_current_market_movement`, using `PSH/PSD/PSA` (opening) and `PSCH/PSCD/PSCA` (closing); added `home_market_movement`/`away_market_movement` to `FEATURE_COLS`.
+- `tests/test_features.py`: extended fixture to include valid Pinnacle odds (previously had none, since `_make_df()` predates any Pinnacle-derived feature) and added dedicated tests for the new feature and its null-safety.
+
+All changes were reverted after evaluation (`git revert 693f719`); none remain in the tree.
+
+**Pre-check before implementing:** 94.8% of historical rows have valid `PSH/PSD/PSA` + `PSCH/PSCD/PSCA` across all 11 leagues/seasons — ruled out a data-availability concern before spending engineering effort.
+
+**Baseline caveat:** immediately before this iteration, `dev` pulled in another session's merge-safety fix (`validate="many_to_one"` guards on the team-rolling-stat merges in `_build_merged`, `6b32b42`) and a new season-breadth diagnostic (`e6ed275`). This iteration's run is therefore not a perfectly isolated single-variable comparison against the stale `EXP-20260809-001` baseline (accuracy 0.518, all-market ROI −4.35%, stability −0.0290, t-stat −2.76, bets 9,096/9,906) — total test-match count shifted from 9,906 to 11,386 independent of this feature, and the test-season window shifted from 2324–2526 to 2223–2526. A fresh same-codebase baseline (feature off) was not re-run before testing the feature on, given the decisiveness of the result below; if a cleaner isolated comparison is ever needed, re-run both with and without the feature on the current `dev` HEAD.
+
+**Results (with the feature, `uv run python main.py --per-league --threshold 0.0`):**
+- All-market accuracy: 0.525 (vs. stale baseline 0.518)
+- All-market ROI: **−5.69%** (vs. stale baseline −4.35%)
+- Stability: **−0.0381** (vs. −0.0290)
+- t-statistic: **−3.99** (vs. −2.76)
+- Bets: 11,009 / 11,386 (96.7%)
+- **Season breadth (new diagnostic): 0/4 seasons profitable** (2223 −4.82%, 2324 −9.39%, 2425 −1.83%, 2526 −7.77%) — need ≥3, clean FAIL
+- Production portfolio (current leagues E0/N1/G1/F1, filter off): 2,533 bets, **−1.91% ROI**. England — the strongest performer in every prior test this session (+9% to +18%) — collapsed to +1.62%; France −6.56%, Greece −0.93%, Netherlands −2.63%.
+
+**Analysis:** Negative across every metric that matters — all-market ROI, stability, t-stat all moved the wrong way, and the season-breadth check (0/4) shows this isn't a one-bad-season artifact, it's uniformly bad. Production-portfolio England's collapse from a consistently strong league to barely positive is the clearest single tell that the feature is actively hurting the model rather than merely failing to help. Despite the baseline-confound caveat above, the magnitude and multi-metric consistency of the regression make it implausible that the concurrent merge-safety fix alone explains this — a duplicate-key merge bug fix would be expected to produce a modest correction, not a multi-point ROI swing across all-market, production, and every test season simultaneously. Plausible mechanism: a lagged 20-game team-level average is a fairly coarse, slow-moving signal, and may simply be too noisy/thin relative to the well-established features (Elo, form, market_bias) already capturing similar "team tendency vs. market" information — consistent with `EVALUATION.md`'s general note that new features must supply information not already encoded in existing signals to help.
+**Decision:** REVERTED. `git revert 693f719` — all code and test changes rolled back cleanly, full suite green (123 passed) on the reverted tree. Active hypothesis 2 is cleared from the queue in `current.md`.

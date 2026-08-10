@@ -46,6 +46,7 @@ All-market diagnostic (11 leagues, no max-edge/overround cap, filter off — inf
 - Features: 30 features covering EWM form, Elo, Elo momentum, market probabilities and overround, league identity, head-to-head, draw rate, market bias, match balance, and attack/defence ratings.
 - Betting edge: model probability minus vig-normalized B365 fair probability.
 - Filters: maximum odds `5.0`, maximum edge `0.20`, and maximum overround `0.07`.
+- Diagnostics: `compute_season_breadth` (per-season profitability breadth, printed by `main.py`'s primary comparison as "SEASON BREADTH" — flags a change that only looks good pooled because one strong season masks several weak ones; require ≥3/4 profitable seasons) supplements the pooled ROI/stability/t-stat metrics as of 2026-08-10.
 - Evaluation leagues: England, Germany, Spain, Italy, France, Netherlands, Portugal, Greece, Scotland, Belgium, and Turkey. The research headline and report default include every observed supported league at the fixed CLI threshold.
 - Production leagues: England (`E0`), Netherlands (`N1`), Greece (`G1`), and France (`F1`). Only these leagues may appear in live predictions. Re-chosen 2026-08-10 (`EXP-20260810-002`) — Portugal was dropped, France added; see "Current best" above.
 - Thresholds: backtesting calibrates one threshold per supported league from prior test seasons and writes `models/league_thresholds.json`; the production simulation and live prediction use those thresholds only for production leagues.
@@ -84,14 +85,14 @@ uv run pytest tests/ -v
 These ideas are not recorded as completed experiments in the consolidated ledger:
 
 1. Add referee tendency features if stable historical coverage can be obtained.
-2. Test opening-to-closing market movement without introducing inference-only features.
-3. Test an ensemble only if its component model adds independent out-of-sample signal.
-4. Evaluate an xG-surplus feature after acquiring consistent historical coverage for all target leagues.
-5. Fix `main.py:_run_compare_vig`'s per-league breakdown, which crashes with `KeyError: 'league'` (merges on a column not present in `results["odds_test"]`). Found in `EXP-20260804-002`.
-6. Once enough live Predict runs have accumulated, check how close live-fetched Pinnacle odds (`PSH/PSD/PSA` via `attach_pinnacle_odds`) actually land to historical closing-line behavior in practice. If they consistently resemble closing odds rather than the tested opening-odds worst case (`EXP-20260810-002`), that's expected and reassuring; if not, revisit the null-safe "skip veto when Pinnacle data is missing" fallback in `compute_value_betting_results`/`_build_prediction_rows`, and reconsider whether France's inclusion in `PRODUCTION_LEAGUES` (added on a flat opening-odds result, per user judgment about live timing) should be walked back.
-7. Populate the `ODDS_API_TEAM_ALIASES` tables for the 6 leagues never yet fetched live (`D1`, `SP1`, `I1`, `SC0`, `B1`, `T1`) if `PRODUCTION_LEAGUES` widens again — repeat the live-diff process used for E0/N1/P1/G1/F1.
+2. Test an ensemble only if its component model adds independent out-of-sample signal.
+3. Evaluate an xG-surplus feature after acquiring consistent historical coverage for all target leagues.
+4. Fix `main.py:_run_compare_vig`'s per-league breakdown, which crashes with `KeyError: 'league'` (merges on a column not present in `results["odds_test"]`). Found in `EXP-20260804-002`.
+5. Once enough live Predict runs have accumulated, check how close live-fetched Pinnacle odds (`PSH/PSD/PSA` via `attach_pinnacle_odds`) actually land to historical closing-line behavior in practice. If they consistently resemble closing odds rather than the tested opening-odds worst case (`EXP-20260810-002`), that's expected and reassuring; if not, revisit the null-safe "skip veto when Pinnacle data is missing" fallback in `compute_value_betting_results`/`_build_prediction_rows`, and reconsider whether France's inclusion in `PRODUCTION_LEAGUES` (added on a flat opening-odds result, per user judgment about live timing) should be walked back.
+6. Populate the `ODDS_API_TEAM_ALIASES` tables for the 6 leagues never yet fetched live (`D1`, `SP1`, `I1`, `SC0`, `B1`, `T1`) if `PRODUCTION_LEAGUES` widens again — repeat the live-diff process used for E0/N1/P1/G1/F1.
+7. If a genuinely clean re-test of `EXP-20260810-003` (team-level historical Pinnacle opening→closing movement) is ever wanted, re-run both with and without the feature on the same `dev` HEAD first — the `EXP-20260810-003` run wasn't a perfectly isolated comparison (a concurrent merge-safety fix landed just before it). Low priority: the result was decisively negative on every metric including the new season-breadth check, so this is unlikely to change the call.
 
-Cleared this iteration: item 1 (all-market baseline re-run) done in `EXP-20260804-001`; item 6 (fair vs raw edge baseline) tested and reverted in `EXP-20260804-002`; Pinnacle-confirmation filter re-verified and kept at the backtest level in `EXP-20260810-001`, then re-validated against the realistic opening-odds proxy and made live in `EXP-20260810-002`.
+Cleared this iteration: item 1 (all-market baseline re-run) done in `EXP-20260804-001`; item 6 (fair vs raw edge baseline) tested and reverted in `EXP-20260804-002`; Pinnacle-confirmation filter re-verified and kept at the backtest level in `EXP-20260810-001`, then re-validated against the realistic opening-odds proxy and made live in `EXP-20260810-002`; opening-to-closing market movement tested (as a live-computable, lagged team-level feature) and reverted in `EXP-20260810-003`.
 
 ## File responsibilities
 
