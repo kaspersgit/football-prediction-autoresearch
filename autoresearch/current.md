@@ -54,7 +54,7 @@ Stability 0.1475, t-stat **+3.42** (crosses significance). Per-season: 2023/24 +
 
 ## Verified configuration
 
-- Training: one LightGBM model with isotonic calibration per league and test season (`--per-league`), using four walk-forward test seasons.
+- Training: one LightGBM model with isotonic calibration per league and test season (`--per-league`), using three walk-forward test seasons (`TEST_SEASONS = 3`; only seasons with ≥1,000 rows count as a completed test season — see `EXP-20260810-005` — so an in-progress season, e.g. a handful of 2026/27 fixtures, can never silently displace a full season from the window).
 - Model: `n_estimators=400`, `learning_rate=0.05`, `num_leaves=31`, `min_child_samples=20`, `reg_lambda=0.05`.
 - Calibration: isotonic, `cv=10`, `ensemble=False`.
 - Features: 30 features covering EWM form, Elo, Elo momentum, market probabilities and overround, league identity, head-to-head, draw rate, market bias, match balance, and attack/defence ratings.
@@ -107,7 +107,7 @@ These ideas are not recorded as completed experiments in the consolidated ledger
 7. Populate the `ODDS_API_TEAM_ALIASES` tables for the 6 leagues never yet fetched live (`D1`, `SP1`, `I1`, `SC0`, `B1`, `T1`) if `PRODUCTION_LEAGUES` widens again — repeat the live-diff process used for E0/N1/P1/G1/F1.
 8. The all-market season-breadth diagnostic already fails (0/3 profitable) at the current verified baseline, independent of any feature — this is a known, pre-existing property of the diagnostic (see `EXP-20260810-003`'s correction), not a new problem. Worth keeping in mind so a future iteration doesn't mistake "season breadth still fails" for evidence against that iteration's own change, the way `EXP-20260810-003` initially did.
 
-Cleared this iteration: item 1 (all-market baseline re-run) done in `EXP-20260804-001`; item 6 (fair vs raw edge baseline) tested and reverted in `EXP-20260804-002`; Pinnacle-confirmation filter re-verified and kept at the backtest level in `EXP-20260810-001`, then re-validated against the realistic opening-odds proxy and made live in `EXP-20260810-002`; opening-to-closing market movement tested (as a live-computable, lagged team-level feature) and reverted in `EXP-20260810-003`; Pinnacle filter tightened to veto on missing data and reference methodology switched to closing odds in `EXP-20260810-004`.
+Cleared this iteration: item 1 (all-market baseline re-run) done in `EXP-20260804-001`; item 6 (fair vs raw edge baseline) tested and reverted in `EXP-20260804-002`; Pinnacle-confirmation filter re-verified and kept at the backtest level in `EXP-20260810-001`, then re-validated against the realistic opening-odds proxy and made live in `EXP-20260810-002`; opening-to-closing market movement tested (as a live-computable, lagged team-level feature) and reverted in `EXP-20260810-003`; Pinnacle filter tightened to veto on missing data and reference methodology switched to closing odds in `EXP-20260810-004`; walk-forward test-season selection fixed to exclude in-progress seasons, `TEST_SEASONS` set to 3 explicitly in `EXP-20260810-005` (also incidentally fixed the all-market season-breadth diagnostic, now 3/3 PASS instead of the pre-existing 0/3 noted in item 8 below — that item is now historical, from before this fix).
 
 ## File responsibilities
 
