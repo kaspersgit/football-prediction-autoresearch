@@ -2610,3 +2610,171 @@ _Legacy source: docs/improvements.md iteration 92._
 **Fix options:**
 - Option A: switch baseline to raw implied: `edge = model_prob - (1 / odds)`
 - Option B: keep fair baseline but require threshold ≥ ~3–5% to approximately compensate for the vig (at ~5% vig, the correction is ~3–3.5% depending on the odds range)
+
+---
+
+## EXP-20260804-001: Re-run all-market baseline on current evaluation split — RECORDED (no code change)
+
+**Date:** 2026-08-04
+**Hypothesis:** N/A — bookkeeping task from `current.md` active hypothesis 1. The previously recorded production result (`EXP-20260519-S101`, ROI +9.65%) predates the all-market/production-allowlist split introduced in the "Improve autoresearch evaluation workflow" change and is not comparable to headline metrics produced by the current code.
+**Command:** `uv run python main.py --update --per-league --threshold 0.0` (required a fresh full history download; `data/raw` was empty in this environment).
+**Files changed:** none — diagnostic run only.
+
+**Results (all-market, 11 leagues, no max-edge/overround cap):**
+- Accuracy: 0.518 (9,906 test matches, seasons 2324/2425/2526/2627)
+- Bets: 9,096 / 9,906 (91.8%)
+- ROI: −4.35%
+- Stability: −0.0290
+- t-statistic: −2.76
+
+**Results (production portfolio — E0, N1, P1, G1, with max_edge=0.20 and max_overround=0.07 filters):**
+- Bets: 2,101
+- ROI: +1.03%
+- Per-league ROI: England +1.80%, Netherlands +7.97%, Portugal +0.21%, Greece −5.81%
+
+**Per-league ROI (all-market, informational only, filters not applied):** England +1.80%, Germany −5.31%, Spain −9.07%, Italy −2.96%, France −9.48%, Netherlands +7.97%, Portugal +0.21%, Greece −5.81%, Scotland +1.73%, Belgium −17.63%, Turkey −13.59%.
+
+**Analysis:** The unfiltered all-market number is dominated by non-production leagues (Belgium, Turkey, Spain, France) that were already known to be unprofitable and are excluded from live betting — it is a diagnostic ceiling/floor, not a decision metric. The number that matters for keep/revert decisions is the production portfolio, which is positive but far below the stale +9.65% figure. Greece is the weak link in the current production allowlist (−5.81%, largest bet count among the negative production leagues after the filters).
+**Decision:** RECORDED. No code changed. `current.md`'s "Current best" table is updated to this run and the stale `EXP-20260519-S101` comparison note is removed. Active hypothesis 1 is cleared from the queue.
+
+---
+
+## EXP-20260804-002: Raw implied-probability edge baseline vs vig-stripped fair baseline — REVERTED (not pursued)
+
+**Date:** 2026-08-04
+**Hypothesis:** Switching the value-bet edge baseline from vig-stripped fair probability (`edge = model_prob - fair_prob`) to raw implied probability (`edge = model_prob - 1/odds`) removes bets that are technically negative-EV at the actual offered odds, improving ROI and stability.
+**Files changed:** none — the existing `--compare-vig` diagnostic (`main.py:_run_compare_vig`, `edge_baseline` param on `compute_value_betting_results`) already supports both baselines, so no implementation was needed to test the hypothesis at the diagnostic (global-model) level first, before committing to a full per-league confirmatory run.
+**Command:** `uv run python main.py --compare-vig --threshold 0.0`
+**Baseline:** global (non-per-league) walk-forward model, same run for both baselines, 9,906 test matches.
+
+**Results:**
+
+| Threshold | fair bets | fair ROI | raw bets | raw ROI |
+|---|---:|---:|---:|---:|
+| 0.00 | 13,914 | −1.51% | 9,530 | −1.74% |
+| 0.01 | 11,725 | −0.57% | 7,629 | −0.47% |
+| 0.02 | 9,652 | −0.73% | 6,040 | −1.24% |
+| 0.03 (current default) | 7,911 | −0.88% | 4,769 | −1.82% |
+| 0.04 | 6,400 | −1.04% | 3,671 | −1.51% |
+| 0.05 | 5,138 | −1.18% | 2,854 | +0.15% |
+| 0.07 | 3,247 | +0.49% | 1,705 | −4.32% |
+
+Stability at threshold 0.0: fair −0.0103 vs raw −0.0115.
+
+**Analysis:** No consistent direction. Raw is worse than fair at 5 of 7 thresholds, including the current production default (0.03: −0.88% vs −1.82%, a 0.94pp regression) and threshold 0.07 (−4.32% vs +0.49%, a 4.8pp regression). It is only better at 0.01 and 0.05, both within the "usually noise" band per `EVALUATION.md` except 0.05's +1.33pp gap, which is a single favorable threshold amid an otherwise unfavorable or flat pattern — not the majority-of-conditions support the evaluation policy requires. This is also a global (not per-league) model, one level short of the mandatory primary comparison, but the diagnostic result is unfavorable enough that a full per-league re-run (≈28 minutes) is not justified before ruling out the change.
+**Decision:** REVERTED (not implemented). The vig-stripped fair baseline remains the default `edge_baseline`. Active hypothesis 6 is cleared from the queue with this conclusion recorded.
+
+**Note (tooling bug found, unrelated to this hypothesis):** `_run_compare_vig`'s per-league breakdown crashes with `KeyError: 'league'` — it merges on a `"league"` column that does not exist in `results["odds_test"]`. The aggregate/threshold-sweep comparison above still printed correctly before the crash. Left unfixed as out of scope for this iteration; added to the active queue below for a future small tooling fix.
+
+---
+
+## EXP-20260809-001: Dixon-Coles Poisson goal-model probabilities as engineered features — REVERTED
+
+**Date:** 2026-08-09
+**Hypothesis:** Adding Dixon-Coles-fitted match outcome probabilities (`poisson_home_prob`, `poisson_draw_prob`, `poisson_away_prob`) as three new features — additive to, not replacing, the existing raw EWM attack/defense features — would improve ROI without hurting stability, because a Poisson score-matrix model with a home-advantage parameter and the Dixon-Coles low-score correlation (τ) adjustment captures nonlinear, correlated goal-scoring structure that LightGBM has to approximate from 4 raw scalar features today, and might help most in data-sparse leagues (Greece, Portugal).
+**Files changed:**
+- `src/model/dixon_coles.py` (new): MLE fit (`scipy.optimize.minimize`, analytic gradient) of per-team attack/defense ratings, home advantage, and ρ; `predict_probs` sums the Poisson score grid (0–9 goals each side, τ-adjusted) into a 1X2 probability triple.
+- `src/model/features.py`: added `_compute_poisson_probs` (walk-forward, one DC model per league, refit every 180 days using the trailing 1,200 matches, strictly leakage-free) and `_get_current_poisson_state` (live-fixture path); added 3 columns to `FEATURE_COLS`.
+- `pyproject.toml` / `uv.lock`: added `scipy` as an explicit dependency (was previously only transitive via scikit-learn).
+- `tests/test_dixon_coles.py` (new): fit/predict correctness, probability-sums-to-one, unseen-team handling, stronger-attacker-favoured sanity check.
+
+All changes were reverted after evaluation; none remain in the tree.
+
+**Baseline:** Same-session re-run of the primary comparison on identical data (`uv run python main.py --per-league --threshold 0.0`, 45,092 matches through 2026-08-03) with the Dixon-Coles code removed — reproduces `EXP-20260804-001` exactly (accuracy 0.518, all-market ROI −4.35%, stability −0.0290, t-stat −2.76, bets 9,096/9,906; production portfolio 2,101 bets, ROI +1.03%).
+
+**Results (with Dixon-Coles features):**
+- All-market accuracy: 0.520 (baseline 0.518)
+- All-market ROI: −4.74% (baseline −4.35%, 0.39pp worse)
+- Stability: −0.0316 (baseline −0.0290, worse)
+- t-statistic: −3.03 (baseline −2.76, worse)
+- All-market bets: 9,176 / 9,777 (93.9%) — 129 fewer test matches than baseline (9,906), from the new feature's minimum-history requirement (`POISSON_MIN_MATCHES=40`) dropping the earliest rows per league via the existing `dropna(subset=FEATURE_COLS)` step; expected and explained, not a driver of the result.
+- **Production portfolio (decision metric): 2,032 bets, ROI −2.76%** (baseline 2,101 bets, +1.03% — a 3.79pp regression)
+- Production per-league ROI: England −1.69% (baseline +1.80%), Netherlands −5.30% (baseline +7.97%), Portugal −2.48% (baseline +0.21%), Greece −2.27% (baseline −5.81%, the one league that improved)
+
+**Analysis:** 3 of 4 production leagues moved sharply negative, including Netherlands flipping from the strongest positive contributor (+7.97%) to the weakest (−5.30%), a 13.27pp swing. Only Greece improved, and it remains negative. The all-market diagnostic moved in the same unfavorable direction (ROI, stability, and t-stat all worse), so this isn't a case of one noisy metric contradicting another — every metric that matters under `EVALUATION.md` degraded together. The mechanism may simply be that per-league LightGBM models with only ~4 walk-forward test seasons of data don't have enough per-league history to benefit from 3 additional probability features on top of the already-present attack/defense EWM signals and market-derived probabilities; the DC probabilities may be adding correlated noise (derived from goals, same underlying signal as `home_attack`/`home_defense`/Elo) rather than independent information, consistent with `EVALUATION.md`'s general note that features must supply information not already encoded in market odds or existing ratings to help.
+**Decision:** REVERTED. All code, dependency, and test changes rolled back (`git checkout -- pyproject.toml uv.lock src/model/features.py`; new files deleted). `reports/backtest_bets.csv` regenerated from the reverted code to restore the production-baseline artifact. This was explored ad hoc (not from the active-hypothesis queue in `current.md`), so no queue entry needs clearing.
+
+---
+
+## EXP-20260810-001: Re-verify Pinnacle-confirmation filter on the current per-league model — KEPT (backtest only, not yet wired to live)
+
+**Date:** 2026-08-10
+**Hypothesis:** The Pinnacle-confirmation filter (skip a bet unless the historical Pinnacle fair probability exceeds the B365 fair probability by more than a 0.015 margin) — the strongest feature this project ever found in backtests (`EXP-20260513-S057`–`S062`), removed in `EXP-20260517-S072` only because live Pinnacle odds were unavailable, not because the signal was invalidated — will still improve production ROI without hurting stability now that live Pinnacle odds are wired in (see `docs/superpowers/specs/2026-08-09-live-pinnacle-odds-design.md`), even though the model has changed substantially since May (Elo, Dixon-Coles ratings, per-league thresholds didn't exist then).
+**Files changed:**
+- `src/evaluation/metrics.py`, `main.py`, `src/config.py`: opt-in `pinnacle_confirmation_margin` parameter added in a prior session (default `None`/off, no behavior change on its own — see git history for that commit series).
+- `main.py`: added a `--pinnacle-filter` CLI flag to `_run_backtest()` that passes `DEFAULT_PINNACLE_CONFIRMATION_MARGIN` (0.015) into the production-portfolio `compute_value_betting_results` calls only, leaving the all-market diagnostic (`evaluation_results`) untouched — confirmed by the all-market metrics being bit-for-bit identical between the two runs below (accuracy 0.518, ROI −4.35%, stability −0.0290, t-stat −2.76, bets 9,096/9,906).
+**Command:** `uv run python main.py --per-league --threshold 0.0` (baseline) vs `uv run python main.py --per-league --threshold 0.0 --pinnacle-filter`, same data (45,092+ matches), using historical `PSCH`/`PSCD`/`PSCA` — no live API calls.
+**Baseline:** filter off, reproduces `EXP-20260804-001`/`EXP-20260809-001`'s baseline exactly: production portfolio 2,101 bets, ROI +1.03%, stability 0.0069, t-stat 0.32.
+
+**Results (production portfolio — decision metric):**
+
+| League | Filter off | Filter on | Delta |
+|---|---:|---:|---:|
+| England (E0) | 695 bets, +0.72% | 208 bets, +9.44% | +8.72pp |
+| Greece (G1) | 281 bets, +1.09% | 95 bets, +13.71% | +12.62pp |
+| Netherlands (N1) | 788 bets, +4.55% | 331 bets, +24.66% | +20.11pp |
+| Portugal (P1) | 337 bets, −6.59% | 111 bets, +0.81% | +7.40pp |
+| **Total** | **2,101 bets, +1.03%** | **745 bets, +15.46%** | **+14.43pp** |
+
+Stability: 0.0069 → 0.1029. t-statistic: 0.32 → 2.81 (crosses the `|t| > 2` screening threshold).
+
+**Analysis:** All 4 production leagues improved, unanimously and by a wide margin (+7.4pp to +20.1pp each) — per `EVALUATION.md`, a unanimous same-direction move across every league is stronger evidence than the aggregate number alone, and the +14.43pp total ROI change is well above the "+5pp = meaningful candidate" bar. Bets dropped 64.5% (2,101 → 745), which is the filter's intended mechanism (a confirmation/veto filter is supposed to shrink the bet set to a higher-quality subset), not a data-reduction artifact from a warm-up period or narrower context — so `EVALUATION.md`'s data-reduction caution doesn't apply the way it does for e.g. venue-specific rolling form. The reduced sample still clears the significance screen (t-stat 2.81) on its own. This result also corroborates, rather than merely repeats, the original `EXP-20260513-S057`–`S062` finding: the underlying signal (sharp-book agreement as a confirmation of model edge) held up despite Elo, Dixon-Coles ratings, and per-league thresholds all being added to the model since May.
+**Decision:** KEPT (backtest-level). The `pinnacle_confirmation_margin` parameter and `--pinnacle-filter` diagnostic flag stay in the tree. **Not yet wired into the live prediction path** (`main.py:_run_predict()` → `_build_prediction_rows` still runs with the filter off) — per the design spec, that requires a separate, explicit decision since it changes real betting behavior; flagged to the user for sign-off rather than enabled automatically here.
+
+**Note (pre-existing per-league reporting ambiguity, found while reproducing the baseline):** `current.md`'s recorded `EXP-20260804-001` "Per-league" row (England +1.80%, Netherlands +7.97%, Portugal +0.21%, Greece −5.81%) and `EXP-20260809-001`'s "baseline" comparison figures are the **all-market** per-league ROI (`_print_split_analysis`'s "ROI BY LEAGUE" table: global threshold=0, no max-edge/overround caps, all 11 leagues, filtered down to the 4 production rows for display) — not the actual **production portfolio** per-league split (per-league calibrated thresholds + max-edge/overround caps applied), which is +0.72%/+1.09%/+4.55%/−6.59% for E0/G1/N1/P1 respectively, as used in this entry. The two tables' per-league numbers are not interchangeable even though both runs share the same overall production ROI (+1.03%) — worth using the production-portfolio-specific split (from `reports/backtest_bets.csv`, grouped by `league`) rather than the "ROI BY LEAGUE" console table when recording future production per-league results, to avoid comparing filtered against unfiltered numbers.
+
+---
+
+## EXP-20260810-002: Re-validate the filter on realistic (opening) odds, re-select production leagues, enable live — KEPT AND LIVE
+
+**Date:** 2026-08-10
+**Hypothesis:** `EXP-20260810-001` validated the Pinnacle-confirmation filter using `PSCH/PSCD/PSCA` — Pinnacle's historical **closing** line. But a live snapshot fetched via The Odds API can only ever be **opening/pre-match**-style (a true closing line only exists after kickoff has passed), and a live check against real fixtures.csv + live API data found the live snapshot's vig (~5.4%) sits above even the historical opening-odds average (4.43%), well above closing (3.53%). If the filter's edge depends on closing-line precision, it might not survive being fed opening-style odds; this iteration tests that directly, using historical `PSH/PSD/PSA` as the proxy for what live fetching actually provides.
+
+**Files changed:**
+- `src/evaluation/metrics.py`: added `pinnacle_odds_cols` parameter to `compute_value_betting_results` (default `("PSCH","PSCD","PSCA")`) so the confirmation check can read either the closing or opening odds columns.
+- `main.py`: added `--pinnacle-filter-opening` (uses `PSH/PSD/PSA`) alongside the existing `--pinnacle-filter` (closing), and `--all-leagues-production` (applies the real per-league-threshold+cap production methodology to every supported league, not just the current allowlist, for screening purposes only — never affects `--predict`). Added a per-league print of the production portfolio directly.
+- `src/data/loader.py`: `_OPTIONAL_COLS` only carried `PSCH/PSCD/PSCA` through from historical CSVs, not `PSH/PSD/PSA` — added the latter, since football-data.co.uk's raw files carry both but the loader silently dropped the opening columns.
+- `src/model/features.py`: `build_features_with_odds`'s `base_odds_cols` likewise only carried closing odds through to `eval_df` — added `PSH/PSD/PSA`.
+- `main.py`: fixed a crash in `_save_profit_chart` — a league-season with zero confirmed bets returns an explicit-but-empty DataFrame (object dtype), and concatenating it unconditionally with real float-typed chunks could poison `cumulative_profit`'s dtype. The far more selective opening-odds filter triggers this (several production league-seasons legitimately have zero bets) where no prior run had. Now skips empty chunks before concatenation.
+- `src/data/pinnacle_odds.py`: captures `commence_time` from the Odds API response as a `Date` field and rejects any team-name match where it disagrees with `fixtures.csv`'s date by more than a day — a live check found `fixtures.csv` and the Odds API aren't always showing the same matchweek at a given moment (the API can be pricing the round after what's nearest in `fixtures.csv`), so a name-only join risked silently attaching one round's odds to a different round's fixture.
+- `src/data/team_aliases.py`: added N1/P1 gaps found in a fuller live sample (`SC Telstar`, `NEC Nijmegen`, `Fortuna Sittard`, `SC Cambuur`, `ADO Den Haag`, `CF Estrela`), and populated F1's table (`RC Lens`→`Lens`, `AS Monaco`→`Monaco`, `Paris Saint Germain`→`Paris SG`) since it's entering production.
+- `src/config.py`: `PRODUCTION_LEAGUES` changed from `{E0, N1, P1, G1}` to `{E0, N1, G1, F1}`.
+- `main.py`: wired `pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN` into all three live call sites in `_run_predict()` (`_build_prediction_rows`, `_print_predictions`, `_save_predictions_csv`).
+- `tests/test_metrics.py`, `tests/test_pinnacle_odds.py`, `tests/test_team_aliases.py`, `tests/test_loader.py`, `tests/test_config.py`: extended/corrected for all of the above.
+
+**Command:** `uv run python main.py --per-league --threshold 0.0 --pinnacle-filter-opening` (production leagues only), then `--pinnacle-filter-opening --all-leagues-production` (all 11 leagues), same data as `EXP-20260810-001`.
+
+**Two wiring bugs caught before trusting results:** the first `--pinnacle-filter-opening` run reproduced `EXP-20260810-001`'s exact closing-odds numbers (745 bets, +15.46%) bit-for-bit — implausible for genuinely different input columns, and traced to `_parse_pinnacle_odds_cols()` being defined but never threaded into the actual `compute_value_betting_results` calls. The second attempt (after fixing that) reproduced the **filter-off baseline** exactly (2,101 bets, +1.03%) — traced to `PSH/PSD/PSA` never being loaded from historical CSVs at all, so the filter's null-check silently skipped every row. Both fixed and verified with cheap non-training sanity checks before the real ~28-minute reruns.
+
+**Results — production leagues only (E0/N1/P1/G1), opening-odds filter:**
+
+| | Filter off | Closing odds (`-001`) | Opening odds (this entry) |
+|---|---:|---:|---:|
+| Bets | 2,101 | 745 | 303 |
+| ROI | +1.03% | +15.46% | **+13.11%** |
+| Stability | 0.0069 | 0.1029 | 0.0816 |
+| t-stat | 0.32 | 2.81 (significant) | **1.42 (not significant)** |
+| England | +0.72% | +9.44% | +17.93% |
+| Netherlands | +4.55% | +24.66% | +16.27% |
+| Greece | +1.09% | +13.71% | +3.36% |
+| Portugal | −6.59% | +0.81% | −0.53% |
+
+**Results — full production-methodology screen, all 11 leagues, opening-odds filter (742 bets total, +1.64% ROI):**
+
+| League | Bets | ROI |
+|---|---:|---:|
+| Netherlands | 190 | +16.27% |
+| England | 44 | +17.93% |
+| Greece | 33 | +3.36% |
+| France | 34 | −0.21% |
+| Portugal | 36 | −0.53% |
+| Scotland | 20 | +77.60% |
+| Belgium | 28 | +75.68% |
+| Spain | 29 | −7.14% |
+| Turkey | 53 | −18.98% |
+| Italy | 206 | −18.91% |
+| Germany | 69 | −19.01% |
+
+**Analysis:** The filter's mechanism survives the transition from closing to opening odds — direction and magnitude hold up (+12.08pp over baseline, still above `EVALUATION.md`'s "+5pp = meaningful" bar), but the sample shrinks further (745→303) and t-stat drops below the significance screen (2.81→1.42). This is a moderate-confidence result, not a decisive one. The all-11-league screen disproves an earlier, cruder all-market (threshold=0, no caps) diagnostic that had shown France improving by +14.95pp to +5.47% — under the real per-league-threshold+cap methodology France is flat (−0.21%), not a standout. Belgium and Scotland show large ROI (+75–78%) on only 20–28 bets each — per `EVALUATION.md`'s own noise-interpretation guidance, this pattern (huge swing, thin sample) reads as noise, not signal, and was not added. Germany, Italy, Spain, and Turkey are clear, well-sampled negatives.
+
+**Decision:** KEPT AND MADE LIVE, per explicit user direction after reviewing the above. `PRODUCTION_LEAGUES` changed to `{E0, N1, G1, F1}`: Portugal dropped (flat/slightly negative under both odds proxies); France added despite its flat opening-odds result, on the user's explicit reasoning that live Predict runs close to kickoff should trend closer to Pinnacle's closing line than this worst-case test — a business judgment this iteration does not itself validate. `pinnacle_confirmation_margin` is now wired into all three live call sites in `_run_predict()`. Follow-up queued in `current.md`: monitor how close live-fetched odds actually land to closing-line behavior once enough live runs accumulate, and revisit France's inclusion if they don't.

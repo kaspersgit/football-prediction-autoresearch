@@ -82,3 +82,91 @@ def test_value_bets_keep_all_markets_unless_production_filter_is_requested():
     assert evaluation["league"].tolist() == ["E0", "D1"]
     assert production["league"].tolist() == ["E0"]
     assert evaluation["edge"].tolist() == pytest.approx([0.2, 0.2])
+
+
+def _make_pinnacle_row(psch, pscd, psca):
+    return pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=1),
+        "HomeTeam": ["Home"],
+        "AwayTeam": ["Away"],
+        "league": ["E0"],
+        "y_true": ["H"],
+        "B365H": [2.0],
+        "B365D": [4.0],
+        "B365A": [4.0],
+        "PSCH": [psch],
+        "PSCD": [pscd],
+        "PSCA": [psca],
+    })
+
+
+def test_pinnacle_confirmation_filter_keeps_bet_when_pinnacle_agrees():
+    matches = _make_pinnacle_row(1.8, 6.0, 6.0)  # pinnacle_fair[H] = 0.625 > 0.5 + 0.015
+    probabilities = np.array([[0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    result = compute_value_betting_results(
+        matches, probabilities, classes, pinnacle_confirmation_margin=0.015,
+    )
+
+    assert result["y_pred"].tolist() == ["H"]
+
+
+def test_pinnacle_confirmation_filter_vetoes_bet_when_pinnacle_disagrees():
+    matches = _make_pinnacle_row(3.0, 3.0, 3.0)  # pinnacle_fair[H] = 0.333 <= 0.5 + 0.015
+    probabilities = np.array([[0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    result = compute_value_betting_results(
+        matches, probabilities, classes, pinnacle_confirmation_margin=0.015,
+    )
+
+    assert result.empty
+
+
+def test_pinnacle_confirmation_filter_skipped_when_pinnacle_odds_are_null():
+    matches = _make_pinnacle_row(float("nan"), float("nan"), float("nan"))
+    probabilities = np.array([[0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    result = compute_value_betting_results(
+        matches, probabilities, classes, pinnacle_confirmation_margin=0.015,
+    )
+
+    assert result["y_pred"].tolist() == ["H"]
+
+
+def test_pinnacle_confirmation_filter_is_off_by_default():
+    matches = _make_pinnacle_row(3.0, 3.0, 3.0)  # would veto if the filter were active
+    probabilities = np.array([[0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    result = compute_value_betting_results(matches, probabilities, classes)
+
+    assert result["y_pred"].tolist() == ["H"]
+
+
+def test_pinnacle_confirmation_filter_can_use_opening_odds_columns():
+    matches = pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=1),
+        "HomeTeam": ["Home"],
+        "AwayTeam": ["Away"],
+        "league": ["E0"],
+        "y_true": ["H"],
+        "B365H": [2.0],
+        "B365D": [4.0],
+        "B365A": [4.0],
+        "PSH": [1.8],
+        "PSD": [6.0],
+        "PSA": [6.0],
+    })
+    probabilities = np.array([[0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    result = compute_value_betting_results(
+        matches, probabilities, classes,
+        pinnacle_confirmation_margin=0.015,
+        pinnacle_odds_cols=("PSH", "PSD", "PSA"),
+    )
+
+    assert result["y_pred"].tolist() == ["H"]

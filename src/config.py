@@ -15,11 +15,17 @@ LEAGUE_NAMES = {
 }
 
 SUPPORTED_LEAGUES = tuple(LEAGUE_NAMES)
-PRODUCTION_LEAGUES = frozenset({"E0", "N1", "P1", "G1"})
+# Re-chosen 2026-08-10 (EXP-20260810-002) from a production-methodology screen (real
+# per-league calibrated thresholds + max-edge/overround caps + the Pinnacle-confirmation
+# filter) across all 11 leagues: Portugal dropped (flat/slightly negative under the
+# filter), France added on the expectation that live Predict runs close to kickoff
+# will trend closer to Pinnacle's closing line than the opening-odds worst case tested.
+PRODUCTION_LEAGUES = frozenset({"E0", "N1", "G1", "F1"})
 
 DEFAULT_MAX_ODDS = 5.0
 DEFAULT_MAX_EDGE = 0.20
 DEFAULT_MAX_OVERROUND = 0.07
+DEFAULT_PINNACLE_CONFIRMATION_MARGIN = 0.015
 
 # Compatibility helper for APIs expressed as a skip set. Evaluation must not use
 # this value; it is derived solely from the production allowlist.

@@ -208,3 +208,73 @@ def test_shadow_and_live_rows_reject_the_same_non_executable_edge(
     )
     assert bool(shadow_home.is_value_bet) is False
     assert live_rows[0]["ValueBets"] == []
+
+
+def _make_pinnacle_fixture(psh, psd, psa):
+    return pd.DataFrame({
+        "Date": [pd.Timestamp("2026-08-09")],
+        "league": ["E0"],
+        "HomeTeam": ["Arsenal"],
+        "AwayTeam": ["Chelsea"],
+        "B365H": [2.0],
+        "B365D": [4.0],
+        "B365A": [4.0],
+        "PSH": [psh],
+        "PSD": [psd],
+        "PSA": [psa],
+    })
+
+
+def test_build_prediction_rows_vetoes_bet_when_pinnacle_disagrees():
+    fixture_features = _make_pinnacle_fixture(3.0, 3.0, 3.0)  # pinnacle_fair[H] = 0.333
+
+    rows = main._build_prediction_rows(
+        fixture_features,
+        np.array([[0.1, 0.2, 0.7]]),
+        ["A", "D", "H"],
+        threshold=0.0,
+        pinnacle_confirmation_margin=0.015,
+    )
+
+    assert rows[0]["ValueBets"] == []
+
+
+def test_build_prediction_rows_keeps_bet_when_pinnacle_agrees():
+    fixture_features = _make_pinnacle_fixture(1.8, 6.0, 6.0)  # pinnacle_fair[H] = 0.625
+
+    rows = main._build_prediction_rows(
+        fixture_features,
+        np.array([[0.1, 0.2, 0.7]]),
+        ["A", "D", "H"],
+        threshold=0.0,
+        pinnacle_confirmation_margin=0.015,
+    )
+
+    assert [o for o, _ in rows[0]["ValueBets"]] == ["H"]
+
+
+def test_build_prediction_rows_skips_pinnacle_check_when_odds_are_null():
+    fixture_features = _make_pinnacle_fixture(float("nan"), float("nan"), float("nan"))
+
+    rows = main._build_prediction_rows(
+        fixture_features,
+        np.array([[0.1, 0.2, 0.7]]),
+        ["A", "D", "H"],
+        threshold=0.0,
+        pinnacle_confirmation_margin=0.015,
+    )
+
+    assert [o for o, _ in rows[0]["ValueBets"]] == ["H"]
+
+
+def test_build_prediction_rows_pinnacle_check_is_off_by_default():
+    fixture_features = _make_pinnacle_fixture(3.0, 3.0, 3.0)  # would veto if active
+
+    rows = main._build_prediction_rows(
+        fixture_features,
+        np.array([[0.1, 0.2, 0.7]]),
+        ["A", "D", "H"],
+        threshold=0.0,
+    )
+
+    assert [o for o, _ in rows[0]["ValueBets"]] == ["H"]

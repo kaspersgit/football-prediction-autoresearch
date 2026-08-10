@@ -34,6 +34,7 @@ from src.config import (
     DEFAULT_MAX_EDGE,
     DEFAULT_MAX_ODDS,
     DEFAULT_MAX_OVERROUND,
+    DEFAULT_PINNACLE_CONFIRMATION_MARGIN,
     EXCLUDED_BETTING_LEAGUES,
     LEAGUE_NAMES,
     PRODUCTION_LEAGUES,
@@ -113,6 +114,23 @@ def _parse_kelly() -> float:
 
 def _parse_per_league() -> bool:
     return "--per-league" in sys.argv
+
+
+def _parse_pinnacle_filter() -> bool:
+    return "--pinnacle-filter" in sys.argv or "--pinnacle-filter-opening" in sys.argv
+
+
+def _parse_pinnacle_odds_cols() -> tuple[str, str, str]:
+    if "--pinnacle-filter-opening" in sys.argv:
+        return ("PSH", "PSD", "PSA")
+    return ("PSCH", "PSCD", "PSCA")
+
+
+def _parse_all_leagues_production() -> bool:
+    """Diagnostic only: apply the production per-league threshold+cap methodology to
+    every supported league instead of just PRODUCTION_LEAGUES, to screen league
+    candidates on equal footing. Never changes what main.py --predict bets on."""
+    return "--all-leagues-production" in sys.argv
 
 
 def _parse_binary() -> bool:
@@ -247,6 +265,7 @@ def _run_settle_shadow() -> None:
 def _run_predict():
     from src.data.download import download_fixtures
     from src.data.loader import load_fixtures
+    from src.data.pinnacle_odds import attach_pinnacle_odds
 
     threshold = _parse_threshold()
     fetched_at = pd.Timestamp.now(tz="UTC")
@@ -276,6 +295,7 @@ def _run_predict():
 
     print("Loading fixtures...")
     fixtures_df = load_fixtures()
+    fixtures_df = attach_pinnacle_odds(fixtures_df)
     print(f"Found {len(fixtures_df)} upcoming fixtures in tracked leagues")
 
     print("Building fixture features...")
@@ -338,14 +358,17 @@ def _run_predict():
     _generate_shadow_report()
 
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
-                                       league_thresholds=league_thresholds)
+                                       league_thresholds=league_thresholds,
+                                       pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN)
 
     historical_bets = _load_historical_bets()
 
     _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at,
-                       league_thresholds=league_thresholds)
+                       league_thresholds=league_thresholds,
+                       pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN)
     _save_predictions_csv(fixture_features, y_proba, classes, threshold, fetched_at,
-                          league_thresholds=league_thresholds)
+                          league_thresholds=league_thresholds,
+                          pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN)
     _save_predictions_html(pred_rows, threshold, fetched_at, historical_bets=historical_bets)
 
 
@@ -358,6 +381,7 @@ _PREDICT_MAX_OVERROUND = DEFAULT_MAX_OVERROUND
 def _build_prediction_rows(
     fixture_features, y_proba, classes, threshold: float,
     league_thresholds: dict | None = None,
+    pinnacle_confirmation_margin: float | None = None,
 ) -> list[dict]:
     """Build a list of per-fixture prediction dicts (used by both print and CSV export)."""
     fixture_features = fixture_features.reset_index(drop=True)
@@ -374,6 +398,21 @@ def _build_prediction_rows(
         if overround > _PREDICT_MAX_OVERROUND:
             continue
 
+        pinnacle_fair = None
+        if pinnacle_confirmation_margin is not None:
+            psh, psd, psa = row.get("PSH"), row.get("PSD"), row.get("PSA")
+            if (
+                psh is not None and psd is not None and psa is not None
+                and not (pd.isna(psh) or pd.isna(psd) or pd.isna(psa))
+            ):
+                pinnacle_raw = {
+                    "H": 1.0 / float(psh),
+                    "D": 1.0 / float(psd),
+                    "A": 1.0 / float(psa),
+                }
+                pinnacle_total = sum(pinnacle_raw.values())
+                pinnacle_fair = {o: pinnacle_raw[o] / pinnacle_total for o in pinnacle_raw}
+
         league = row.get("league", "")
         t = (league_thresholds or {}).get(league, threshold)
 
@@ -381,6 +420,11 @@ def _build_prediction_rows(
         for o in ["H", "D", "A"]:
             edge = probs[o] - fair[o]
             b365_odds = {"H": b365h, "D": b365d, "A": b365a}[o]
+            if (
+                pinnacle_fair is not None
+                and pinnacle_fair[o] <= fair[o] + pinnacle_confirmation_margin
+            ):
+                continue
             if is_execution_eligible(
                 edge=edge,
                 threshold=t,
@@ -424,7 +468,8 @@ def _build_prediction_rows(
 
 
 def _print_predictions(fixture_features, y_proba, classes, threshold: float, fetched_at=None,
-                       league_thresholds: dict | None = None) -> None:
+                       league_thresholds: dict | None = None,
+                       pinnacle_confirmation_margin: float | None = None) -> None:
     outcome_label = {"H": "Home", "D": "Draw", "A": "Away"}
 
     fetch_str = fetched_at.strftime("%Y-%m-%d %H:%M") if fetched_at else "unknown"
@@ -437,7 +482,8 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
     print(f"{'='*W}")
 
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
-                                       league_thresholds=league_thresholds)
+                                       league_thresholds=league_thresholds,
+                                       pinnacle_confirmation_margin=pinnacle_confirmation_margin)
 
     by_league: dict[str, list] = {}
     for r in pred_rows:
@@ -489,10 +535,12 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
 
 
 def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, fetched_at,
-                          league_thresholds: dict | None = None) -> None:
+                          league_thresholds: dict | None = None,
+                          pinnacle_confirmation_margin: float | None = None) -> None:
     """Save a timestamped CSV of all fixtures + odds + model probs for pre-bet verification."""
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
-                                       league_thresholds=league_thresholds)
+                                       league_thresholds=league_thresholds,
+                                       pinnacle_confirmation_margin=pinnacle_confirmation_margin)
     records = []
     for r in pred_rows:
         value_labels = "+".join(o for o, _ in r["ValueBets"]) if r["ValueBets"] else ""
@@ -686,6 +734,11 @@ def _run_backtest():
     max_odds         = _parse_max_odds()
     max_edge         = _parse_max_edge()
     min_season_games = _parse_min_season_games()
+    pinnacle_margin  = DEFAULT_PINNACLE_CONFIRMATION_MARGIN if _parse_pinnacle_filter() else None
+    pinnacle_odds_cols = _parse_pinnacle_odds_cols()
+    production_league_set = (
+        set(SUPPORTED_LEAGUES) if _parse_all_leagues_production() else set(PRODUCTION_LEAGUES)
+    )
 
     print("Loading data...")
     df = load_all_data()
@@ -739,7 +792,7 @@ def _run_backtest():
             leagues_in_season = set(sr["eval_df"]["league"].unique())
             season_chunks: list[pd.DataFrame] = []
             for league in SUPPORTED_LEAGUES:
-                if league not in PRODUCTION_LEAGUES:
+                if league not in production_league_set:
                     continue
                 if league not in leagues_in_season:
                     continue
@@ -758,8 +811,11 @@ def _run_backtest():
                     max_edge=max_edge,
                     min_season_games=min_season_games,
                     max_overround=DEFAULT_MAX_OVERROUND,
+                    pinnacle_confirmation_margin=pinnacle_margin,
+                    pinnacle_odds_cols=pinnacle_odds_cols,
                 )
-                season_chunks.append(lg_bets)
+                if not lg_bets.empty:
+                    season_chunks.append(lg_bets)
 
             prior_season_data.append(sr)
             if season_chunks:
@@ -792,6 +848,8 @@ def _run_backtest():
             max_edge=max_edge,
             min_season_games=min_season_games,
             max_overround=DEFAULT_MAX_OVERROUND,
+            pinnacle_confirmation_margin=pinnacle_margin,
+            pinnacle_odds_cols=pinnacle_odds_cols,
         )
         final_threshold_map = {lg: threshold for lg in SUPPORTED_LEAGUES}
 
@@ -809,6 +867,8 @@ def _run_backtest():
         max_edge=max_edge,
         min_season_games=min_season_games,
         max_overround=DEFAULT_MAX_OVERROUND,
+        pinnacle_confirmation_margin=pinnacle_margin,
+        pinnacle_odds_cols=pinnacle_odds_cols,
     )
 
     roi = compute_roi(evaluation_results) if not evaluation_results.empty else float("nan")
@@ -847,8 +907,12 @@ def _run_backtest():
         production_roi = compute_roi(production_results)
         print(
             f"Production portfolio: {len(production_results)} bets | "
-            f"ROI {production_roi:+.2f}% | leagues {', '.join(sorted(PRODUCTION_LEAGUES))}"
+            f"ROI {production_roi:+.2f}% | leagues {', '.join(sorted(production_league_set))}"
         )
+        print("Production portfolio per league:")
+        for lg, lg_df in production_results.groupby("league"):
+            lg_roi = lg_df["profit"].sum() / lg_df["stake"].sum() * 100
+            print(f"  {LEAGUE_NAMES.get(lg, lg):<12} {len(lg_df):>5} bets  {lg_roi:+7.2f}%")
         _save_profit_chart(production_results, Path("reports/profit_curve.png"))
 
     evaluation_path, bets_path = save_bet_artifacts(evaluation_results, production_results)
