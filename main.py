@@ -979,6 +979,7 @@ def _run_backtest():
         output_path=Path("reports/evaluation_report.html"),
         all_predictions=all_predictions,
         production_leagues=PRODUCTION_LEAGUES,
+        production_results=production_results,
     )
     print("Done. Open reports/evaluation_report.html to view results.")
 

@@ -115,6 +115,20 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <div class="filter-count">Showing <span id="visible-count">…</span> bets</div>
 </div>
 
+<!-- ── dataset toggle ─────────────────────────────────────────────────────── -->
+<div class="filter-bar" style="justify-content:space-between">
+  <div class="filter-group" style="min-width:auto">
+    <label>Dataset</label>
+    <div class="outcome-toggles">
+      <button class="outcome-btn active" id="btn-mode-all" onclick="setMode('all')">All-market screen</button>
+      <button class="outcome-btn" id="btn-mode-production" onclick="setMode('production')">Production config</button>
+    </div>
+  </div>
+  <div id="mode-caption" style="color:#555;font-size:.85em;max-width:520px">
+    One global threshold across all 11 leagues, no Pinnacle confirmation. Sliders below narrow this set further.
+  </div>
+</div>
+
 <h2>Probability Calibration</h2>
 <div class="top-bets-card" id="calibration-container">
   <h3>Probability Calibration (filtered)</h3>
@@ -163,6 +177,23 @@ var filteredBets = [];
 var _activeOutcome = 'All';
 var _activeLeagues={active_leagues_json};
 var _productionLeagues={production_leagues_json};
+var _mode = 'all';
+
+var _modeCaptions = {{
+  all: 'One global threshold across all 11 leagues, no Pinnacle confirmation. Sliders below narrow this set further.',
+  production: 'Bets actually placed by the live config: per-league calibrated thresholds + Pinnacle-confirmation veto, production leagues only (' + _productionLeagues.join(', ') + '). Sliders below narrow this set further — they cannot widen it back to the all-market screen.'
+}};
+
+function setMode(mode) {{
+  _mode = mode;
+  ['all', 'production'].forEach(function(m) {{
+    var btn = document.getElementById('btn-mode-' + m);
+    if (btn) btn.classList.toggle('active', m === mode);
+  }});
+  var caption = document.getElementById('mode-caption');
+  if (caption) caption.textContent = _modeCaptions[mode];
+  applyFilters();
+}}
 
 function setOutcome(outcome) {{
   _activeOutcome = outcome;
@@ -198,8 +229,9 @@ function applyFilters() {{
   if (maxEdge < minEdge) maxEdge = minEdge;
   if (maxOdds < minOdds) maxOdds = minOdds;
 
-  // BACKTEST_BETS = placed bets (stake/profit already computed, filtered by backtest config)
-  filteredBets = BACKTEST_BETS.filter(function(b) {{
+  // BACKTEST_BETS = all-market placed bets; PRODUCTION_BETS = live-config placed bets
+  var sourceBets = _mode === 'production' ? PRODUCTION_BETS : BACKTEST_BETS;
+  filteredBets = sourceBets.filter(function(b) {{
     if (b.edge < minEdge || b.edge > maxEdge) return false;
     if (b.odds < minOdds || b.odds > maxOdds) return false;
     if (_activeOutcome !== 'All' && b.outcome !== _activeOutcome) return false;
@@ -823,10 +855,10 @@ document.addEventListener('DOMContentLoaded', function() {{
 
 
 
-def _backtest_bets_script(results_df: pd.DataFrame) -> str:
-    """Generate BACKTEST_BETS JS array from placed bets (includes stake, profit, edge, league)."""
+def _placed_bets_script(results_df: "pd.DataFrame | None", var_name: str) -> str:
+    """Generate a JS array of placed bets (includes stake, profit, edge, league)."""
     if results_df is None or results_df.empty:
-        return "<script>var BACKTEST_BETS=[];</script>"
+        return f"<script>var {var_name}=[];</script>"
     df = results_df.copy()
     if "Date" in df.columns:
         df["date"] = pd.to_datetime(df["Date"]).dt.strftime("%Y-%m-%d")
@@ -837,7 +869,7 @@ def _backtest_bets_script(results_df: pd.DataFrame) -> str:
               "odds", "model_prob", "implied_prob", "edge", "stake", "profit"]
     cols = [c for c in needed if c in df.columns]
     records = df[cols].to_dict("records")
-    return f"<script>\nvar BACKTEST_BETS={json.dumps(records, separators=(',', ':'))};\n</script>"
+    return f"<script>\nvar {var_name}={json.dumps(records, separators=(',', ':'))};\n</script>"
 
 
 def _all_predictions_script(all_predictions: "pd.DataFrame | None") -> str:
@@ -881,6 +913,7 @@ def generate_report(
     output_path: Path,
     all_predictions: "pd.DataFrame | None" = None,
     production_leagues: "set[str] | frozenset[str] | None" = None,
+    production_results: "pd.DataFrame | None" = None,
 ) -> None:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -926,8 +959,11 @@ def generate_report(
         league_names_json=league_names_json,
         league_order_json=league_order_json,
     )
-    backtest_script = _backtest_bets_script(results_df)
+    backtest_script = _placed_bets_script(results_df, "BACKTEST_BETS")
+    production_script = _placed_bets_script(production_results, "PRODUCTION_BETS")
     all_bets_script = _all_predictions_script(all_predictions)
-    html = html.replace("</head>", f"{backtest_script}\n{all_bets_script}\n</head>", 1)
+    html = html.replace(
+        "</head>", f"{backtest_script}\n{production_script}\n{all_bets_script}\n</head>", 1
+    )
     output_path.write_text(html, encoding="utf-8")
     print(f"Report saved to {output_path}")
