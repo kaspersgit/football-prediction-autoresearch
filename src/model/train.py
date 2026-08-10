@@ -11,7 +11,18 @@ from src.config import SUPPORTED_LEAGUES
 from src.model.features import build_features_with_odds
 
 MODEL_PATH = Path("models/baseline.joblib")
-TEST_SEASONS = 4
+TEST_SEASONS = 3
+# A season still in progress (e.g. the handful of fixtures played so far this
+# year) must never be selected as a walk-forward test season -- it would
+# silently displace a full completed season from the trailing TEST_SEASONS
+# window and be scored on a near-empty, unrepresentative sample.
+MIN_FULL_SEASON_ROWS = 1000
+
+
+def _full_seasons(df: pd.DataFrame) -> list:
+    """Seasons with enough rows to be a completed (not in-progress) season, sorted."""
+    counts = df["season"].value_counts()
+    return sorted(s for s in df["season"].unique() if counts[s] >= MIN_FULL_SEASON_ROWS)
 
 _LGBM_CFG = dict(
     n_estimators=400,
@@ -55,7 +66,7 @@ def _fit_calibrated(X_train, y_train):
 
 
 def split_by_season(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    seasons = sorted(df["season"].unique())
+    seasons = _full_seasons(df)
     test_seasons = set(seasons[-TEST_SEASONS:])
     train = df[~df["season"].isin(test_seasons)]
     test = df[df["season"].isin(test_seasons)]
@@ -194,7 +205,7 @@ def train_walkforward(df: pd.DataFrame, n_test_seasons: int = TEST_SEASONS,
     full_odds = full_odds.reset_index(drop=True)
 
     seasons = sorted(full_odds["season"].unique())
-    test_seasons = seasons[-n_test_seasons:]
+    test_seasons = _full_seasons(full_odds)[-n_test_seasons:]
 
     season_results = []
     model = None
@@ -322,8 +333,7 @@ def train_walkforward_monthly(df: pd.DataFrame, n_test_seasons: int = TEST_SEASO
     full_odds = full_odds.reset_index(drop=True)
 
     dates = pd.to_datetime(full_odds["Date"])
-    seasons = sorted(full_odds["season"].unique())
-    test_seasons = set(seasons[-n_test_seasons:])
+    test_seasons = set(_full_seasons(full_odds)[-n_test_seasons:])
 
     # All months that fall in the test period
     test_mask_all = full_odds["season"].isin(test_seasons)
