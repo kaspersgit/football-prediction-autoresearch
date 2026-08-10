@@ -797,7 +797,8 @@ def _run_backtest():
                     pinnacle_confirmation_margin=pinnacle_margin,
                     pinnacle_odds_cols=pinnacle_odds_cols,
                 )
-                season_chunks.append(lg_bets)
+                if not lg_bets.empty:
+                    season_chunks.append(lg_bets)
 
             prior_season_data.append(sr)
             if season_chunks:
