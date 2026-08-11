@@ -55,6 +55,8 @@ jobs:
           EOF
 
       - name: Run predictions
+        env:
+          THEODDS_API: ${{ secrets.THEODDS_API }}
         run: uv run python main.py --predict --threshold 0.0
 
       - name: Save updated match data to cache

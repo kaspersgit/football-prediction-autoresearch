@@ -126,8 +126,20 @@ def generate_shadow_report(
     prediction_run_count = predictions["run_id"].nunique()
     settled_fixture_count = int(fixture_status.sum())
     pending_fixture_count = int((~fixture_status).sum())
+
+    # A fixture+outcome can be predicted more than once a day (repeat manual
+    # triggers, or a scheduled run alongside one). Only the day's earliest
+    # snapshot counts toward the metrics below, so a re-run never double-counts
+    # the same real match; every snapshot still stays in the ledger for audit.
+    canonical_ids = set(
+        predictions.assign(_fetched_at=pd.to_datetime(predictions["fetched_at"], utc=True))
+        .sort_values("_fetched_at")
+        .drop_duplicates(subset=[*_FIXTURE_COLUMNS, "outcome"], keep="first")["prediction_id"]
+    )
     settled_qualifying = joined.loc[
-        joined["prediction_id"].isin(settled_ids) & _is_value_bet(joined["is_value_bet"])
+        joined["prediction_id"].isin(settled_ids)
+        & joined["prediction_id"].isin(canonical_ids)
+        & _is_value_bet(joined["is_value_bet"])
     ].copy()
 
     bet_count = len(settled_qualifying)

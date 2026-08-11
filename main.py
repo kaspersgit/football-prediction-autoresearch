@@ -218,8 +218,17 @@ def _settle_and_report_shadow(results_df, settled_at) -> None:
 
 
 def _shadow_run_id(fetched_at) -> str:
-    """Return the scheduler run ID, with a UTC timestamp fallback for local runs."""
-    return os.environ.get("GITHUB_RUN_ID", pd.Timestamp(fetched_at).strftime("%Y%m%dT%H%M%S%fZ"))
+    """Return the scheduler run ID, with a UTC timestamp fallback for local runs.
+
+    GITHUB_RUN_ID stays constant across re-run attempts of the same workflow run,
+    but market odds can shift between attempts. Fold in GITHUB_RUN_ATTEMPT so a
+    retry never collides with rows an earlier attempt already committed.
+    """
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if run_id is None:
+        return pd.Timestamp(fetched_at).strftime("%Y%m%dT%H%M%S%fZ")
+    run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    return f"{run_id}-{run_attempt}"
 
 
 def _shadow_model_commit() -> str:
