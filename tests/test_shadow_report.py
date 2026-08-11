@@ -241,6 +241,69 @@ def test_shadow_report_renders_weekly_interval_for_two_complete_weeks(tmp_path):
     ) in html
 
 
+def test_shadow_report_counts_same_day_refetch_once(tmp_path):
+    """A same-day re-trigger must not double-count a fixture already settled once."""
+    predictions = pd.concat(
+        [
+            _predictions(),
+            pd.DataFrame(
+                [
+                    {
+                        "prediction_id": "settled-home-rerun",
+                        "run_id": "run-1b",
+                        "model_commit": "abc123",
+                        "fetched_at": "2026-08-04T12:00:00Z",
+                        "fixture_date": "2026-08-08",
+                        "league": "E0",
+                        "home_team": "Arsenal",
+                        "away_team": "Chelsea",
+                        "outcome": "H",
+                        "model_probability": 0.62,
+                        "fair_probability": 0.50,
+                        "captured_b365_odds": 1.85,
+                        "captured_best_odds": 1.95,
+                        "captured_best_bookmaker": "B365",
+                        "edge": 0.12,
+                        "applied_threshold": 0.04,
+                        "is_value_bet": True,
+                        "is_production_fixture": True,
+                    }
+                ],
+                columns=PREDICTION_COLUMNS,
+            ),
+        ],
+        ignore_index=True,
+    )
+    settlements = pd.concat(
+        [
+            _settlements(),
+            pd.DataFrame(
+                [
+                    {
+                        "prediction_id": "settled-home-rerun",
+                        "settled_at": "2026-08-09T06:00:00Z",
+                        "actual_result": "H",
+                        "is_winner": True,
+                        "profit": 0.95,
+                        "result_file_b365_odds": 1.80,
+                        "result_file_best_odds": 1.80,
+                        "closing_line_value": 1.95 / 1.8 - 1.0,
+                    }
+                ],
+                columns=SETTLEMENT_COLUMNS,
+            ),
+        ],
+        ignore_index=True,
+    )
+
+    output = generate_shadow_report(predictions, settlements, tmp_path / "shadow.html")
+
+    html = output.read_text()
+    assert "<strong>1</strong>Settled qualifying value bets" in html
+    assert "+100.00%" in html
+    assert "<tr><td>E0</td><td>1</td><td>+1.00</td>" in html
+
+
 def test_shadow_report_rejects_orphan_settlement(tmp_path):
     """Reporting must fail instead of silently dropping a settlement with no prediction."""
     settlements = _settlements().copy()
