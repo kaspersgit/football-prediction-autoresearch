@@ -58,17 +58,19 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <a class="back-link" href="index.html">&larr; Back to index</a>
 <h1>Football Prediction Evaluation Report</h1>
 <h2>Summary Metrics</h2>
-<p style="color:#777;font-size:.88em;margin:4px 0 12px">Accuracy is over all test matches. Bets, ROI, and t-stat react to the filters below.</p>
+<p style="color:#777;font-size:.88em;margin:4px 0 12px">Every summary metric below reacts to the filters and dataset toggle further down the page.</p>
 <div class="metrics">
-  <div class="metric-card"><div class="value">{accuracy:.1%}</div><div class="label">Accuracy (all matches)</div></div>
+  <div class="metric-card"><div class="value" id="summary-accuracy">{accuracy:.1%}</div><div class="label">Accuracy (bets shown)</div></div>
   <div class="metric-card"><div class="value" id="summary-bets">{n_bets}</div><div class="label">Bets Placed</div></div>
   <div class="metric-card"><div class="value" id="summary-roi" style="color:{roi_color}">{roi:+.2f}%</div><div class="label">ROI (stake-weighted)</div></div>
   <div class="metric-card"><div class="value" id="summary-tstat">{tstat:+.2f}</div><div class="label">t-stat (≥2 = significant)</div></div>
-  <div class="metric-card"><div class="value">{weekly_roi_interval}</div><div class="label">Weekly 95% ROI interval<br><small>Initial all-market evaluation; filters do not change this interval.</small></div></div>
+  <div class="metric-card"><div class="value" id="summary-weekly-roi">{weekly_roi_interval}</div><div class="label">Weekly 95% ROI interval<br><small>Bootstrap CI over ISO weeks, recomputed from the bets shown.</small></div></div>
 </div>
 <div class="explanation">
+  <b>Accuracy</b>: share of the bets currently shown whose predicted outcome matched the result.<br>
   <b>ROI</b>: total profit / total staked × 100. Uses flat staking: 1 unit per bet.<br>
-  <b>t-stat</b>: stability × √N. Above ±2 is statistically significant at 5% level.
+  <b>t-stat</b>: stability × √N. Above ±2 is statistically significant at 5% level.<br>
+  <b>Raw model accuracy</b> (every test match, no bet/edge filter applied): {accuracy:.1%}.
 </div>
 
 <!-- ── filter bar ─────────────────────────────────────────────────────────── -->
@@ -101,6 +103,13 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     <label>Max odds <span id="lbl-max-odds">10.0</span></label>
     <input type="range" id="filter-max-odds" min="1.5" max="10.0" step="0.5" value="10.0"
            oninput="document.getElementById('lbl-max-odds').textContent=parseFloat(this.value).toFixed(1);applyFilters()">
+  </div>
+  <div class="filter-group">
+    <label>Pinnacle</label>
+    <div class="outcome-toggles">
+      <button class="outcome-btn" id="btn-pinnacle" onclick="togglePinnacle()"
+              title="Require the closing-line confirmation production always applies, without restricting leagues">Require confirmation</button>
+    </div>
   </div>
   <div class="filter-group">
     <label>Leagues</label>
@@ -178,10 +187,11 @@ var _activeOutcome = 'All';
 var _activeLeagues={active_leagues_json};
 var _productionLeagues={production_leagues_json};
 var _mode = 'all';
+var _requirePinnacle = false;
 
 var _modeCaptions = {{
-  all: 'One global threshold across all 11 leagues, no Pinnacle confirmation. Sliders below narrow this set further.',
-  production: 'Bets actually placed by the live config: per-league calibrated thresholds + Pinnacle-confirmation veto, production leagues only (' + _productionLeagues.join(', ') + '). Sliders below narrow this set further — they cannot widen it back to the all-market screen.'
+  all: 'One global threshold across all 11 leagues, no Pinnacle confirmation required by default. Turn on "Require confirmation" above to add production\\'s Pinnacle veto without restricting leagues. Sliders below narrow this set further.',
+  production: 'Bets actually placed by the live config: per-league calibrated thresholds + Pinnacle-confirmation veto, production leagues only (' + _productionLeagues.join(', ') + '). Sliders below narrow this set further — they cannot widen it back to the all-market screen. Every bet here is already Pinnacle-confirmed, so the toggle above has no effect.'
 }};
 
 function setMode(mode) {{
@@ -220,6 +230,13 @@ function setLeaguePreset(preset) {{
   applyFilters();
 }}
 
+function togglePinnacle() {{
+  _requirePinnacle = !_requirePinnacle;
+  var btn = document.getElementById('btn-pinnacle');
+  if (btn) btn.classList.toggle('active', _requirePinnacle);
+  applyFilters();
+}}
+
 function applyFilters() {{
   var minEdge = parseFloat(document.getElementById('filter-min-edge').value) / 100;
   var maxEdge = parseFloat(document.getElementById('filter-max-edge').value) / 100;
@@ -236,6 +253,7 @@ function applyFilters() {{
     if (b.odds < minOdds || b.odds > maxOdds) return false;
     if (_activeOutcome !== 'All' && b.outcome !== _activeOutcome) return false;
     if (b.league && !_activeLeagues[b.league]) return false;
+    if (_requirePinnacle && b.pinnacle_confirmed !== true) return false;
     return true;
   }});
 
@@ -286,6 +304,59 @@ function updateSummaryCards(bets) {{
     tstatEl.textContent = isNaN(tstat) ? 'n/a' : (tstat >= 0 ? '+' : '') + tstat.toFixed(2);
     tstatEl.style.color = (!isNaN(tstat) && Math.abs(tstat) >= 2) ? '#2e7d32' : '#c62828';
   }}
+  var accEl = document.getElementById('summary-accuracy');
+  if (accEl) {{
+    var wins = n > 0 ? bets.filter(function(b) {{ return b.y_true === b.outcome; }}).length : 0;
+    accEl.textContent = n > 0 ? (wins / n * 100).toFixed(1) + '%' : 'n/a';
+  }}
+  var weeklyEl = document.getElementById('summary-weekly-roi');
+  if (weeklyEl) {{
+    var interval = computeWeeklyRoiInterval(bets);
+    weeklyEl.textContent = interval
+      ? (interval[0] >= 0 ? '+' : '') + interval[0].toFixed(2) + '% to ' + (interval[1] >= 0 ? '+' : '') + interval[1].toFixed(2) + '%'
+      : 'Not enough completed weeks';
+  }}
+}}
+
+// ── weekly ROI bootstrap CI (mirrors src/evaluation/uncertainty.py) ───────────
+function _isoWeekKey(dateStr) {{
+  var d = new Date(dateStr + 'T00:00:00Z');
+  var dayNum = (d.getUTCDay() + 6) % 7; // Mon=0 .. Sun=6
+  d.setUTCDate(d.getUTCDate() - dayNum + 3); // nearest Thursday
+  var firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  var firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  var week = 1 + Math.round((d - firstThursday) / (7 * 86400000));
+  return d.getUTCFullYear() + '-W' + week;
+}}
+
+function computeWeeklyRoiInterval(bets) {{
+  if (bets.length === 0) return null;
+  var weekly = {{}};
+  bets.forEach(function(b) {{
+    var key = _isoWeekKey(b.date);
+    if (!weekly[key]) weekly[key] = {{profit: 0, stake: 0}};
+    weekly[key].profit += b.profit;
+    weekly[key].stake += (b.stake || 1.0);
+  }});
+  var weeks = Object.keys(weekly).map(function(k) {{ return weekly[k]; }});
+  if (weeks.length < 2) return null;
+
+  var N_RESAMPLES = 4000;
+  var sampledRoi = new Array(N_RESAMPLES);
+  for (var r = 0; r < N_RESAMPLES; r++) {{
+    var profitSum = 0, stakeSum = 0;
+    for (var i = 0; i < weeks.length; i++) {{
+      var idx = Math.floor(Math.random() * weeks.length);
+      profitSum += weeks[idx].profit;
+      stakeSum += weeks[idx].stake;
+    }}
+    sampledRoi[r] = stakeSum > 0 ? (profitSum / stakeSum) * 100 : 0;
+  }}
+  sampledRoi.sort(function(a, b) {{ return a - b; }});
+  var lowerIdx = Math.floor(0.025 * N_RESAMPLES);
+  var upperIdx = Math.floor(0.975 * N_RESAMPLES);
+  return [sampledRoi[lowerIdx], sampledRoi[upperIdx]];
 }}
 
 // ── calibration chart (canvas) ────────────────────────────────────────────────
@@ -847,6 +918,16 @@ function rebuildCumulativeChart(bets) {{
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {{
+  var hasPinnacleData = BACKTEST_BETS.some(function(b) {{ return typeof b.pinnacle_confirmed === 'boolean'; }});
+  if (!hasPinnacleData) {{
+    var pinBtn = document.getElementById('btn-pinnacle');
+    if (pinBtn) {{
+      pinBtn.disabled = true;
+      pinBtn.style.opacity = '0.4';
+      pinBtn.style.cursor = 'not-allowed';
+      pinBtn.title = 'No Pinnacle confirmation data in this backtest run';
+    }}
+  }}
   applyFilters();
 }});
 </script>
@@ -866,7 +947,8 @@ def _placed_bets_script(results_df: "pd.DataFrame | None", var_name: str) -> str
     if "edge" not in df.columns and "model_prob" in df.columns and "implied_prob" in df.columns:
         df["edge"] = df["model_prob"] - df["implied_prob"]
     needed = ["date", "league", "home", "away", "outcome", "y_true",
-              "odds", "model_prob", "implied_prob", "edge", "stake", "profit"]
+              "odds", "model_prob", "implied_prob", "edge", "stake", "profit",
+              "pinnacle_confirmed"]
     cols = [c for c in needed if c in df.columns]
     records = df[cols].to_dict("records")
     return f"<script>\nvar {var_name}={json.dumps(records, separators=(',', ':'))};\n</script>"

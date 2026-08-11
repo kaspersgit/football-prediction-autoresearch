@@ -859,7 +859,10 @@ def _run_backtest():
         final_threshold_map = {lg: threshold for lg in SUPPORTED_LEAGUES}
 
     # Research evaluation is deliberately independent from the production portfolio:
-    # every observed supported league uses the fixed CLI threshold.
+    # every observed supported league uses the fixed CLI threshold. pinnacle_veto=False
+    # keeps every bet (tagged with pinnacle_confirmed) instead of silently dropping
+    # unconfirmed ones, so the "all-market" screen in the eval report genuinely has no
+    # Pinnacle filter applied — the report's UI lets you opt into that filter yourself.
     evaluation_results = compute_value_betting_results(
         eval_df,
         results["y_proba"],
@@ -874,6 +877,7 @@ def _run_backtest():
         max_overround=DEFAULT_MAX_OVERROUND,
         pinnacle_confirmation_margin=pinnacle_margin,
         pinnacle_odds_cols=pinnacle_odds_cols,
+        pinnacle_veto=False,
     )
 
     roi = compute_roi(evaluation_results) if not evaluation_results.empty else float("nan")
