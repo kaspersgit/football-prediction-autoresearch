@@ -119,7 +119,8 @@ def test_report_renders_static_weekly_roi_interval_for_initial_all_market_bets(t
     content = out.read_text()
     assert "Weekly 95% ROI interval" in content
     assert "+0.00% to +50.00%" in content
-    assert "Initial all-market evaluation; filters do not change this interval." in content
+    assert 'id="summary-weekly-roi"' in content
+    assert "Bootstrap CI over ISO weeks, recomputed from the bets shown." in content
 
 
 def test_report_labels_weekly_roi_interval_when_there_are_not_enough_completed_weeks(tmp_path):
@@ -135,3 +136,44 @@ def test_report_labels_weekly_roi_interval_when_there_are_not_enough_completed_w
     )
 
     assert "Not enough completed weeks" in out.read_text()
+
+
+def test_report_offers_a_pinnacle_confirmation_toggle_that_does_not_touch_calibration(tmp_path):
+    """The Pinnacle toggle should let a user reconstruct production's confirmation veto
+    from the all-market screen without being locked to production leagues, and it must
+    only ever filter placed bets, not the calibration chart's raw predictions."""
+    out = tmp_path / "report.html"
+
+    generate_report(
+        results_df=_make_results(),
+        accuracy=0.5,
+        roi=1.0,
+        stability=0.1,
+        output_path=out,
+    )
+
+    content = out.read_text()
+    assert 'id="btn-pinnacle"' in content
+    assert "function togglePinnacle()" in content
+    assert "_requirePinnacle && b.pinnacle_confirmed !== true" in content
+    # The calibration dataset (ALL_BETS / filteredAllBets) must not be pinnacle-filtered.
+    assert "filteredAllBets = ALL_BETS.filter" in content
+    calibration_filter = content.split("filteredAllBets = ALL_BETS.filter")[1].split("});")[0]
+    assert "_requirePinnacle" not in calibration_filter
+
+
+def test_report_accuracy_card_reacts_to_filters(tmp_path):
+    out = tmp_path / "report.html"
+
+    generate_report(
+        results_df=_make_results(),
+        accuracy=0.5,
+        roi=1.0,
+        stability=0.1,
+        output_path=out,
+    )
+
+    content = out.read_text()
+    assert 'id="summary-accuracy"' in content
+    assert "Raw model accuracy" in content
+    assert "50.0%" in content

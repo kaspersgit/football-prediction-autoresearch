@@ -147,6 +147,45 @@ def test_pinnacle_confirmation_filter_is_off_by_default():
     assert result["y_pred"].tolist() == ["H"]
 
 
+def test_pinnacle_veto_false_tags_instead_of_dropping_unconfirmed_bets():
+    matches = _make_pinnacle_row(3.0, 3.0, 3.0)  # pinnacle_fair[H] = 0.333 <= 0.5 + 0.015
+    probabilities = np.array([[0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    result = compute_value_betting_results(
+        matches, probabilities, classes,
+        pinnacle_confirmation_margin=0.015,
+        pinnacle_veto=False,
+    )
+
+    assert result["y_pred"].tolist() == ["H"]
+    assert result["pinnacle_confirmed"].tolist() == [False]
+
+
+def test_pinnacle_veto_false_still_tags_confirmed_bets_as_true():
+    matches = _make_pinnacle_row(1.8, 6.0, 6.0)  # pinnacle_fair[H] = 0.625 > 0.5 + 0.015
+    probabilities = np.array([[0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    result = compute_value_betting_results(
+        matches, probabilities, classes,
+        pinnacle_confirmation_margin=0.015,
+        pinnacle_veto=False,
+    )
+
+    assert result["pinnacle_confirmed"].tolist() == [True]
+
+
+def test_no_pinnacle_confirmed_column_when_margin_is_unset():
+    matches = _make_pinnacle_row(3.0, 3.0, 3.0)
+    probabilities = np.array([[0.1, 0.2, 0.7]])
+    classes = np.array(["A", "D", "H"])
+
+    result = compute_value_betting_results(matches, probabilities, classes, pinnacle_veto=False)
+
+    assert "pinnacle_confirmed" not in result.columns
+
+
 def test_pinnacle_confirmation_filter_can_use_opening_odds_columns():
     matches = pd.DataFrame({
         "Date": pd.date_range("2024-01-01", periods=1),

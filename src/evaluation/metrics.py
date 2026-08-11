@@ -102,6 +102,7 @@ def compute_value_betting_results(
     max_overround: float = float("inf"),
     pinnacle_confirmation_margin: float | None = None,
     pinnacle_odds_cols: tuple[str, str, str] = ("PSCH", "PSCD", "PSCA"),
+    pinnacle_veto: bool = True,
 ) -> pd.DataFrame:
     """
     Multi-outcome value betting.
@@ -134,6 +135,11 @@ def compute_value_betting_results(
                       ("PSH", "PSD", "PSA") to test against Pinnacle's pre-match/opening
                       odds instead — the only kind available from a live snapshot fetch,
                       since a true closing line only exists after kickoff has passed.
+    pinnacle_veto: when pinnacle_confirmation_margin is set, drop unconfirmed bets
+                      (default, matches production behaviour). Set to False to keep every
+                      bet and instead tag each with a "pinnacle_confirmed" column, so
+                      callers (e.g. the eval report's UI filters) can apply the veto
+                      themselves after the fact.
     min_season_games: skip bets where either team has played fewer than this many games in the
                       current season (in that league). Requires df to have 'season' and 'league' cols.
                       Default 0 = no filter. Recommended value: 4 (skips first ~4 gameweeks).
@@ -217,11 +223,14 @@ def compute_value_betting_results(
             if edge <= threshold or edge > max_edge:
                 continue
 
-            if pinnacle_confirmation_margin is not None and (
-                pinnacle_fair is None
-                or pinnacle_fair[outcome] <= fair[outcome] + pinnacle_confirmation_margin
-            ):
-                continue
+            pinnacle_confirmed = None
+            if pinnacle_confirmation_margin is not None:
+                pinnacle_confirmed = (
+                    pinnacle_fair is not None
+                    and pinnacle_fair[outcome] > fair[outcome] + pinnacle_confirmation_margin
+                )
+                if pinnacle_veto and not pinnacle_confirmed:
+                    continue
 
             # Execution odds: best available (CustomMax) or fall back to B365
             custom_col = f"CustomMax{outcome}"
@@ -239,7 +248,7 @@ def compute_value_betting_results(
             else:
                 stake = 1.0
             profit = stake * ((odds - 1.0) if y_true == outcome else -1.0)
-            bet_rows.append({
+            bet_row = {
                 "Date": row["Date"],
                 "HomeTeam": row.get("HomeTeam", ""),
                 "AwayTeam": row.get("AwayTeam", ""),
@@ -253,7 +262,10 @@ def compute_value_betting_results(
                 "edge": edge,
                 "stake": stake,
                 "profit": profit,
-            })
+            }
+            if pinnacle_confirmation_margin is not None:
+                bet_row["pinnacle_confirmed"] = pinnacle_confirmed
+            bet_rows.append(bet_row)
 
     if not bet_rows:
         return pd.DataFrame(columns=["Date", "HomeTeam", "AwayTeam", "league", "season",
