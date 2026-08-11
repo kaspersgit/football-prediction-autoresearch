@@ -1,0 +1,53 @@
+name: Track Pinnacle vig
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # daily 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: track-pinnacle-vig
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ hashFiles('uv.lock') }}
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Record live Pinnacle vig snapshot
+        env:
+          THEODDS_API: ${{ secrets.THEODDS_API }}
+        run: uv run python main.py --track-pinnacle-vig
+
+      - name: Commit vig tracking history
+        run: |
+          if [[ -e data/diagnostics/pinnacle_vig_history.csv ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add data/diagnostics/pinnacle_vig_history.csv
+            if ! git diff --staged --quiet; then
+              git commit -m "chore: record daily Pinnacle vig snapshot"
+              git push origin "HEAD:${GITHUB_REF}"
+            fi
+          fi

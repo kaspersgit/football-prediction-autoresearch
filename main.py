@@ -1126,6 +1126,58 @@ def _run_compare_vig():
     print(f"\nProfit charts saved to {chart_path}")
 
 
+def _run_track_pinnacle_vig() -> None:
+    """Append one live Pinnacle vig snapshot per upcoming fixture to the tracking history.
+
+    Diagnostic only — quantifies the gap between The Odds API's live pre-match Pinnacle
+    feed and football-data.co.uk's archived opening/closing lines by recording the same
+    fixtures' overround daily as kickoff approaches. Never used by predict/backtest.
+    """
+    from src.config import PRODUCTION_LEAGUES
+    from src.data.pinnacle_odds import fetch_pinnacle_odds
+
+    fetched_at = pd.Timestamp.now(tz="UTC")
+    odds = fetch_pinnacle_odds(set(PRODUCTION_LEAGUES))
+    if odds.empty:
+        print("No live Pinnacle odds available — nothing to record")
+        return
+
+    fixture_date = odds["Date"].dt.normalize()
+    records = odds.assign(
+        fetched_at=fetched_at,
+        overround=(1.0 / odds["PSH"] + 1.0 / odds["PSD"] + 1.0 / odds["PSA"]) - 1.0,
+        days_to_kickoff=(fixture_date - fetched_at.normalize().tz_localize(None)).dt.days,
+    ).rename(
+        columns={
+            "HomeTeam": "home_team",
+            "AwayTeam": "away_team",
+            "Date": "fixture_date",
+            "PSH": "psh",
+            "PSD": "psd",
+            "PSA": "psa",
+        }
+    )[
+        [
+            "fetched_at",
+            "league",
+            "home_team",
+            "away_team",
+            "fixture_date",
+            "days_to_kickoff",
+            "psh",
+            "psd",
+            "psa",
+            "overround",
+        ]
+    ]
+
+    path = Path("data/diagnostics/pinnacle_vig_history.csv")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    records.to_csv(path, mode="a", header=not path.exists(), index=False)
+    print(f"Recorded {len(records)} live Pinnacle vig snapshot(s) to {path}")
+    print(f"Mean overround this snapshot: {records['overround'].mean():.4f}")
+
+
 def run_pipeline():
     if "--settle-shadow" in sys.argv:
         _run_settle_shadow()
@@ -1133,6 +1185,8 @@ def run_pipeline():
         _run_predict()
     elif "--compare-vig" in sys.argv:
         _run_compare_vig()
+    elif "--track-pinnacle-vig" in sys.argv:
+        _run_track_pinnacle_vig()
     else:
         _run_backtest()
 
