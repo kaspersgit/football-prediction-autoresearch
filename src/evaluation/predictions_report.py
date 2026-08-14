@@ -2,8 +2,21 @@ import json
 import math
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
+
+# Fixtures are Dutch/European leagues, so page timestamps show local Amsterdam
+# time (CET/CEST, DST-aware) rather than the raw UTC value used internally.
+_DISPLAY_TZ = ZoneInfo("Europe/Amsterdam")
+
+
+def _to_display_tz(dt: datetime) -> datetime:
+    """Convert to Amsterdam local time. Naive input is treated as UTC (matching
+    how fetched_at is always constructed upstream: pd.Timestamp.now(tz='UTC'))."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(_DISPLAY_TZ)
 
 
 _LEAGUE_NAMES = {
@@ -679,7 +692,8 @@ def generate_predictions_html(
         if lg in by_league
     )
 
-    fetch_str = fetched_at.strftime("%d %b %Y, %H:%M")
+    fetched_at_local = _to_display_tz(fetched_at)
+    fetch_str = fetched_at_local.strftime("%d %b %Y, %H:%M %Z")
     total_fixtures = len(pred_rows)
     total_value = len(all_bets)
     empty_notice_html = _empty_fixtures_notice_html() if total_fixtures == 0 else ""
@@ -694,7 +708,7 @@ def generate_predictions_html(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Predictions — {fetched_at.strftime('%d %b %Y')}</title>
+<title>Predictions — {fetched_at_local.strftime('%d %b %Y')}</title>
 <style>
   *, *::before, *::after {{ box-sizing: border-box; }}
   body {{
