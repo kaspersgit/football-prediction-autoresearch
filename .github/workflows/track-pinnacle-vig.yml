@@ -1,8 +1,11 @@
 name: Track Pinnacle vig
 
 on:
+  # See predict.yml for why each Amsterdam-local target needs two UTC cron
+  # entries (CEST vs CET) — same DST caveat applies here.
   schedule:
-    - cron: '0 8 * * *'  # daily 08:00 UTC
+    - cron: '0 6 * 4-10 *'        # daily 08:00 Amsterdam (CEST)
+    - cron: '0 7 * 11,12,1,2,3 *' # daily 08:00 Amsterdam (CET)
   workflow_dispatch:
 
 permissions:

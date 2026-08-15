@@ -1,11 +1,21 @@
 name: Predict
 
 on:
+  # GitHub Actions cron always runs in UTC and has no DST concept, so each
+  # Amsterdam-local target time below needs two entries: one UTC offset for
+  # CEST months (Apr-Oct, UTC+2) and one for CET months (Nov-Mar, UTC+1). The
+  # ~1-week window around the actual DST-switch Sunday (late Mar / late Oct)
+  # will run an hour off from the intended local time; not worth a runtime
+  # timezone check for this pipeline's precision needs.
   schedule:
-    - cron: '0 18 * * 2'  # Tuesday  18:00 UTC (midweek fixtures)
-    - cron: '0 18 * * 5'  # Friday   18:00 UTC (weekend fixtures)
-    - cron: '0 13 * * 6'  # Saturday 13:00 UTC (weekend fixtures)
-    - cron: '0 12 * * 0'  # Sunday   12:00 UTC (weekend fixtures)
+    - cron: '0 16 * 4-10 2'        # Tuesday  18:00 Amsterdam (CEST, midweek fixtures)
+    - cron: '0 17 * 11,12,1,2,3 2' # Tuesday  18:00 Amsterdam (CET,  midweek fixtures)
+    - cron: '0 16 * 4-10 5'        # Friday   18:00 Amsterdam (CEST, weekend fixtures)
+    - cron: '0 17 * 11,12,1,2,3 5' # Friday   18:00 Amsterdam (CET,  weekend fixtures)
+    - cron: '0 11 * 4-10 6'        # Saturday 13:00 Amsterdam (CEST, weekend fixtures)
+    - cron: '0 12 * 11,12,1,2,3 6' # Saturday 13:00 Amsterdam (CET,  weekend fixtures)
+    - cron: '0 10 * 4-10 0'        # Sunday   12:00 Amsterdam (CEST, weekend fixtures)
+    - cron: '0 11 * 11,12,1,2,3 0' # Sunday   12:00 Amsterdam (CET,  weekend fixtures)
   workflow_dispatch:
 
 permissions:
