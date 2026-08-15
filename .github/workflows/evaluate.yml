@@ -1,8 +1,11 @@
 name: Evaluate
 
 on:
+  # See predict.yml for why each Amsterdam-local target needs two UTC cron
+  # entries (CEST vs CET) — same DST caveat applies here.
   schedule:
-    - cron: '0 4 * * 1'  # Monday 04:00 UTC (weekly backtest refresh)
+    - cron: '0 2 * 4-10 1'        # Monday 04:00 Amsterdam (CEST, weekly backtest refresh)
+    - cron: '0 3 * 11,12,1,2,3 1' # Monday 04:00 Amsterdam (CET,  weekly backtest refresh)
   workflow_dispatch:
 
 permissions:
