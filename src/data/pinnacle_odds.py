@@ -117,6 +117,11 @@ def fetch_pinnacle_odds(leagues: set[str]) -> pd.DataFrame:
             print(f"Skipping live Pinnacle odds for {league}: {e}")
             continue
 
+        remaining = response.headers.get("x-requests-remaining")
+        used = response.headers.get("x-requests-used")
+        if remaining is not None or used is not None:
+            print(f"The Odds API quota after {league} call: used={used}, remaining={remaining}")
+
         for event in events:
             row = _parse_event(league, event)
             if row is None:
