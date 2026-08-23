@@ -2904,3 +2904,25 @@ Stability: 0.1475. t-statistic: **+3.42** (crosses the `|t| > 2` significance sc
 **Decision:** REVERTED. Total ROI declined (not improved) and a clear majority of leagues (3 of 4) moved in the wrong direction — fails `EVALUATION.md`'s keep bar outright. `src/config.py`/`tests/test_config.py` restored to `DEFAULT_MAX_OVERROUND = 0.07`. Full test suite (141 tests) passes after revert.
 
 **Follow-up:** The much larger, still-unaddressed lever for this weekend's low count was the Pinnacle-confirmation veto, which cut the same weekend's E0/F1/N1 candidates from 7 to 1 (see chat record 2026-08-23). That trade-off (539 bets/+22.42%/t=3.42 with the veto vs. 745 bets/+15.46%/t=2.81 without, per `EXP-20260810-001`/`-004`) remains a live, unactioned option pending explicit user direction.
+
+## EXP-20260823-002: Cap per-league threshold grid at 0.05 (was 0.0–0.10) — KEPT
+
+**Date:** 2026-08-23
+**Hypothesis:** The per-league threshold (calibrated by `select_league_thresholds()` over `_THRESHOLD_GRID`) was the single biggest volume filter in the live pipeline — bigger than the Pinnacle veto or the overround cap. On the 2026-08-22/23 weekend, it cut candidates with a positive, capped edge from 29 down to 7, because E0 and F1 had both calibrated to the grid's ceiling of 0.10. Narrowing the grid to `[0.0, 0.05]` forces every league to re-optimize `ROI x sqrt(bets)` within a lower ceiling, which should recover volume in whichever leagues were pinned at 0.10.
+
+**Files changed:** `main.py` (`_THRESHOLD_GRID`).
+
+**Baseline:** Same-day CI run (`evaluate.yml`, `main` @ `a8f0ce4`, grid `[0.0, ..., 0.10]`): production portfolio 495 bets, ROI +24.31%, stability 0.1582, t-stat +3.52. Per-league: England 129/+10.82%, France 98/+29.69%, Greece 95/+16.66%, Netherlands 173/+35.52%.
+
+**Results (grid `[0.0, ..., 0.05]`, same data, workflow run 32657830708):**
+- Production portfolio: **671 bets (+35.6%)**, ROI +19.73% (−4.58pp), stability 0.1287, t-stat +3.33 (still comfortably above the |t|>2 significance screen)
+- England: 174 bets / +9.94% (roughly flat) — calibrated threshold 0.05 (still pinned at the new ceiling)
+- France: 182 bets / +16.53% (down from +29.69%) — calibrated threshold dropped from 0.10 to **0.01**, not just to the new 0.05 ceiling; this league contributed most of both the added bets and the ROI give-back
+- Greece: 142 bets / +16.57% (essentially unchanged ROI on 50% more bets) — calibrated threshold 0.05 (down from ~0.07-0.08)
+- Netherlands: 173 bets / +35.52% (bit-for-bit unchanged) — N1 was already calibrating below 0.05, so the cap didn't bind
+
+**Analysis:** This is a genuine volume/ROI trade-off, not a clear-cut regression like `EXP-20260823-001`. Per-bet ROI and the raw stability metric both declined, and by the letter of `EVALUATION.md`'s keep rule ("keep only when total ROI improves") this fails. However: t-stat remains solidly significant (+3.33), three of four leagues stayed flat-to-similar on a per-bet basis (only France moved a lot, and it moved because its calibrated threshold happened to drop to 0.01, not because the cap forced a bad value), and — critically — the 35.6% increase in weekly bet count directly serves the user's actual goal: more games per week is itself a stability lever, since a larger, more consistent weekly bet count reduces week-to-week variance in realized returns (the problem that motivated this investigation was a single-bet weekend, which is the worst case for that variance). The raw per-bet `stability` metric (mean/std of individual bet profit) doesn't capture this — it measures bet-level consistency, not weekly-portfolio consistency.
+
+**Decision:** KEPT, per explicit user direction, on the basis of increased weekly-volume stability rather than the per-bet ROI/stability metrics moving in the "keep" direction — an intentional exception to `EVALUATION.md`'s default rule, analogous to `EXP-20260810-002`'s France addition (kept on a flat backtest number, on the user's own judgment about a factor the standard metric doesn't capture). `main.py`'s `_THRESHOLD_GRID` remains `[0.0, 0.01, 0.02, 0.03, 0.04, 0.05]`. Full test suite (141 tests) passes. `models/league_thresholds.json` and `reports/backtest_bets.csv` regenerated with this run's numbers (workflow run 32657830708) as the new baseline for future comparisons.
+
+**Follow-up:** Watch France specifically over the next few live weeks — its calibrated threshold (0.01) is far more permissive than any other production league's, and it drove most of this change's ROI give-back. If a future recalibration (next Monday `Evaluate` run onward) keeps landing France near 0 while other leagues stay near the 0.05 ceiling, consider whether France needs a dedicated look rather than sharing one global grid with the rest. The Pinnacle-confirmation veto (active hypothesis #10 in `current.md`) remains the other large, still-unaddressed volume lever.
