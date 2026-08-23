@@ -52,6 +52,18 @@ Stability 0.1475, t-stat **+3.42** (crosses significance). Per-season: 2023/24 +
 
 **Follow-ups queued** (see Active hypotheses): (1) once enough live Predict runs have accumulated, check how close live-fetched Pinnacle odds actually land to closing-line behavior — this run's headline number is explicitly optimistic pending that check; (2) keep an eye on whether football-data.co.uk's Pinnacle coverage resumes for future seasons (the mid-January 2026 cutoff may or may not be permanent).
 
+**Updated 2026-08-23 (`EXP-20260823-002`) — threshold grid capped at 0.05, same Pinnacle-filter/closing-odds methodology:**
+
+| League | Bets | ROI |
+|---|---:|---:|
+| England | 174 | +9.94% |
+| France | 182 | +16.53% |
+| Greece | 142 | +16.57% |
+| Netherlands | 173 | +35.52% |
+| **Total** | **671** | **+19.73%** |
+
+Stability 0.1287, t-stat **+3.33** (still crosses significance). Bet count up 35.6% vs. the 539-bet table above, on the same league set and filter — the table above is now historical context for how the Pinnacle filter itself was validated, not the current reference number. See `EXP-20260823-002` for why this was kept despite lower per-bet ROI/stability than the pre-cap grid (deliberate volume-for-stability trade-off, on explicit user direction).
+
 ## Verified configuration
 
 - Training: one LightGBM model with isotonic calibration per league and test season (`--per-league`), using three walk-forward test seasons (`TEST_SEASONS = 3`; only seasons with ≥1,000 rows count as a completed test season — see `EXP-20260810-005` — so an in-progress season, e.g. a handful of 2026/27 fixtures, can never silently displace a full season from the window).
@@ -63,7 +75,7 @@ Stability 0.1475, t-stat **+3.42** (crosses significance). Per-season: 2023/24 +
 - Diagnostics: `compute_season_breadth` (per-season profitability breadth, printed by `main.py`'s primary comparison as "SEASON BREADTH" — flags a change that only looks good pooled because one strong season masks several weak ones; require ≥3/4 profitable seasons) supplements the pooled ROI/stability/t-stat metrics as of 2026-08-10.
 - Evaluation leagues: England, Germany, Spain, Italy, France, Netherlands, Portugal, Greece, Scotland, Belgium, and Turkey. The research headline and report default include every observed supported league at the fixed CLI threshold.
 - Production leagues: England (`E0`), Netherlands (`N1`), Greece (`G1`), and France (`F1`). Only these leagues may appear in live predictions. Re-chosen 2026-08-10 (`EXP-20260810-002`) — Portugal was dropped, France added; see "Current best" above.
-- Thresholds: backtesting calibrates one threshold per supported league from prior test seasons and writes `models/league_thresholds.json`; the production simulation and live prediction use those thresholds only for production leagues.
+- Thresholds: backtesting calibrates one threshold per supported league from prior test seasons over `_THRESHOLD_GRID = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05]` (capped at 0.05, down from 0.10 — `EXP-20260823-002`, 2026-08-23) and writes `models/league_thresholds.json`; the production simulation and live prediction use those thresholds only for production leagues.
 - Pinnacle: live odds fetched via The Odds API for production leagues and attached to fixtures (`src/data/pinnacle_odds.py`, with date-aware matching against `commence_time` to avoid attaching the wrong matchweek). The confirmation filter is validated (`EXP-20260810-001`/`-002`) and **live** as of 2026-08-10 (see "Pinnacle-confirmation filter" above).
 - Staking: flat one unit per backtest bet.
 
@@ -114,6 +126,7 @@ These ideas are not recorded as completed experiments in the consolidated ledger
      2. Only if step 1 replicates: add `match_rating` (or its components, `home_heat_rating`/`away_heat_rating`) to `FEATURE_COLS` and re-run the full per-league walk-forward, same bar as any other feature (kept only if ROI/stability improve on the standard evaluation, per `EVALUATION.md`).
      3. Before trusting it as "new" information, check correlation against existing features — `market_overround`, `market_bias`, and the Elo-momentum features may already partly capture the same "market overreacted to recent form" effect. Precedent: `EXP-20260426-D055` found a proposed feature was fully derivable from `market_h/d/a + market_overround` and added nothing. Don't skip this check.
      4. If step 1 doesn't replicate on our data, stop there — do not proceed to feature engineering on the strength of the article's published numbers alone.
+10. **Pinnacle-confirmation veto is likely still the largest remaining volume constraint.** On the 2026-08-22/23 production weekend, the veto (missing/non-confirming Pinnacle data → bet dropped) cut candidate E0/F1/N1 bets from 7 down to 1 — an 86% reduction that week, measured under the pre-`EXP-20260823-002` threshold grid. Two volume levers have since been tested: `max_overround` raised to 0.09 (reverted, `EXP-20260823-001` — barely moved volume, hurt ROI) and the threshold grid capped at 0.05 (**kept**, `EXP-20260823-002` — +35.6% bets, 495→671, on explicit user direction to trade ROI for weekly-volume stability). The Pinnacle veto itself has not yet been touched this round — the last measurement of its cost (539 bets/+22.42%/t=3.42 with the veto vs. 745 bets/+15.46%/t=2.81 on the old "skip if missing" behavior, per `EXP-20260810-001`/`-004`) predates both of this round's changes and should be re-measured against the current (capped-grid) baseline before any decision, not assumed to transfer unchanged.
 
 Cleared this iteration: item 1 (all-market baseline re-run) done in `EXP-20260804-001`; item 6 (fair vs raw edge baseline) tested and reverted in `EXP-20260804-002`; Pinnacle-confirmation filter re-verified and kept at the backtest level in `EXP-20260810-001`, then re-validated against the realistic opening-odds proxy and made live in `EXP-20260810-002`; opening-to-closing market movement tested (as a live-computable, lagged team-level feature) and reverted in `EXP-20260810-003`; Pinnacle filter tightened to veto on missing data and reference methodology switched to closing odds in `EXP-20260810-004`; walk-forward test-season selection fixed to exclude in-progress seasons, `TEST_SEASONS` set to 3 explicitly in `EXP-20260810-005` (also incidentally fixed the all-market season-breadth diagnostic, now 3/3 PASS instead of the pre-existing 0/3 noted in item 8 below — that item is now historical, from before this fix).
 
