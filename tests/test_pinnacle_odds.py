@@ -13,9 +13,10 @@ def test_sport_key_map_covers_every_supported_league():
 
 
 class _FakeResponse:
-    def __init__(self, payload, status_code=200):
+    def __init__(self, payload, status_code=200, headers=None):
         self._payload = payload
         self.status_code = status_code
+        self.headers = headers or {}
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -88,6 +89,21 @@ def test_successful_parse_and_alias_resolution(monkeypatch):
     assert row["PSH"] == pytest.approx(2.1)
     assert row["PSD"] == pytest.approx(3.3)
     assert row["PSA"] == pytest.approx(3.4)
+
+
+def test_quota_headers_are_logged(monkeypatch, capsys):
+    monkeypatch.setenv("THEODDS_API", "test-key")
+
+    def fake_get(url, params=None, timeout=None):
+        return _FakeResponse([], headers={"x-requests-remaining": "487", "x-requests-used": "13"})
+
+    monkeypatch.setattr("src.data.pinnacle_odds.requests.get", fake_get)
+
+    fetch_pinnacle_odds({"E0"})
+
+    out = capsys.readouterr().out
+    assert "used=13" in out
+    assert "remaining=487" in out
 
 
 def test_event_without_pinnacle_bookmaker_is_dropped(monkeypatch):
