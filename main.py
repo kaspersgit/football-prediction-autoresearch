@@ -70,7 +70,11 @@ from src.model.train import (
     train_walkforward_monthly,
 )
 
-_THRESHOLD_GRID = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10]
+# Capped at 0.05 (EXP-20260823-002, pending backtest): E0/F1 were calibrating to
+# the grid's max of 0.10 under the uncapped [0.0, 0.10] grid, cutting most
+# live volume. Narrowing the grid re-optimizes ROI x sqrt(bets) within a lower
+# ceiling instead of post-hoc clipping an unrelated pick.
+_THRESHOLD_GRID = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05]
 _SHADOW_MODEL_REVISION_PATHS = (
     ".github/workflows/predict.yml",
     "main.py",
