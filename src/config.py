@@ -22,13 +22,9 @@ SUPPORTED_LEAGUES = tuple(LEAGUE_NAMES)
 # will trend closer to Pinnacle's closing line than the opening-odds worst case tested.
 PRODUCTION_LEAGUES = frozenset({"E0", "N1", "G1", "F1"})
 
-# Raised from 0.07 to 0.09 (EXP-20260823-001): G1's B365 market overround runs
-# ~7.4-8.5% (shadow-ledger observations across weeks), so the 0.07 cap
-# structurally excluded every G1 fixture regardless of edge. E0/F1/N1 sit at
-# ~5-6% and are largely unaffected by the wider cap.
 DEFAULT_MAX_ODDS = 5.0
 DEFAULT_MAX_EDGE = 0.20
-DEFAULT_MAX_OVERROUND = 0.09
+DEFAULT_MAX_OVERROUND = 0.07
 DEFAULT_PINNACLE_CONFIRMATION_MARGIN = 0.015
 
 # Compatibility helper for APIs expressed as a skip set. Evaluation must not use

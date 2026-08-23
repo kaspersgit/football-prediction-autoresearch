@@ -2882,3 +2882,25 @@ Stability: 0.1475. t-statistic: **+3.42** (crosses the `|t| > 2` significance sc
 **Files changed:** `src/model/train.py` (`_full_seasons`, `MIN_FULL_SEASON_ROWS`, `TEST_SEASONS = 3`), `tests/test_train.py` (new).
 
 **Decision:** KEPT. Full test suite (125 tests) passes. Committed as `314d870`.
+
+## EXP-20260823-001: Raise max_overround 0.07 → 0.09 to stop excluding Greece — REVERTED
+
+**Date:** 2026-08-23
+**Hypothesis:** Live production run on 2026-08-22/23 showed only 1 qualifying bet all weekend. Diagnosis: all 4 Greek-league (G1) fixtures that weekend had B365 overround of 7.4–8.5%, just above the `max_overround=0.07` cap, excluding G1 entirely regardless of edge (confirmed via `_build_prediction_rows`'s per-fixture overround check and cross-checked against the shadow ledger's multi-week `captured_b365_odds`, which showed G1 averaging ~8.05% overround vs ~5.3–5.6% for E0/F1/N1). Raising the cap to 0.09 was expected to recover G1 volume without materially hurting ROI, since overround reflects market liquidity, not edge quality.
+
+**Files changed:** `src/config.py` (`DEFAULT_MAX_OVERROUND`), `tests/test_config.py` (matching assertion).
+
+**Baseline:** Same-day CI run (`uv run python main.py --per-league --threshold 0.0 --pinnacle-filter --update` via `evaluate.yml`, workflow run 32656241836, main @ `a8f0ce4`, max_overround=0.07): production portfolio 495 bets, ROI +24.31%. Per-league: England 129/+10.82%, France 98/+29.69%, Greece 95/+16.66%, Netherlands 173/+35.52%.
+
+**Results (max_overround=0.09, same data, workflow run 32655759326):**
+- Production portfolio: 505 bets (+2.0%), ROI +22.08% (−2.23 percentage points)
+- England: 131 bets / +9.13% (worse)
+- France: 101 bets / +25.84% (worse)
+- Greece: 100 bets / +11.98% (worse)
+- Netherlands: 173 bets / +35.52% (unchanged — no games near the new cap)
+
+**Analysis:** The hypothesis was wrong about the baseline: G1 was not structurally locked out of the historical backtest — it already contributed 95 bets at the 0.07 cap, meaning most G1 fixtures' overround sits at or below 7% historically, and the 2026-08-22/23 weekend's 4-for-4 exclusion was that week's odds happening to run high, not a persistent pattern. Widening the cap let in a small number of additional, evidently lower-quality fixtures in exactly the three leagues it touched (England, France, Greece), dragging ROI down in each. Volume gain (+10 bets) was too small to be the "more games" the user was actually looking for, and came at a real ROI cost.
+
+**Decision:** REVERTED. Total ROI declined (not improved) and a clear majority of leagues (3 of 4) moved in the wrong direction — fails `EVALUATION.md`'s keep bar outright. `src/config.py`/`tests/test_config.py` restored to `DEFAULT_MAX_OVERROUND = 0.07`. Full test suite (141 tests) passes after revert.
+
+**Follow-up:** The much larger, still-unaddressed lever for this weekend's low count was the Pinnacle-confirmation veto, which cut the same weekend's E0/F1/N1 candidates from 7 to 1 (see chat record 2026-08-23). That trade-off (539 bets/+22.42%/t=3.42 with the veto vs. 745 bets/+15.46%/t=2.81 without, per `EXP-20260810-001`/`-004`) remains a live, unactioned option pending explicit user direction.

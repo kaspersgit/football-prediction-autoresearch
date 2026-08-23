@@ -17,7 +17,7 @@ from src.config import (
 def test_betting_defaults_match_verified_configuration():
     assert DEFAULT_MAX_ODDS == 5.0
     assert DEFAULT_MAX_EDGE == 0.20
-    assert DEFAULT_MAX_OVERROUND == 0.09
+    assert DEFAULT_MAX_OVERROUND == 0.07
     assert EXCLUDED_BETTING_LEAGUES == frozenset(
         {"P1", "SP1", "D1", "I1", "SC0", "B1", "T1"}
     )
