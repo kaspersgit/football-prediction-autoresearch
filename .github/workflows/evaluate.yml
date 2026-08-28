@@ -67,3 +67,15 @@ jobs:
             git commit -m "chore: update evaluation artifacts"
             git push
           fi
+
+      - name: Stage HTML for Pages
+        run: |
+          mkdir -p docs
+          cp reports/evaluation_report.html docs/eval.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          keep_files: true  # preserve index.html between evaluate runs
