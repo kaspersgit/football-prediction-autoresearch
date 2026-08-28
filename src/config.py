@@ -20,7 +20,11 @@ SUPPORTED_LEAGUES = tuple(LEAGUE_NAMES)
 # filter) across all 11 leagues: Portugal dropped (flat/slightly negative under the
 # filter), France added on the expectation that live Predict runs close to kickoff
 # will trend closer to Pinnacle's closing line than the opening-odds worst case tested.
-PRODUCTION_LEAGUES = frozenset({"E0", "N1", "G1", "F1"})
+# Portugal re-added 2026-08-28 (EXP-20260828-001) per explicit user direction: the
+# all-leagues-production re-screen showed it flat-to-slightly-positive (+3.01% ROI,
+# 135 bets) rather than clearly negative like the other seven non-production leagues —
+# the weakest of the five kept leagues, but not the same "don't add" case as the rest.
+PRODUCTION_LEAGUES = frozenset({"E0", "N1", "G1", "F1", "P1"})
 
 DEFAULT_MAX_ODDS = 5.0
 DEFAULT_MAX_EDGE = 0.20
