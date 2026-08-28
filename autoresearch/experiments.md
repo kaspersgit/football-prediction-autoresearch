@@ -2926,3 +2926,68 @@ Stability: 0.1475. t-statistic: **+3.42** (crosses the `|t| > 2` significance sc
 **Decision:** KEPT, per explicit user direction, on the basis of increased weekly-volume stability rather than the per-bet ROI/stability metrics moving in the "keep" direction — an intentional exception to `EVALUATION.md`'s default rule, analogous to `EXP-20260810-002`'s France addition (kept on a flat backtest number, on the user's own judgment about a factor the standard metric doesn't capture). `main.py`'s `_THRESHOLD_GRID` remains `[0.0, 0.01, 0.02, 0.03, 0.04, 0.05]`. Full test suite (141 tests) passes. `models/league_thresholds.json` and `reports/backtest_bets.csv` regenerated with this run's numbers (workflow run 32657830708) as the new baseline for future comparisons.
 
 **Follow-up:** Watch France specifically over the next few live weeks — its calibrated threshold (0.01) is far more permissive than any other production league's, and it drove most of this change's ROI give-back. If a future recalibration (next Monday `Evaluate` run onward) keeps landing France near 0 while other leagues stay near the 0.05 ceiling, consider whether France needs a dedicated look rather than sharing one global grid with the rest. The Pinnacle-confirmation veto (active hypothesis #10 in `current.md`) remains the other large, still-unaddressed volume lever.
+
+## EXP-20260828-001: Add Portugal (P1) back to production leagues — KEPT
+
+**Date:** 2026-08-28
+**Hypothesis:** After the user asked whether the threshold-grid relaxation (`EXP-20260823-002`) had just added losing bets (answered: no — the 176 newly-qualifying bets turned a small standalone profit, +6.83% ROI, but with a low t-stat of +0.60, so not distinguishable from noise on their own), the user asked whether it now makes sense to widen `PRODUCTION_LEAGUES` beyond the current four. `P1` had previously been screened out in `EXP-20260810-002` on an opening-odds proxy; this iteration re-screened all 7 non-production leagues under the current (post-`EXP-20260823-002`) calibrated-threshold methodology to see if anything changed.
+
+**Files changed:** `src/config.py` (`PRODUCTION_LEAGUES`), `src/data/team_aliases.py` (P1 alias entry), `tests/test_config.py` (excluded-leagues assertion), `models/league_thresholds.json`, `reports/backtest_bets.csv`, `reports/evaluation_bets.csv` (regenerated).
+
+**Method note:** The sandboxed session running this iteration has no network access to `football-data.co.uk` or `api.the-odds-api.com` (outbound proxy denies both), so every live-data step in this experiment ran as a one-off `workflow_dispatch` of the `Evaluate` GitHub Actions workflow on throwaway branches (never touching `main` until the final, reviewed change), with the GitHub Pages deploy step stripped so no diagnostic run could publish over the live public report.
+
+**Screen 1 — all-leagues-production financial test** (temporary `--all-leagues-production` flag added to `evaluate.yml`'s backtest command on a throwaway branch, workflow run 33198706712): production-methodology portfolio widened to all 11 supported leagues, each at its own calibrated threshold —
+
+| League | Currently prod? | Bets | ROI |
+|---|---|---:|---:|
+| Netherlands | yes | 163 | +38.75% |
+| France | yes | 139 | +18.17% |
+| Greece | yes | 145 | +9.89% |
+| England | yes | 166 | +5.90% |
+| **Portugal** | no | 135 | **+3.01%** |
+| Italy | no | 205 | −1.18% |
+| Scotland | no | 85 | −10.18% |
+| Turkey | no | 121 | −7.29% |
+| Germany | no | 150 | −6.30% |
+| Spain | no | 206 | −8.04% |
+| Belgium | no | 98 | −20.60% |
+| **Total (11 leagues)** | | **1,613** | **+3.13%** |
+
+Portugal was the only non-production league that came back positive; all six others were clearly negative, several with meaningfully large negative ROI. This isn't a threshold-tuning artifact — the same per-league calibration process that keeps the 4 current leagues profitable does not rescue the other 6, so the read is genuinely weaker model edge in those leagues, not a miscalibrated cutoff.
+
+**Screen 2 — live team-alias diagnostic** (same throwaway-branch run, added step calling The Odds API live for each non-production league and diffing team names against the full historical `football-data.co.uk` roster via `load_all_data()`): every one of the 7 non-production leagues came back `NEEDS ALIASES` (D1: 13 unmapped, SP1: 13, I1: 4, P1: 3, B1: 11, T1: 11, SC0: 2) — `ODDS_API_TEAM_ALIASES` had only ever been diffed for the leagues that were production at some point (E0/N1/P1/G1/F1, last done 2026-08-09/10), so the other 6 had never been diffed at all, and even P1's existing table (from when it was previously production) had gone stale.
+
+**Decision on the other 6 non-production leagues:** left `PRODUCTION_LEAGUES` unchanged for these — the financial screen gives no case for any of them, and no aliases were added (deliberately left unpopulated; see `current.md` active hypothesis #7).
+
+**User decision on Portugal:** despite the recommendation that the data didn't clearly support widening at all (P1's own case was weak — flat/near-breakeven, small sample), the user explicitly chose to add Portugal to `PRODUCTION_LEAGUES` and have the alias table fixed, overriding the "don't widen" read on the other 6. This mirrors the precedent in `EXP-20260810-002` (France kept on a flat backtest number, on the user's own judgment) and `EXP-20260823-002` (threshold cap kept despite a metrics regression, on explicit user direction) — `EVALUATION.md`'s default keep bar is a screening rule, not something that overrides an explicit, informed user call.
+
+**Alias fix:** `Famalicão` → `Famalicao` added (diacritic-only mismatch against an existing historical row, high confidence). `Académico de Viseu` and `CS Maritimo` were left unmapped — both have zero rows anywhere in the full historical P1 data (2013-14 through 2025-26), i.e. newly promoted/returning clubs with no historical name to alias to, not a spelling mismatch; a wrong guess here would risk silently mispricing a bet, which `team_aliases.py`'s own docstring explicitly warns against.
+
+**Screen 3 — verify all 5 new production leagues' alias tables** (second throwaway-branch run, this time with the real `src/config.py`/`team_aliases.py` changes applied and no special flag needed since P1 now flows through the normal production code path, workflow run 33200711762):
+
+| League | Team-alias result |
+|---|---|
+| N1 | OK, all matched |
+| E0 | NEEDS ALIASES: Coventry City, Hull City, Ipswich Town |
+| F1 | NEEDS ALIASES: Le Mans FC |
+| G1 | NEEDS ALIASES: Iraklis FC, Kalamata FC |
+| P1 | NEEDS ALIASES: Académico de Viseu, CS Maritimo |
+
+Reassuring finding: this is not a Portugal-specific problem. Every flagged name in the *already-live* production leagues (E0, F1, G1) is the same "newly promoted club, zero historical rows" case as P1's two — confirms the diagnostic and the "leave unmapped, don't guess" policy are both working as intended, not masking a real bug.
+
+**Final production-methodology result** (same run, real 5-league production portfolio, no diagnostic flag):
+
+| League | Bets | ROI |
+|---|---:|---:|
+| England | 166 | +5.90% |
+| France | 139 | +18.17% |
+| Greece | 145 | +9.89% |
+| Netherlands | 163 | +38.75% |
+| Portugal | 135 | +3.01% |
+| **Total** | **748** | **+15.59%** |
+
+Total ROI down from +19.73% (`EXP-20260823-002`'s 4-league baseline) to +15.59% — Portugal's weaker segment dilutes the blend, exactly as the Screen 1 numbers predicted. Portfolio stays solidly positive and now spans one more league.
+
+**Decision:** KEPT, per explicit user direction, despite total ROI declining (fails `EVALUATION.md`'s letter-of-the-rule keep bar, same category of exception as `EXP-20260810-002` and `EXP-20260823-002`). `PRODUCTION_LEAGUES = frozenset({"E0", "N1", "G1", "F1", "P1"})`. Full test suite (141 tests) passes; `tests/test_config.py`'s excluded-leagues assertion updated to match. `models/league_thresholds.json`, `reports/backtest_bets.csv`, `reports/evaluation_bets.csv` regenerated with the Screen 3 run's numbers as the new baseline. Merged via PR #30.
+
+**Follow-up:** Re-check Portugal specifically over the next several live weeks, the same way France was flagged for watching in `EXP-20260823-002` — its case for inclusion was the weakest of the five and rests on a single 135-bet sample. Re-run the live team-alias diff periodically (names go stale season to season, as P1's own table demonstrated here) rather than assuming any league's table stays correct indefinitely. If any of the other 6 screened-but-rejected leagues (D1/SP1/I1/SC0/B1/T1) get reconsidered later, re-run both screens fresh — don't reuse this run's numbers, since rosters and calibrated thresholds will have moved on.
