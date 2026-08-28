@@ -1,10 +1,12 @@
+import re
 from datetime import datetime
 
 import pandas as pd
 
+from src.config import PRODUCTION_LEAGUES
 from src.evaluation.predictions_report import (
-    _top_bets_html,
     _forecast_card_html,
+    _top_bets_html,
     generate_predictions_html,
 )
 
@@ -123,6 +125,28 @@ def test_top_bets_html_empty_is_valid_table_row():
     html = _top_bets_html([])
     assert html.startswith("<tr>")
     assert "No value bets found at this threshold." in html
+
+
+def test_monthly_table_js_covers_every_production_league():
+    """The client-side monthly-performance table's LG_ORDER/LG_NAMES lookups are
+    hardcoded JS, not derived from PRODUCTION_LEAGUES -- a league added to production
+    silently drops out of "Historical Performance by Month" without this guard
+    (found live for Greece/G1, missed since EXP-20260810-002 added it)."""
+    html = generate_predictions_html(
+        _pred_rows(), threshold=0.0, fetched_at=datetime(2026, 5, 3),
+        historical_bets=_historical_bets(),
+    )
+    lg_order_match = re.search(r"var LG_ORDER = \[([^\]]*)\];", html)
+    assert lg_order_match, "LG_ORDER array not found in generated HTML"
+    lg_order = [c.strip("'\" ") for c in lg_order_match.group(1).split(",")]
+
+    lg_names_match = re.search(r"var LG_NAMES = \{([^}]*)\};", html)
+    assert lg_names_match, "LG_NAMES object not found in generated HTML"
+    lg_names = dict(re.findall(r"'([^']+)':'([^']+)'", lg_names_match.group(1)))
+
+    for league in PRODUCTION_LEAGUES:
+        assert league in lg_order, f"{league} missing from monthly table's LG_ORDER"
+        assert league in lg_names, f"{league} missing from monthly table's LG_NAMES"
 
 
 def test_save_predictions_html_empty_writes_file(tmp_path):
