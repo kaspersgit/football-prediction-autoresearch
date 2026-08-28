@@ -1,11 +1,21 @@
 import pandas as pd
 
+from src.config import SUPPORTED_LEAGUES
+
 WINDOW = 5
 DC_SPAN = 10
 MARKET_BIAS_WINDOW = 20
 ELO_K = 30
 ELO_HOME_ADV = 100
 ELO_DEFAULT = 1500
+
+# I1 is the implicit reference category (all-zero one-hot row); every other
+# supported league gets its own one-hot feature, derived from SUPPORTED_LEAGUES
+# so a newly added league can't silently end up indistinguishable from I1 the
+# way G1/SC0/B1/T1 did (missing here from when they were added to SUPPORTED_LEAGUES
+# until EXP-20260828-002).
+_LEAGUE_REFERENCE = "I1"
+_LEAGUE_FEATURE_CODES = [lg for lg in SUPPORTED_LEAGUES if lg != _LEAGUE_REFERENCE]
 
 FEATURE_COLS = [
     "home_form_pts", "home_form_gf", "home_form_ga",
@@ -14,7 +24,7 @@ FEATURE_COLS = [
     "home_elo_delta", "away_elo_delta",
     "market_h", "market_d", "market_a",
     "market_overround",
-    "league_E0", "league_D1", "league_SP1", "league_F1", "league_N1", "league_P1",  # I1 is omitted reference
+    *[f"league_{lg}" for lg in _LEAGUE_FEATURE_CODES],
     "h2h_home_win_rate",
     "home_draw_rate", "away_draw_rate",
     "home_market_bias", "away_market_bias",
@@ -333,7 +343,7 @@ def _build_merged(df: pd.DataFrame) -> pd.DataFrame:
     merged["market_a"] = (1/merged["B365A"]) / total_imp
     merged["market_overround"] = total_imp - 1.0
     merged["match_balance"] = 1.0 - (merged["market_h"] - merged["market_a"]).abs()
-    for lc in ["E0", "D1", "SP1", "F1", "N1", "P1"]:
+    for lc in _LEAGUE_FEATURE_CODES:
         merged[f"league_{lc}"] = (merged["league"] == lc).astype(float)
     merged = merged.dropna(subset=FEATURE_COLS).reset_index(drop=True)
     return merged
@@ -451,12 +461,10 @@ def build_fixture_features(
             "market_d": (1/row["B365D"]) / total_imp,
             "market_a": (1/row["B365A"]) / total_imp,
             "market_overround": total_imp - 1.0,
-            "league_E0": float(row.get("league", "") == "E0"),
-            "league_D1": float(row.get("league", "") == "D1"),
-            "league_SP1": float(row.get("league", "") == "SP1"),
-            "league_F1": float(row.get("league", "") == "F1"),
-            "league_N1": float(row.get("league", "") == "N1"),
-            "league_P1": float(row.get("league", "") == "P1"),
+            **{
+                f"league_{lg}": float(row.get("league", "") == lg)
+                for lg in _LEAGUE_FEATURE_CODES
+            },
             "h2h_home_win_rate": _h2h_rate(h2h_state, home, away),
             "home_draw_rate": draw_rate_state.get(home, float("nan")),
             "away_draw_rate": draw_rate_state.get(away, float("nan")),
