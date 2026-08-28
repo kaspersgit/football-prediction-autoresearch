@@ -22,16 +22,17 @@ def _to_display_tz(dt: datetime) -> datetime:
 _LEAGUE_NAMES = {
     # short codes (historical data / backtest CSV)
     "E0": "England", "D1": "Germany", "SP1": "Spain",
-    "I1": "Italy", "F1": "France", "N1": "Netherlands", "P1": "Portugal",
+    "I1": "Italy", "F1": "France", "N1": "Netherlands", "P1": "Portugal", "G1": "Greece",
     # full-name keys from load_fixtures() _LEAGUE_MAP
     "england": "England", "germany": "Germany", "spain": "Spain",
     "italy": "Italy", "france": "France", "netherlands": "Netherlands", "portugal": "Portugal",
+    "greece": "Greece",
 }
 
 # Canonical order for league columns in the monthly table
-_LEAGUE_ORDER = ["england", "germany", "spain", "italy", "france", "netherlands", "portugal"]
+_LEAGUE_ORDER = ["england", "germany", "spain", "italy", "france", "netherlands", "portugal", "greece"]
 _LEAGUE_CODES = {"england": "E0", "germany": "D1", "spain": "SP1",
-                 "italy": "I1", "france": "F1", "netherlands": "N1", "portugal": "P1"}
+                 "italy": "I1", "france": "F1", "netherlands": "N1", "portugal": "P1", "greece": "G1"}
 
 _OUTCOME_LABEL = {"H": "Home", "D": "Draw", "A": "Away"}
 _OUTCOME_COLOR = {"H": "#1565c0", "D": "#616161", "A": "#e65100"}
@@ -554,8 +555,8 @@ function rebuildPerformanceTable(bets) {{
     return;
   }}
 
-  var LG_NAMES = {{'E0':'England','D1':'Germany','SP1':'Spain','I1':'Italy','F1':'France','N1':'Netherlands','P1':'Portugal'}};
-  var LG_ORDER = ['E0','D1','SP1','I1','F1','N1','P1'];
+  var LG_NAMES = {{'E0':'England','D1':'Germany','SP1':'Spain','I1':'Italy','F1':'France','N1':'Netherlands','P1':'Portugal','G1':'Greece'}};
+  var LG_ORDER = ['E0','D1','SP1','I1','F1','N1','P1','G1'];
   var mnNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   function fmtMon(m) {{ var p=m.split('-'); return mnNames[parseInt(p[1])-1]+' '+p[0].slice(2); }}
