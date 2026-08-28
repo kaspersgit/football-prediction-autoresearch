@@ -42,6 +42,13 @@ ODDS_API_TEAM_ALIASES: dict[str, dict[str, str]] = {
         "SC Cambuur": "Cambuur",
         "ADO Den Haag": "Den Haag",
     },
+    # 2026-08-28 re-diff (P1 re-entering production, EXP-20260828-001): "Académico de
+    # Viseu" and "CS Maritimo" are Odds API names with zero matching rows anywhere in
+    # football-data.co.uk's historical P1 data (2013-14 through 2025-26) — both read as
+    # newly promoted/returning clubs this season, not a naming mismatch. There is no
+    # historical name to alias them to yet; re-run the live diff once they've appeared
+    # in a scraped fixtures.csv/results file to confirm the football-data.co.uk spelling
+    # matches (or add the alias if it doesn't).
     "P1": {
         "FC Porto": "Porto",
         "Moreirense FC": "Moreirense",
@@ -50,6 +57,7 @@ ODDS_API_TEAM_ALIASES: dict[str, dict[str, str]] = {
         "Sporting Lisbon": "Sp Lisbon",
         "Vitória SC": "Guimaraes",
         "CF Estrela": "Estrela",
+        "Famalicão": "Famalicao",
     },
     "G1": {
         "AEK Athens": "AEK",
