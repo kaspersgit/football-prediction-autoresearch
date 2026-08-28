@@ -1,7 +1,8 @@
 import pandas as pd
-import numpy as np
-import pytest
-from src.model.features import build_features
+
+from src.config import SUPPORTED_LEAGUES
+from src.model.features import _LEAGUE_REFERENCE, FEATURE_COLS, build_features
+
 
 def _make_df():
     rows = []
@@ -44,3 +45,12 @@ def test_target_values():
     df = _make_df()
     X, y = build_features(df)
     assert set(y.unique()).issubset({"H", "D", "A"})
+
+def test_feature_cols_has_one_hot_for_every_supported_league_but_the_reference():
+    """Every SUPPORTED_LEAGUES code needs its own league_<code> one-hot feature
+    except the implicit reference category -- otherwise that league is
+    indistinguishable from the reference on this feature (missed for
+    G1/SC0/B1/T1 from when they joined SUPPORTED_LEAGUES until EXP-20260828-002)."""
+    expected = {f"league_{lg}" for lg in SUPPORTED_LEAGUES if lg != _LEAGUE_REFERENCE}
+    actual = {c for c in FEATURE_COLS if c.startswith("league_")}
+    assert actual == expected
