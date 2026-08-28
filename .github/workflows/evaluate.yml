@@ -56,7 +56,66 @@ jobs:
           EOF
 
       - name: Run backtest
-        run: uv run python main.py --per-league --threshold 0.0 --pinnacle-filter --update
+        run: uv run python main.py --per-league --threshold 0.0 --pinnacle-filter --update --all-leagues-production
+
+      - name: Diagnose team-name aliases for non-production leagues
+        env:
+          THEODDS_API: ${{ secrets.THEODDS_API }}
+        run: |
+          uv run python - <<'EOF'
+          import os
+
+          import requests
+
+          from src.config import PRODUCTION_LEAGUES, SUPPORTED_LEAGUES
+          from src.data.loader import load_all_data
+          from src.data.pinnacle_odds import _LEAGUE_TO_SPORT_KEY
+          from src.data.team_aliases import ODDS_API_TEAM_ALIASES
+
+          api_key = os.environ["THEODDS_API"]
+          df = load_all_data()
+          candidates = [lg for lg in SUPPORTED_LEAGUES if lg not in PRODUCTION_LEAGUES]
+
+          print("\n=== TEAM-ALIAS DIAGNOSTIC (non-production leagues) ===")
+          for league in candidates:
+              sport_key = _LEAGUE_TO_SPORT_KEY.get(league)
+              if sport_key is None:
+                  print(f"{league}: no Odds API sport key, skipped")
+                  continue
+              historical_teams = set(df.loc[df["league"] == league, "HomeTeam"]) | set(
+                  df.loc[df["league"] == league, "AwayTeam"]
+              )
+              alias_map = ODDS_API_TEAM_ALIASES.get(league, {})
+              try:
+                  resp = requests.get(
+                      f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/",
+                      params={
+                          "apiKey": api_key,
+                          "regions": "eu",
+                          "markets": "h2h",
+                          "bookmakers": "pinnacle",
+                          "oddsFormat": "decimal",
+                      },
+                      timeout=30,
+                  )
+                  resp.raise_for_status()
+                  events = resp.json()
+              except (requests.RequestException, ValueError) as e:
+                  print(f"{league}: fetch failed ({e})")
+                  continue
+
+              unmatched = set()
+              for ev in events:
+                  for name in (ev.get("home_team"), ev.get("away_team")):
+                      if name is None:
+                          continue
+                      resolved = alias_map.get(name, name)
+                      if resolved not in historical_teams:
+                          unmatched.add(name)
+
+              status = "OK, all matched" if not unmatched else f"NEEDS ALIASES: {sorted(unmatched)}"
+              print(f"{league}: {len(events)} live events — {status}")
+          EOF
 
       - name: Commit updated evaluation artifacts
         run: |
@@ -67,15 +126,3 @@ jobs:
             git commit -m "chore: update evaluation artifacts"
             git push
           fi
-
-      - name: Stage HTML for Pages
-        run: |
-          mkdir -p docs
-          cp reports/evaluation_report.html docs/eval.html
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs
-          keep_files: true  # preserve index.html between evaluate runs
