@@ -21,6 +21,14 @@ Keep a change only when:
 3. A majority of evaluated leagues improve. Accept a smaller majority only when total ROI and stability move clearly in the right direction.
 4. Any change in usable rows or bets has been explained.
 
+**Volume-for-ROI trade (alternative to rule 1):** a change may still be kept when total ROI declines, provided all of the following hold:
+
+- Bet volume increases by more than 10%.
+- The resulting t-stat stays at or above 2.5.
+- Total ROI declines by no more than 5 percentage points.
+
+Rules 2–4 still apply in full under this path — a volume gain concentrated in one league, or a majority of leagues moving the wrong way, still fails regardless of the aggregate trade. Record the before/after bets, ROI, and t-stat explicitly in the experiment log. This path may be taken autonomously, without waiting for explicit sign-off, provided the logging requirement is met.
+
 Revert when ROI or stability materially regresses. A gain driven by one or two outlier leagues is a warning that the result may be sampling noise.
 
 ## Required metrics
