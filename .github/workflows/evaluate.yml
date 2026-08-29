@@ -58,6 +58,87 @@ jobs:
       - name: Run backtest
         run: uv run python main.py --per-league --threshold 0.0 --pinnacle-filter --update
 
+      - name: Sweep Pinnacle-confirmation margin
+        run: |
+          uv run python - <<'EOF'
+          import math
+
+          from src.config import (
+              DEFAULT_MAX_EDGE,
+              DEFAULT_MAX_ODDS,
+              DEFAULT_MAX_OVERROUND,
+              PRODUCTION_LEAGUES,
+              SUPPORTED_LEAGUES,
+          )
+          from src.data.loader import load_all_data
+          from src.evaluation.metrics import compute_roi, compute_stability, compute_value_betting_results
+          from src.evaluation.threshold_selector import select_league_thresholds
+          from src.model.train import train_walkforward
+
+          _THRESHOLD_GRID = [0.0, 0.01, 0.02, 0.03, 0.04, 0.05]
+          MARGINS = [None, 0.0, 0.005, 0.01, 0.015, 0.02, 0.025, 0.03]
+
+          df = load_all_data()
+          print("Training per-league models for margin sweep (reused across every margin value)...")
+          results = train_walkforward(df, per_league=True)
+
+          # Threshold calibration is independent of the Pinnacle margin (select_league_thresholds
+          # takes no pinnacle_* args), so it's computed once per season and reused for every margin.
+          prior_season_data = []
+          season_threshold_maps = []
+          for sr in results["season_results"]:
+              if prior_season_data:
+                  season_threshold_maps.append(select_league_thresholds(
+                      prior_season_data,
+                      leagues=SUPPORTED_LEAGUES,
+                      grid=_THRESHOLD_GRID,
+                      max_odds=DEFAULT_MAX_ODDS,
+                      max_overround=DEFAULT_MAX_OVERROUND,
+                      max_edge=DEFAULT_MAX_EDGE,
+                  ))
+              else:
+                  season_threshold_maps.append({lg: 0.0 for lg in SUPPORTED_LEAGUES})
+              prior_season_data.append(sr)
+
+          print("\n=== PINNACLE-CONFIRMATION MARGIN SWEEP (production portfolio) ===")
+          print(f"  {'Margin':>8}  {'Bets':>6}  {'ROI':>9}  {'Stability':>10}  {'t-stat':>8}")
+          print("  " + "-" * 50)
+          for margin in MARGINS:
+              season_chunks = []
+              for sr, threshold_map in zip(results["season_results"], season_threshold_maps):
+                  leagues_in_season = set(sr["eval_df"]["league"].unique())
+                  for league in SUPPORTED_LEAGUES:
+                      if league not in PRODUCTION_LEAGUES or league not in leagues_in_season:
+                          continue
+                      skip_all_but_this = set(SUPPORTED_LEAGUES) - {league}
+                      lg_bets = compute_value_betting_results(
+                          sr["eval_df"], sr["y_proba"], sr["classes"],
+                          threshold=threshold_map.get(league, 0.0),
+                          max_odds=DEFAULT_MAX_ODDS,
+                          skip_leagues=skip_all_but_this,
+                          max_edge=DEFAULT_MAX_EDGE,
+                          max_overround=DEFAULT_MAX_OVERROUND,
+                          pinnacle_confirmation_margin=margin,
+                          pinnacle_odds_cols=("PSCH", "PSCD", "PSCA"),
+                          pinnacle_veto=True,
+                      )
+                      if not lg_bets.empty:
+                          season_chunks.append(lg_bets)
+
+              if season_chunks:
+                  import pandas as pd
+                  bets = pd.concat(season_chunks).sort_values("Date").reset_index(drop=True)
+              else:
+                  bets = None
+
+              n = len(bets) if bets is not None else 0
+              roi = compute_roi(bets) if bets is not None and not bets.empty else float("nan")
+              stab = compute_stability(bets) if bets is not None and not bets.empty else float("nan")
+              tstat = stab * math.sqrt(n) if n and not math.isnan(stab) else float("nan")
+              label = "none" if margin is None else f"{margin:.3f}"
+              print(f"  {label:>8}  {n:>6}  {roi:>+8.2f}%  {stab:>10.4f}  {tstat:>+8.2f}")
+          EOF
+
       - name: Commit updated evaluation artifacts
         run: |
           git config user.name "github-actions[bot]"
@@ -67,15 +148,3 @@ jobs:
             git commit -m "chore: update evaluation artifacts"
             git push
           fi
-
-      - name: Stage HTML for Pages
-        run: |
-          mkdir -p docs
-          cp reports/evaluation_report.html docs/eval.html
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs
-          keep_files: true  # preserve index.html between evaluate runs
