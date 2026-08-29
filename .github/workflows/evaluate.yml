@@ -100,6 +100,11 @@ jobs:
                   season_threshold_maps.append({lg: 0.0 for lg in SUPPORTED_LEAGUES})
               prior_season_data.append(sr)
 
+          import pandas as pd
+
+          DETAIL_MARGINS = {0.015, 0.005}
+          bets_by_margin = {}
+
           print("\n=== PINNACLE-CONFIRMATION MARGIN SWEEP (production portfolio) ===")
           print(f"  {'Margin':>8}  {'Bets':>6}  {'ROI':>9}  {'Stability':>10}  {'t-stat':>8}")
           print("  " + "-" * 50)
@@ -126,10 +131,12 @@ jobs:
                           season_chunks.append(lg_bets)
 
               if season_chunks:
-                  import pandas as pd
                   bets = pd.concat(season_chunks).sort_values("Date").reset_index(drop=True)
               else:
                   bets = None
+
+              if margin in DETAIL_MARGINS:
+                  bets_by_margin[margin] = bets
 
               n = len(bets) if bets is not None else 0
               roi = compute_roi(bets) if bets is not None and not bets.empty else float("nan")
@@ -137,6 +144,17 @@ jobs:
               tstat = stab * math.sqrt(n) if n and not math.isnan(stab) else float("nan")
               label = "none" if margin is None else f"{margin:.3f}"
               print(f"  {label:>8}  {n:>6}  {roi:>+8.2f}%  {stab:>10.4f}  {tstat:>+8.2f}")
+
+          print("\n=== PER-LEAGUE BREAKDOWN AT SELECTED MARGINS ===")
+          for margin in sorted(DETAIL_MARGINS):
+              bets = bets_by_margin.get(margin)
+              print(f"\n  margin={margin:.3f}:")
+              if bets is None or bets.empty:
+                  print("    (no bets)")
+                  continue
+              for league, lg_bets in bets.groupby("league"):
+                  roi = compute_roi(lg_bets)
+                  print(f"    {league:>6}  {len(lg_bets):>5} bets  {roi:>+8.2f}%")
           EOF
 
       - name: Commit updated evaluation artifacts
