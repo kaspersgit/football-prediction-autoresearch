@@ -20,8 +20,12 @@ on:
     - cron: '0 17 * 11,12,1,2,3 2' # Tuesday  18:00 Amsterdam (CET,  midweek fixtures)
     - cron: '0 16 * 4-10 5'        # Friday   18:00 Amsterdam (CEST, weekend fixtures)
     - cron: '0 17 * 11,12,1,2,3 5' # Friday   18:00 Amsterdam (CET,  weekend fixtures)
-    - cron: '0 11 * 4-10 6'        # Saturday 13:00 Amsterdam (CEST, weekend fixtures)
-    - cron: '0 12 * 11,12,1,2,3 6' # Saturday 13:00 Amsterdam (CET,  weekend fixtures)
+    - cron: '0 11 * 4-10 6'        # Saturday 13:00 Amsterdam (CEST, early/afternoon kickoffs)
+    - cron: '0 12 * 11,12,1,2,3 6' # Saturday 13:00 Amsterdam (CET,  early/afternoon kickoffs)
+    # Saturday evening kickoffs (18:30-21:00) run too late for the 13:00 run's
+    # 4h loop budget to reach, so they get their own wake-up closer to them.
+    - cron: '30 15 * 4-10 6'        # Saturday 17:30 Amsterdam (CEST, evening kickoffs)
+    - cron: '30 16 * 11,12,1,2,3 6' # Saturday 17:30 Amsterdam (CET,  evening kickoffs)
     - cron: '0 10 * 4-10 0'        # Sunday   12:00 Amsterdam (CEST, weekend fixtures)
     - cron: '0 11 * 11,12,1,2,3 0' # Sunday   12:00 Amsterdam (CET,  weekend fixtures)
   workflow_dispatch:
