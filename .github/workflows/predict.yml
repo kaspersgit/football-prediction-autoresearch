@@ -7,6 +7,13 @@ on:
   # ~1-week window around the actual DST-switch Sunday (late Mar / late Oct)
   # will run an hour off from the intended local time; not worth a runtime
   # timezone check for this pipeline's precision needs.
+  #
+  # GitHub's cron itself is best-effort and can fire several minutes late, so
+  # these times below are just a "wake up by roughly here" floor, not the
+  # actual prediction time: the "Sleep until 10 minutes before kickoff" step
+  # sleeps the runner precisely until 10 minutes before the slate's earliest
+  # kickoff (capped so a far-ahead slate can't blow past the job timeout —
+  # see that step for details).
   schedule:
     - cron: '0 16 * 4-10 2'        # Tuesday  18:00 Amsterdam (CEST, midweek fixtures)
     - cron: '0 17 * 11,12,1,2,3 2' # Tuesday  18:00 Amsterdam (CET,  midweek fixtures)
@@ -28,6 +35,8 @@ concurrency:
 jobs:
   predict:
     runs-on: ubuntu-latest
+    timeout-minutes: 360  # default GitHub-hosted job cap; stated explicitly since the
+                           # sleep-until-kickoff step below can idle for hours
 
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +56,35 @@ jobs:
 
       - name: Install dependencies
         run: uv sync
+
+      - name: Sleep until 10 minutes before kickoff
+        # Only for scheduled runs: manual workflow_dispatch should run right away.
+        if: github.event_name == 'schedule'
+        run: |
+          uv run python - <<'EOF'
+          from datetime import datetime, timedelta, timezone
+          import time
+
+          from src.data.download import download_fixtures
+          from src.data.kickoff import earliest_kickoff_utc
+
+          # Cap the idle time so a slate whose earliest kickoff is far from this
+          # cron's fire time (e.g. the Friday run covering the whole weekend)
+          # can't run the job past its timeout. When capped, this just gets us
+          # closer to kickoff than the fixed cron time did, not exactly T-10.
+          MAX_SLEEP_SECONDS = 4 * 60 * 60
+
+          download_fixtures()
+          kickoff = earliest_kickoff_utc()
+          if kickoff is None:
+              print("No upcoming fixture with a known kickoff time — running immediately")
+          else:
+              target = kickoff - timedelta(minutes=10)
+              seconds = (target - datetime.now(timezone.utc)).total_seconds()
+              seconds = max(0.0, min(seconds, MAX_SLEEP_SECONDS))
+              print(f"Earliest kickoff {kickoff.isoformat()} — sleeping {seconds:.0f}s")
+              time.sleep(seconds)
+          EOF
 
       - name: Restore historical match data
         uses: actions/cache/restore@v4
