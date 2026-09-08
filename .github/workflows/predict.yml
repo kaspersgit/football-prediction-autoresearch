@@ -10,10 +10,11 @@ on:
   #
   # GitHub's cron itself is best-effort and can fire several minutes late, so
   # these times below are just a "wake up by roughly here" floor, not the
-  # actual prediction time: the "Sleep until 10 minutes before kickoff" step
-  # sleeps the runner precisely until 10 minutes before the slate's earliest
-  # kickoff (capped so a far-ahead slate can't blow past the job timeout —
-  # see that step for details).
+  # actual prediction time: the "Run predictions once per upcoming kickoff
+  # wave" step sleeps the runner precisely until 10 minutes before each
+  # distinct kickoff time still ahead in fixtures.csv, running a fresh
+  # prediction pass before every wave (capped so a run spanning many waves
+  # can't blow past the job timeout — see that step for details).
   schedule:
     - cron: '0 16 * 4-10 2'        # Tuesday  18:00 Amsterdam (CEST, midweek fixtures)
     - cron: '0 17 * 11,12,1,2,3 2' # Tuesday  18:00 Amsterdam (CET,  midweek fixtures)
@@ -57,35 +58,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Sleep until 10 minutes before kickoff
-        # Only for scheduled runs: manual workflow_dispatch should run right away.
-        if: github.event_name == 'schedule'
-        run: |
-          uv run python - <<'EOF'
-          from datetime import datetime, timedelta, timezone
-          import time
-
-          from src.data.download import download_fixtures
-          from src.data.kickoff import earliest_kickoff_utc
-
-          # Cap the idle time so a slate whose earliest kickoff is far from this
-          # cron's fire time (e.g. the Friday run covering the whole weekend)
-          # can't run the job past its timeout. When capped, this just gets us
-          # closer to kickoff than the fixed cron time did, not exactly T-10.
-          MAX_SLEEP_SECONDS = 4 * 60 * 60
-
-          download_fixtures()
-          kickoff = earliest_kickoff_utc()
-          if kickoff is None:
-              print("No upcoming fixture with a known kickoff time — running immediately")
-          else:
-              target = kickoff - timedelta(minutes=10)
-              seconds = (target - datetime.now(timezone.utc)).total_seconds()
-              seconds = max(0.0, min(seconds, MAX_SLEEP_SECONDS))
-              print(f"Earliest kickoff {kickoff.isoformat()} — sleeping {seconds:.0f}s")
-              time.sleep(seconds)
-          EOF
-
       - name: Restore historical match data
         uses: actions/cache/restore@v4
         id: cache-data
@@ -104,7 +76,62 @@ jobs:
               download_all()
           EOF
 
-      - name: Run predictions
+      - name: Run predictions once per upcoming kickoff wave
+        # Only for scheduled runs: manual workflow_dispatch runs once, right away
+        # (see "Run predictions immediately" below).
+        if: github.event_name == 'schedule'
+        env:
+          THEODDS_API: ${{ secrets.THEODDS_API }}
+        run: |
+          uv run python - <<'EOF'
+          from datetime import datetime, timedelta, timezone
+          import subprocess
+          import sys
+          import time
+
+          from src.data.download import download_fixtures
+          from src.data.kickoff import upcoming_kickoff_groups_utc
+
+          # Bound the whole loop so a run spanning many waves (e.g. Friday's run
+          # covering the whole weekend) can't run the job past its timeout. Any
+          # wave whose T-10 target falls beyond this deadline is left for a
+          # later scheduled run to catch instead.
+          DEADLINE = datetime.now(timezone.utc) + timedelta(hours=4)
+
+          def run_predict():
+              subprocess.run(
+                  [sys.executable, "main.py", "--predict", "--threshold", "0.0"],
+                  check=True,
+              )
+
+          download_fixtures()
+          waves = upcoming_kickoff_groups_utc()
+          print(f"{len(waves)} upcoming kickoff wave(s) found")
+
+          ran_any = False
+          for i, kickoff in enumerate(waves, start=1):
+              target = kickoff - timedelta(minutes=10)
+              if target > DEADLINE:
+                  print(f"Stopping: wave {i}/{len(waves)} ({kickoff.isoformat()}) is "
+                        "beyond this run's time budget — a later scheduled run will catch it")
+                  break
+              seconds = max(0.0, (target - datetime.now(timezone.utc)).total_seconds())
+              print(f"Wave {i}/{len(waves)}: kickoff {kickoff.isoformat()} — sleeping {seconds:.0f}s")
+              time.sleep(seconds)
+              print(f"Running predictions for wave {i}/{len(waves)}")
+              run_predict()
+              ran_any = True
+
+          # Guarantee at least one predict pass per scheduled run (matches the
+          # pre-wave-aware behavior) even when there's no wave within budget yet
+          # (e.g. every upcoming kickoff is still hours off, or none is known).
+          if not ran_any:
+              print("No wave within this run's time budget — running once immediately")
+              run_predict()
+          EOF
+
+      - name: Run predictions immediately
+        if: github.event_name != 'schedule'
         env:
           THEODDS_API: ${{ secrets.THEODDS_API }}
         run: uv run python main.py --predict --threshold 0.0
