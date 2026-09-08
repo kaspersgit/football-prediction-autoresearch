@@ -26,8 +26,12 @@ on:
     # 4h loop budget to reach, so they get their own wake-up closer to them.
     - cron: '30 15 * 4-10 6'        # Saturday 17:30 Amsterdam (CEST, evening kickoffs)
     - cron: '30 16 * 11,12,1,2,3 6' # Saturday 17:30 Amsterdam (CET,  evening kickoffs)
-    - cron: '0 10 * 4-10 0'        # Sunday   12:00 Amsterdam (CEST, weekend fixtures)
-    - cron: '0 11 * 11,12,1,2,3 0' # Sunday   12:00 Amsterdam (CET,  weekend fixtures)
+    - cron: '0 10 * 4-10 0'        # Sunday   12:00 Amsterdam (CEST, early/afternoon kickoffs)
+    - cron: '0 11 * 11,12,1,2,3 0' # Sunday   12:00 Amsterdam (CET,  early/afternoon kickoffs)
+    # Same reasoning as Saturday's split above: evening kickoffs run too late
+    # for the 12:00 run's 4h loop budget to reach.
+    - cron: '30 15 * 4-10 0'        # Sunday   17:30 Amsterdam (CEST, evening kickoffs)
+    - cron: '30 16 * 11,12,1,2,3 0' # Sunday   17:30 Amsterdam (CET,  evening kickoffs)
   workflow_dispatch:
 
 permissions:
