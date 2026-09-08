@@ -7,15 +7,31 @@ on:
   # ~1-week window around the actual DST-switch Sunday (late Mar / late Oct)
   # will run an hour off from the intended local time; not worth a runtime
   # timezone check for this pipeline's precision needs.
+  #
+  # GitHub's cron itself is best-effort and can fire several minutes late, so
+  # these times below are just a "wake up by roughly here" floor, not the
+  # actual prediction time: the "Run predictions once per upcoming kickoff
+  # wave" step sleeps the runner precisely until 10 minutes before each
+  # distinct kickoff time still ahead in fixtures.csv, running a fresh
+  # prediction pass before every wave (capped so a run spanning many waves
+  # can't blow past the job timeout — see that step for details).
   schedule:
     - cron: '0 16 * 4-10 2'        # Tuesday  18:00 Amsterdam (CEST, midweek fixtures)
     - cron: '0 17 * 11,12,1,2,3 2' # Tuesday  18:00 Amsterdam (CET,  midweek fixtures)
-    - cron: '0 16 * 4-10 5'        # Friday   18:00 Amsterdam (CEST, weekend fixtures)
-    - cron: '0 17 * 11,12,1,2,3 5' # Friday   18:00 Amsterdam (CET,  weekend fixtures)
-    - cron: '0 11 * 4-10 6'        # Saturday 13:00 Amsterdam (CEST, weekend fixtures)
-    - cron: '0 12 * 11,12,1,2,3 6' # Saturday 13:00 Amsterdam (CET,  weekend fixtures)
-    - cron: '0 10 * 4-10 0'        # Sunday   12:00 Amsterdam (CEST, weekend fixtures)
-    - cron: '0 11 * 11,12,1,2,3 0' # Sunday   12:00 Amsterdam (CET,  weekend fixtures)
+    - cron: '0 15 * 4-10 5'        # Friday   17:00 Amsterdam (CEST, weekend fixtures)
+    - cron: '0 16 * 11,12,1,2,3 5' # Friday   17:00 Amsterdam (CET,  weekend fixtures)
+    - cron: '0 11 * 4-10 6'        # Saturday 13:00 Amsterdam (CEST, early/afternoon kickoffs)
+    - cron: '0 12 * 11,12,1,2,3 6' # Saturday 13:00 Amsterdam (CET,  early/afternoon kickoffs)
+    # Saturday evening kickoffs (18:30-21:00) run too late for the 13:00 run's
+    # 4h loop budget to reach, so they get their own wake-up closer to them.
+    - cron: '30 15 * 4-10 6'        # Saturday 17:30 Amsterdam (CEST, evening kickoffs)
+    - cron: '30 16 * 11,12,1,2,3 6' # Saturday 17:30 Amsterdam (CET,  evening kickoffs)
+    - cron: '0 10 * 4-10 0'        # Sunday   12:00 Amsterdam (CEST, early/afternoon kickoffs)
+    - cron: '0 11 * 11,12,1,2,3 0' # Sunday   12:00 Amsterdam (CET,  early/afternoon kickoffs)
+    # Same reasoning as Saturday's split above: evening kickoffs run too late
+    # for the 12:00 run's 4h loop budget to reach.
+    - cron: '30 15 * 4-10 0'        # Sunday   17:30 Amsterdam (CEST, evening kickoffs)
+    - cron: '30 16 * 11,12,1,2,3 0' # Sunday   17:30 Amsterdam (CET,  evening kickoffs)
   workflow_dispatch:
 
 permissions:
@@ -28,6 +44,8 @@ concurrency:
 jobs:
   predict:
     runs-on: ubuntu-latest
+    timeout-minutes: 360  # default GitHub-hosted job cap; stated explicitly since the
+                           # sleep-until-kickoff step below can idle for hours
 
     steps:
       - uses: actions/checkout@v4
@@ -66,7 +84,62 @@ jobs:
               download_all()
           EOF
 
-      - name: Run predictions
+      - name: Run predictions once per upcoming kickoff wave
+        # Only for scheduled runs: manual workflow_dispatch runs once, right away
+        # (see "Run predictions immediately" below).
+        if: github.event_name == 'schedule'
+        env:
+          THEODDS_API: ${{ secrets.THEODDS_API }}
+        run: |
+          uv run python - <<'EOF'
+          from datetime import datetime, timedelta, timezone
+          import subprocess
+          import sys
+          import time
+
+          from src.data.download import download_fixtures
+          from src.data.kickoff import upcoming_kickoff_groups_utc
+
+          # Bound the whole loop so a run spanning many waves (e.g. Friday's run
+          # covering the whole weekend) can't run the job past its timeout. Any
+          # wave whose T-10 target falls beyond this deadline is left for a
+          # later scheduled run to catch instead.
+          DEADLINE = datetime.now(timezone.utc) + timedelta(hours=4)
+
+          def run_predict():
+              subprocess.run(
+                  [sys.executable, "main.py", "--predict", "--threshold", "0.0"],
+                  check=True,
+              )
+
+          download_fixtures()
+          waves = upcoming_kickoff_groups_utc()
+          print(f"{len(waves)} upcoming kickoff wave(s) found")
+
+          ran_any = False
+          for i, kickoff in enumerate(waves, start=1):
+              target = kickoff - timedelta(minutes=10)
+              if target > DEADLINE:
+                  print(f"Stopping: wave {i}/{len(waves)} ({kickoff.isoformat()}) is "
+                        "beyond this run's time budget — a later scheduled run will catch it")
+                  break
+              seconds = max(0.0, (target - datetime.now(timezone.utc)).total_seconds())
+              print(f"Wave {i}/{len(waves)}: kickoff {kickoff.isoformat()} — sleeping {seconds:.0f}s")
+              time.sleep(seconds)
+              print(f"Running predictions for wave {i}/{len(waves)}")
+              run_predict()
+              ran_any = True
+
+          # Guarantee at least one predict pass per scheduled run (matches the
+          # pre-wave-aware behavior) even when there's no wave within budget yet
+          # (e.g. every upcoming kickoff is still hours off, or none is known).
+          if not ran_any:
+              print("No wave within this run's time budget — running once immediately")
+              run_predict()
+          EOF
+
+      - name: Run predictions immediately
+        if: github.event_name != 'schedule'
         env:
           THEODDS_API: ${{ secrets.THEODDS_API }}
         run: uv run python main.py --predict --threshold 0.0

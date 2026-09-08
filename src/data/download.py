@@ -7,8 +7,8 @@ from src.config import LEAGUE_NAMES
 
 LEAGUES = {name.lower(): code for code, name in LEAGUE_NAMES.items()}
 
-BASE_URL = "https://www.football-data.co.uk/mmz4281"
-FIXTURES_URL = "https://www.football-data.co.uk/fixtures.csv"
+BASE_URL = "https://football-data.co.uk/mmz4281"
+FIXTURES_URL = "https://football-data.co.uk/fixtures.csv"
 RAW_DIR = Path("data/raw")
 
 

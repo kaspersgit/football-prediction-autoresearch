@@ -10,7 +10,7 @@ Evaluation covers all 11 supported leagues. Production predictions are limited t
 uv sync --extra dev
 ```
 
-Historical match data is downloaded from [football-data.co.uk](https://www.football-data.co.uk) on first use.
+Historical match data is downloaded from [football-data.co.uk](https://football-data.co.uk) on first use.
 
 ## Backtesting
 
