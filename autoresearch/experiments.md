@@ -3038,3 +3038,110 @@ Total ROI down from +19.73% (`EXP-20260823-002`'s 4-league baseline) to +15.59% 
 **Analysis:** The *sign* of the article's effect (colder marginally less bad than hotter) shows up weakly and fairly consistently across leagues, seasons, and rating constructions — but it is (1) never statistically distinguishable in aggregate (paired t ≈ 0.2–1.3, vs the article's p=0.002), (2) economically a losing strategy against real prices (colder −3.3% to −4.0% ROI, t ≈ −4 to −5 vs zero — about the size of the vig), and (3) outright contradicted by the only significant single-league result (Belgium). The gap between colder and hotter (~1–2pp) sits in `EVALUATION.md`'s "usually noise / weak signal" band. The article's headline +100% figures are on a different basis (16+ divisions including lower leagues, generous historical prices, and a "profit-over-turnover" framing) and do not transfer. Plan step 4 applies: do not proceed to feature engineering (step 2) or the correlation check (step 3).
 
 **Decision:** REJECTED — hypothesis 9 does not replicate on our data; no model feature added. The **diagnostic code is KEPT** as a permanent, reproducible tool (`--hot-hand-diagnostic`), following the precedent of `_run_compare_vig` kept after `EXP-20260804-002`. It is fully isolated from the model, backtest, and live-prediction paths. `current.md` hypothesis 9 is cleared from the queue; hypothesis 10 (Pinnacle-confirmation margin) remains, and was always queued as the iteration after this one.
+
+## EXP-20260910-001: COD (Combined Odds Distribution) season-luck — diagnostic borderline, feature REVERTED
+
+**Date:** 2026-09-10
+**Hypothesis:** `current.md` active hypothesis 11 (Wheatcroft, *Profiting from overreaction in soccer betting odds*, JQAS 2020). A team's season-to-date over/under-performance vs a Monte-Carlo of its own odds-implied results ("COD" = quantile of actual points in the simulated-points distribution, `m=512`, ≥6 prior matches, per season) is mispriced going forward: low-COD teams (banked fewer points than the market implied) should offer positive value. Distinct from the rejected hot-hand item 9 — season-cumulative, points-quantile, MC-benchmarked. Plan: step 1 standalone diagnostic; step 2 add `cod_diff` as a feature only if the low-COD edge replicates *and* holds in ≥2 of `N1/P1/B1`.
+
+**Files (step 1, kept):** `src/evaluation/cod.py` (new), `main.py` `--cod-diagnostic` branch. **Files (step 2, reverted):** `src/model/features.py` (`_compute_cod`/`_get_current_cod`/`cod_diff` in `FEATURE_COLS`), `tests/test_cod_feature.py` — all removed after evaluation; `features.py` is byte-identical to its pre-iteration state.
+
+**Step-1 diagnostic result** (`--cod-diagnostic`, 45,442 matches, 11 leagues, best-price settlement, flat stakes):
+- ROI of backing a side, bucketed by that side's COD decile, is **cleanly monotone**: decile 0 (COD 0.00–0.13) **+0.01%** (t +0.00) → decile 9 (COD 0.91–1.00) **−8.55%** (t −5.63). An ~8.5pp top-to-bottom spread; backing high-COD ("lucky") teams is a strong, well-sampled loser.
+- Contrast — back the lower-COD side vs the higher-COD side in each match: low-COD ROI −2.08%, high-COD ROI −6.03%, **paired t = +2.80** (crosses significance).
+- BUT the low-COD long side is only **break-even, not profitable** (decile 0 +0.01%; production-leagues lowest decile +1.39%, t +0.40 — not significant).
+- Lowest-COD decile per league: profitable in B1 +17.5% (t +2.32), F1 +13.0% (t +1.63), P1 +6.0% (t +0.6), D1 +3.8%; but E0 −0.7%, **N1 −8.1%**, **G1 −5.6%**, SP1/I1/SC0 all negative. Of the plan's gate leagues (`N1/P1/B1`): clear only in B1, marginal in P1, negative in N1 → **fails the ≥2-of-3 gate.**
+
+**Step-2 feature result** (`--per-league --threshold 0.0` with `cod_diff` added, vs the same-session baseline):
+
+| Metric | Baseline | +cod_diff | Δ |
+|---|---:|---:|---:|
+| Accuracy | 0.519 | 0.516 | −0.003 |
+| All-market ROI | −3.26% | −5.31% | **−2.05 pp** |
+| Stability | −0.0216 | −0.0355 | worse |
+| t-statistic | −2.06 | −3.37 | worse |
+| Bets | 9163 / 9900 | 9028 / 9900 | −135 |
+| Season breadth | 0/3 (pre-existing FAIL) | 0/3 | unchanged |
+| Leagues improved | — | **2 / 11** (E0 +0.5pp, F1 +2.8pp; P1 ~flat) | — |
+
+Per-league worse: D1, SP1 (−1.9pp), I1 (−4.3pp), N1 (−4.8pp), G1 (−5.5pp), SC0 (−6.4pp), T1 (−5.8pp), B1 (~flat). Production portfolio (filter off) −0.93% → −1.03%.
+
+**Analysis:** The COD *market bias is real and measurable* — the monotone decile structure (t −5.6 at the top) and the fade-lucky-teams contrast (paired t +2.80) are the strongest such signals in this session's diagnostics. But it is not directly bettable (the low-COD long side does not beat break-even against real prices), it is absent-to-negative in `N1`/`G1` (2 of 5 production leagues), and as a model feature `cod_diff` makes every headline metric worse and helps only 2/11 leagues — consistent with it overlapping `home_market_bias`/`away_market_bias` (also actual-minus-market residuals) and adding noise. The profitable long-side pockets (B1, F1) are exactly Wheatcroft's leagues, so the effect is plausibly genuine there, but B1 is not in production.
+
+**Decision:** Step 2 **REVERTED** (fails all four `EVALUATION.md` keep criteria; also fails the plan's own step-2 gate, which was met in only 1 of `N1/P1/B1`). Step 1's `--cod-diagnostic` tool is **KEPT** (isolated from model/backtest/predict), same precedent as `--hot-hand-diagnostic` and `--compare-vig`. Hypothesis 11 cleared from the queue. Full suite green after revert.
+
+## EXP-20260910-002: Fix `_run_compare_vig` per-league breakdown crash (`KeyError: 'league'`) — KEPT
+
+**Date:** 2026-09-10
+**Hypothesis:** `current.md` active hypothesis 4. `_run_compare_vig`'s per-league breakdown re-merged the bet DataFrame against `eval_df` on `(HomeTeam, AwayTeam, Date)` to attach a `league` column — but `compute_value_betting_results` has carried its own `league` column on every bet row since a later change, so the merge produced `league_x`/`league_y` and `merged["league"]` raised `KeyError: 'league'`. The diagnostic has been unrunnable end-to-end since.
+
+**Files changed:** `main.py` — extracted the inner `_league_roi` closure to a module-level `_compare_vig_league_roi(bets)` that reads `bets["league"]` directly (no merge); `tests/test_compare_vig.py` (new — direct-column read, no-KeyError regression, empty/missing-column handling).
+
+**Verification:** `uv run python main.py --compare-vig` now runs to completion and prints the per-league table (previously crashed before reaching it). Unit tests: 3 new, pass. Full suite green. Behaviour of the (already-correct) aggregate and threshold-sweep sections is unchanged; only the crashing per-league section is fixed. The 7-league display list (`E0,D1,SP1,I1,F1,N1,P1`) is preserved as-is — widening it to all 11 is a separate concern, out of scope for a crash fix.
+
+**Decision:** KEPT — a correctness fix with a regression test, no model or evaluation-policy impact. Hypothesis 4 cleared from the queue.
+
+## EXP-20260910-003: Asymmetric rest disadvantage (congested favourite vs rested underdog) — REJECTED at the diagnostic stage
+
+**Date:** 2026-09-10
+**Hypothesis:** `current.md` active hypothesis 13. Raw "days rest" was reverted twice as a *symmetric* feature (`EXP-20260419-S023`, `EXP-20260501-D088`); the untested angle is the *asymmetry* — a short-rested heavy favourite against a well-rested underdog may be overpriced because the market underweights congestion. Bet the rested underdog in exactly those spots.
+
+**Files (kept as a tool):** `src/evaluation/rest.py` (new — `_days_rest` + `run_rest_diagnostic`), `main.py` `--rest-diagnostic` branch. No model/feature change.
+
+**Result** (`--rest-diagnostic`, days-rest from match dates only, all 11 leagues):
+
+| favourite cut | short/long rest | qualifying spots | back rested underdog ROI | paired t (dog − fav) |
+|---|---|---:|---:|---:|
+| fair odds ≤ 1.80 | ≤3d / ≥6d | 137 | −21.99% (t −0.92) | −1.08 |
+| ≤ 2.20 | ≤4d / ≥7d | 369 | −9.24% (t −0.75) | −0.96 |
+| ≤ 2.50 | ≤3d / ≥7d | 209 | −20.04% (t −1.44) | −1.31 |
+| ≤ 3.00 | ≤4d / ≥8d | 317 | −22.03% (t −1.93) | −2.25 |
+
+**Analysis:** The sample is tiny under any reasonable cut (137–369 spots in 13 years) because cross-competition congestion — the real driver — comes from European/cup fixtures that a single-league dataset cannot see. Within what *is* visible, backing the rested underdog loses 9–22% at every threshold and the paired t is **negative** at every threshold (the congested favourite does *better*, not worse). The hypothesis is not merely unsupported, the sign is wrong: the domestic market prices short rest fine.
+
+**Decision:** REJECTED at the diagnostic stage — no feature built. `--rest-diagnostic` and `_days_rest` kept as a reusable tool. Hypothesis 13's rest sub-item cleared.
+
+## EXP-20260910-004: Non-transitive triads (van Ours 2025) — REJECTED at the diagnostic stage (soft)
+
+**Date:** 2026-09-10
+**Hypothesis:** `current.md` active hypothesis 13. Teams form rock-paper-scissors triads (A▻B▻C▻A on head-to-head record) more often than chance, and bookmakers ignore this because they price for consistency (van Ours, *Non-transitive patterns in sports match outcomes*, Empirical Economics 2025 — 25 EPL seasons). Operationalisation (ours, not the paper's — it documents the pattern more than a bet rule): flag matches whose two teams sit in an intransitive triad on running head-to-head points (≥2 prior meetings per pair, any third team in the league), then test whether backing the market underdog pays better in flagged matches.
+
+**Files (kept as a tool):** `src/evaluation/triads.py` (new), `main.py` `--triads-diagnostic` branch. No model/feature change.
+
+**Result** (`--triads-diagnostic`, 45,442 matches, all 11 leagues):
+- 64.0% of matches flag as "in an intransitive triad" — the loose "any third team" definition is barely discriminating.
+- Back the market underdog: in-triad −8.16% ROI (t −6.77), not-in-triad −9.74% (t −5.81). ROI gap **+1.58 pp, Welch t = +0.77** (not significant).
+- Per-league in-triad: only E0 positive (+1.60%); everything else −1% to −15%. Production leagues in-triad −6.74% (t −3.60).
+
+**Analysis:** Backing underdogs at bookmaker prices loses heavily everywhere (favourite-longshot bias). The +1.58pp tilt toward triad matches is below `EVALUATION.md`'s 2pp noise floor and not significant. E0 being the one non-negative league is weakly consistent with the paper's EPL focus, but not significantly so here. Because the operationalisation is ours, this is **soft** evidence — a tighter triad definition (third team a common recent opponent; restrict to near-pick'em matches) could be revisited — but there is no signal at this cut.
+
+**Decision:** REJECTED at the diagnostic stage — no feature built. `--triads-diagnostic` kept as a tool. Hypothesis 13's triad sub-item cleared (marked "revisit only with a tighter definition").
+
+## EXP-20260910-005: Pinnacle-confirmation margin sweep — formalised; default 0.015 CONFIRMED (no change)
+
+**Date:** 2026-09-10
+**Hypothesis:** `current.md` active hypothesis 10 — formalise the informal 2026-08-29 throwaway-branch sweep of `DEFAULT_PINNACLE_CONFIRMATION_MARGIN` into a real `EXP-...` entry with a decision. The margin is a pure post-training bet filter, so one walk-forward + a sweep over the production-portfolio bet computation is sufficient.
+
+**Files changed:** `main.py` — `_run_pinnacle_margin_sweep()` + `--pinnacle-margin-sweep` branch (trains the per-league walk-forward once, rebuilds the 5-league production portfolio at each margin). No model, feature, config, or evaluation-policy change.
+
+**Result** (`--pinnacle-margin-sweep`, current data, `--per-league --threshold 0.0`, closing-odds `PSC*`, no `--update`):
+
+| margin | bets | ROI | t-stat | per-league ROI (E0 / F1 / G1 / N1 / P1) |
+|---:|---:|---:|---:|---|
+| none (filter off) | 3295 | −0.93% | −0.35 | +2.4 / −10.2 / −1.3 / +5.1 / −0.5 |
+| 0.000 | 1537 | +12.31% | +3.13 | +13.8 / −1.0 / +8.8 / +32.2 / +9.9 |
+| 0.005 | 1279 | +12.42% | +2.92 | +12.9 / +4.5 / +11.6 / +33.4 / −0.1 |
+| 0.010 | 1024 | +12.54% | +2.69 | +6.9 / +7.2 / +14.3 / +32.6 / +2.6 |
+| **0.015 (current default)** | **821** | **+17.72%** | **+3.42** | +2.3 / +14.9 / +20.9 / +43.9 / +9.1 |
+| 0.020 | 637 | +18.47% | +3.20 | +2.6 / +18.0 / +21.2 / +42.6 / +9.1 |
+| 0.025 | 483 | +19.97% | +3.14 | +14.2 / +13.7 / +21.8 / +35.4 / +14.5 |
+| 0.030 | 376 | +18.55% | +2.67 | +10.0 / −1.3 / +42.1 / +26.9 / +15.9 |
+
+(Absolute numbers differ from the 2026-08-29 sweep — e.g. that run had 0.015 → 748 bets/+15.59%, 0.005 → 1198/+11.31% — because current-season data has since accrued and this run omits `--update`. The curve *shape* is unchanged.)
+
+**Analysis:**
+- **0.015 is the optimum of the curve on the metrics that decide keep/revert:** highest t-stat of any margin (+3.42), ROI +17.72% (only 0.025 edges it, on ~40% fewer bets and a lower t-stat), and every production league solidly positive.
+- **Lowering the margin fails the volume-for-ROI trade rule.** 0.010: +25% bets vs 0.015 but ROI −5.2pp (over the ≤5pp cap) and t 2.69. 0.005: +56% bets, ROI −5.3pp (over the cap), t 2.92. Both breach the ROI-decline cap. (Note: unlike the 2026-08-29 sweep, 0.005's per-league breakdown here is *not* broadly negative — every production league stays positive except P1 at −0.1% — so the earlier "fails rule 3" objection doesn't reproduce. The trade rule still says no on the ROI-decline cap alone.)
+- **Raising the margin** (0.020–0.030) trades bet volume for a small ROI bump and a falling t-stat — no rule permits keeping a *lower*-volume, similar-ROI variant.
+
+**Decision:** NO CHANGE — `DEFAULT_PINNACLE_CONFIRMATION_MARGIN` stays at **0.015**, now on a formal sweep rather than the informal one. The `--pinnacle-margin-sweep` tool is kept for future re-checks when the production baseline moves. Hypothesis 10 cleared from the queue.

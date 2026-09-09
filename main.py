@@ -1001,6 +1001,96 @@ def _run_backtest():
     print("Done. Open reports/evaluation_report.html to view results.")
 
 
+def _run_pinnacle_margin_sweep() -> None:
+    """Sweep DEFAULT_PINNACLE_CONFIRMATION_MARGIN over the production portfolio.
+
+    Trains the per-league walk-forward once (the margin is a pure post-training bet
+    filter), then rebuilds the 5-league production portfolio at each margin and prints
+    total + per-league ROI and t-stat. Formalises the 2026-08-29 throwaway-branch sweep
+    referenced by autoresearch/current.md active hypothesis 10.
+    """
+    from src.model.train import train_walkforward
+
+    margins = [None, 0.0, 0.005, 0.010, 0.015, 0.020, 0.025, 0.030]
+    max_odds, max_edge = DEFAULT_MAX_ODDS, DEFAULT_MAX_EDGE
+    pinnacle_odds_cols = _parse_pinnacle_odds_cols()
+    prod = set(PRODUCTION_LEAGUES)
+
+    print("Loading data...")
+    df = load_all_data()
+    print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
+    print("Training per-league walk-forward once...")
+    results = train_walkforward(df, per_league=True)
+
+    def _portfolio(margin):
+        prior: list[dict] = []
+        chunks: list[pd.DataFrame] = []
+        tmap = {lg: 0.0 for lg in SUPPORTED_LEAGUES}
+        for sr in results["season_results"]:
+            if prior:
+                tmap = select_league_thresholds(
+                    prior, leagues=SUPPORTED_LEAGUES, grid=_THRESHOLD_GRID,
+                    max_odds=max_odds, max_overround=DEFAULT_MAX_OVERROUND, max_edge=max_edge,
+                )
+            present = set(sr["eval_df"]["league"].unique())
+            for lg in SUPPORTED_LEAGUES:
+                if lg not in prod or lg not in present:
+                    continue
+                b = compute_value_betting_results(
+                    sr["eval_df"], sr["y_proba"], sr["classes"],
+                    threshold=tmap.get(lg, 0.0), max_odds=max_odds, max_edge=max_edge,
+                    skip_leagues=set(SUPPORTED_LEAGUES) - {lg},
+                    max_overround=DEFAULT_MAX_OVERROUND,
+                    pinnacle_confirmation_margin=margin,
+                    pinnacle_odds_cols=pinnacle_odds_cols,
+                )
+                if not b.empty:
+                    chunks.append(b)
+            prior.append(sr)
+        if not chunks:
+            return pd.DataFrame(columns=["league", "profit", "stake"])
+        return pd.concat(chunks).sort_values("Date").reset_index(drop=True)
+
+    print(f"\n{'margin':>8}  {'bets':>6}  {'ROI':>9}  {'t-stat':>7}   per-league ROI")
+    print("-" * 92)
+    for m in margins:
+        pf = _portfolio(m)
+        if pf.empty:
+            print(f"{str(m):>8}  {'0':>6}")
+            continue
+        roi = compute_roi(pf)
+        t = compute_stability(pf) * (len(pf) ** 0.5)
+        per_lg = "  ".join(
+            f"{lg} {pf[pf['league'] == lg]['profit'].sum() / pf[pf['league'] == lg]['stake'].sum() * 100:+.1f}%"
+            f"(n={len(pf[pf['league'] == lg])})"
+            for lg in sorted(prod) if (pf["league"] == lg).any()
+        )
+        print(f"{str(m):>8}  {len(pf):>6}  {roi:>+8.2f}%  {t:>+7.2f}   {per_lg}")
+
+
+_COMPARE_VIG_LEAGUES = {"E0": "England", "D1": "Germany", "SP1": "Spain", "I1": "Italy",
+                        "F1": "France", "N1": "Netherlands", "P1": "Portugal"}
+
+
+def _compare_vig_league_roi(bets: pd.DataFrame) -> dict:
+    """Per-league (bets, ROI%) for the vig-comparison report.
+
+    `compute_value_betting_results` already carries a 'league' column on every bet
+    row, so this reads it directly. The previous implementation re-merged against
+    eval_df on (HomeTeam, AwayTeam, Date), which collided with the existing 'league'
+    column (league_x/league_y) and raised `KeyError: 'league'` (active hypothesis 4).
+    """
+    if bets.empty or "league" not in bets.columns:
+        return {}
+    out = {}
+    for code, name in _COMPARE_VIG_LEAGUES.items():
+        sub = bets[bets["league"] == code]
+        if len(sub) == 0:
+            continue
+        out[name] = (len(sub), sub["profit"].sum() / len(sub) * 100)
+    return out
+
+
 def _run_compare_vig():
     """Run the walk-forward backtest twice and print a side-by-side comparison:
     'fair' baseline (vig-stripped, current default) vs 'raw' baseline (1/odds, EV-correct)."""
@@ -1072,26 +1162,8 @@ def _run_compare_vig():
           "Bets flagged by 'fair' but not 'raw' are negative-EV at these actual odds.")
 
     # --- Per-league breakdown at base threshold ---
-    LG = {"E0": "England", "D1": "Germany", "SP1": "Spain", "I1": "Italy",
-          "F1": "France", "N1": "Netherlands", "P1": "Portugal"}
-
-    def _league_roi(bets, eval_df):
-        if bets.empty:
-            return {}
-        merged = bets.merge(
-            eval_df[["HomeTeam", "AwayTeam", "Date", "league"]],
-            on=["HomeTeam", "AwayTeam", "Date"], how="left",
-        )
-        out = {}
-        for lc, ln in LG.items():
-            sub = merged[merged["league"] == lc]
-            if len(sub) == 0:
-                continue
-            out[ln] = (len(sub), sub["profit"].sum() / len(sub) * 100)
-        return out
-
-    fair_lg = _league_roi(fair_bets, eval_df)
-    raw_lg = _league_roi(raw_bets, eval_df)
+    fair_lg = _compare_vig_league_roi(fair_bets)
+    raw_lg = _compare_vig_league_roi(raw_bets)
     all_leagues = sorted(set(list(fair_lg.keys()) + list(raw_lg.keys())))
 
     print(f"\nPER-LEAGUE ROI  (threshold: {threshold:+.2f})")
@@ -1161,6 +1233,22 @@ def _run_hot_hand_diagnostic() -> None:
         )
 
 
+def _run_cod_diagnostic() -> None:
+    """Standalone replication of Wheatcroft's COD (Combined Odds Distribution) claim.
+
+    Diagnostic only — no model training, no feature added. See autoresearch/current.md
+    active hypothesis 11 and src/evaluation/cod.py.
+    """
+    from src.evaluation.cod import run_cod_diagnostic
+
+    print("Loading data...")
+    df = load_all_data()
+    print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
+    run_cod_diagnostic(
+        df, leagues=set(SUPPORTED_LEAGUES), production_leagues=set(PRODUCTION_LEAGUES)
+    )
+
+
 def _run_track_pinnacle_vig() -> None:
     """Append one live Pinnacle vig snapshot per upcoming fixture to the tracking history.
 
@@ -1224,6 +1312,24 @@ def run_pipeline():
         _run_track_pinnacle_vig()
     elif "--hot-hand-diagnostic" in sys.argv:
         _run_hot_hand_diagnostic()
+    elif "--cod-diagnostic" in sys.argv:
+        _run_cod_diagnostic()
+    elif "--rest-diagnostic" in sys.argv:
+        from src.evaluation.rest import run_rest_diagnostic
+        print("Loading data...")
+        _df = load_all_data()
+        print(f"Loaded {len(_df)} matches")
+        run_rest_diagnostic(_df, leagues=set(SUPPORTED_LEAGUES),
+                            production_leagues=set(PRODUCTION_LEAGUES))
+    elif "--triads-diagnostic" in sys.argv:
+        from src.evaluation.triads import run_triads_diagnostic
+        print("Loading data...")
+        _df = load_all_data()
+        print(f"Loaded {len(_df)} matches")
+        run_triads_diagnostic(_df, leagues=set(SUPPORTED_LEAGUES),
+                              production_leagues=set(PRODUCTION_LEAGUES))
+    elif "--pinnacle-margin-sweep" in sys.argv:
+        _run_pinnacle_margin_sweep()
     else:
         _run_backtest()
 
