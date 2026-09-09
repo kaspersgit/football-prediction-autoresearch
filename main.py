@@ -1134,6 +1134,33 @@ def _run_compare_vig():
     print(f"\nProfit charts saved to {chart_path}")
 
 
+def _run_hot_hand_diagnostic() -> None:
+    """Standalone replication of the contrarian 'hot-hand fallacy' momentum claim.
+
+    Diagnostic only — no model training, no feature added. See autoresearch/current.md
+    active hypothesis 9 and src/evaluation/hot_hand.py. Backs the colder team in every
+    match at flat stakes and reports colder-vs-hotter ROI per league/season.
+    """
+    from src.evaluation.hot_hand import run_hot_hand_diagnostic
+
+    print("Loading data...")
+    df = load_all_data()
+    print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
+    for strip_vig, cumulative, label in [
+        (True, False, "vig-stripped, trailing window"),
+        (False, False, "raw 1/odds, trailing window"),
+        (True, True, "vig-stripped, cumulative-season rating"),
+    ]:
+        print(f"\n########## {label} ##########")
+        run_hot_hand_diagnostic(
+            df,
+            leagues=set(SUPPORTED_LEAGUES),
+            production_leagues=set(PRODUCTION_LEAGUES),
+            strip_vig=strip_vig,
+            cumulative=cumulative,
+        )
+
+
 def _run_track_pinnacle_vig() -> None:
     """Append one live Pinnacle vig snapshot per upcoming fixture to the tracking history.
 
@@ -1195,6 +1222,8 @@ def run_pipeline():
         _run_compare_vig()
     elif "--track-pinnacle-vig" in sys.argv:
         _run_track_pinnacle_vig()
+    elif "--hot-hand-diagnostic" in sys.argv:
+        _run_hot_hand_diagnostic()
     else:
         _run_backtest()
 

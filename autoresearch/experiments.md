@@ -3006,3 +3006,35 @@ Total ROI down from +19.73% (`EXP-20260823-002`'s 4-league baseline) to +15.59% 
 **Decision:** KEPT, per explicit user direction, as a correctness/hygiene fix rather than a performance-improving one — `EVALUATION.md`'s "keep only if ROI improves" bar doesn't strictly apply to a verified zero-effect change; nothing regressed on any path that matters today, `FEATURE_COLS` now correctly reflects `SUPPORTED_LEAGUES` instead of a silently-stale subset, the dormant global-model path is fixed too, and a regression test now guards against this exact class of bug recurring for any future league addition. `models/league_thresholds.json`/`reports/backtest_bets.csv`/`reports/evaluation_bets.csv` were not regenerated on `main` since the CI run confirmed there is nothing to update. Full test suite (143 tests) passes.
 
 **Follow-up:** If the global (non-per-league) model mode is ever revived for production or research use, this fix is what makes it correctly aware of all 11 leagues — re-verify then, since it was never exercised against real data in this iteration (the global path wasn't run, only confirmed the per-league path is unaffected).
+
+## EXP-20260909-001: Contrarian "hot-hand fallacy" momentum — REJECTED at the diagnostic stage (no model change)
+
+**Date:** 2026-09-09
+**Hypothesis:** `current.md` active hypothesis 9, step 1. The football-data.co.uk article "A Profitable Betting System?" claims bettors overweight recent form, so the market underprices recently "cold" teams; backing the colder team level-stakes was reported at +102.75% ROI vs +98.45% for the hotter team (p=0.002) across 28,386 matches / 16+ divisions, and "against Pinnacle's own closing odds specifically, `match_rating ≤ −1.5` still returned +1.35% profit-over-turnover." The falsifiable prediction for us: on our 11 leagues / 2013–2026 data, backing the colder team should beat backing the hotter team by a statistically distinguishable margin (and ideally clear break-even against real prices). The plan's step 4 says stop if this doesn't replicate — do not proceed to a model feature on the article's numbers alone.
+
+**Method (mirrors the article):** per team per match, an odds-adjusted score vs the vig-stripped fair win prob `p`: `score = (1 − p)` if the team won, else `−p` (a draw = "did not win" for both sides). Heat rating = that score averaged over a trailing window, shifted one match (strictly pre-match). `match_rating = home_heat − away_heat`; negative ⇒ home colder. Bet the colder side flat 1 unit, settled at best available price (`CustomMax{H/D/A}` → `B365`). Fair probs vig-stripped from `PSCH/PSCD/PSCA` where all three present, else `CustomMax`, else `B365`. Tested six rating constructions: window ∈ {6 (the article's), 5 (our `WINDOW`)} × {vig-stripped trailing, raw `1/odds` trailing, vig-stripped cumulative-season}. 45,442 matches loaded; ~43,900–44,150 bets after each rating's warm-up.
+
+**Files changed:** `src/evaluation/hot_hand.py` (new — standalone diagnostic, no training, no feature), `main.py` (`_run_hot_hand_diagnostic` + `--hot-hand-diagnostic` dispatch branch), `tests/test_hot_hand.py` (new — score formula, draw handling, no-lookahead in the rating, colder-side selection + profit sign, smoke test). **No change to `src/model/`, `src/evaluation/metrics.py`, or `src/config.py`.**
+
+**Baseline:** none in the ROI-delta sense — this iteration adds no model change. The walk-forward primary comparison is byte-for-byte unaffected (the diff adds one new file plus a subcommand branch reachable only via `--hot-hand-diagnostic`; nothing on the backtest/predict path imports it), the same isolation argument `EXP-20260828-002` used for skipping the CI rerun. Full local suite: **156 passed**.
+
+**Results — backing the colder team, full sample (no `|match_rating|` filter):**
+
+| Rating construction | Window | Bets | Colder ROI | Hotter ROI | Colder t vs 0 | Paired t (colder−hotter) |
+|---|---:|---:|---:|---:|---:|---:|
+| vig-stripped trailing | 6 | 43,895 | −3.46% | −4.77% | −4.38 | +1.03 |
+| vig-stripped trailing | 5 | 44,144 | −3.41% | −4.91% | −4.35 | +1.17 |
+| raw 1/odds trailing | 6 | 43,895 | −3.51% | −4.72% | −4.42 | +0.95 |
+| raw 1/odds trailing | 5 | 44,144 | −3.31% | −5.01% | −4.20 | +1.33 |
+| vig-stripped cumulative | 6 | 43,895 | −3.94% | −4.29% | −5.07 | +0.28 |
+| vig-stripped cumulative | 5 | 44,144 | −4.03% | −4.29% | −5.20 | +0.20 |
+
+**Per-league (vig-stripped, window 6):** colder beats hotter in 9/11 leagues, but no paired t reaches significance; the only |paired t| > 2 anywhere is Belgium at **−2.27** — i.e. the one significant single-league result *contradicts* the hypothesis (B1 colder −8.22% vs hotter +1.68%). England (+1.73%) and France (−0.98%) are the only leagues where colder-betting isn't clearly loss-making. Per-season: colder beats hotter in ~9/14 seasons, max |paired t| ≈ 1.3.
+
+**Signed cut (the article's actual form — back home when `match_rating ≤ −x`, away when `≥ +x`; our rating scale is ~6× tighter than theirs, so `x∈{0.25,0.5}` are the analogues of their 1.5):** every cell negative or noise — e.g. vig-stripped w6 `≤ −0.25` (home colder): −4.49% (t −2.89); `≥ +0.25` (away colder): −2.25% (t −0.96). No sign of their +1.35% conservative result.
+
+**Only positive pocket:** cumulative rating, `|match_rating| ≥ 0.25`, n=375 (0.85% of the sample) → colder +16.34% (t +1.59); it inverts to −12.57% at `≥ 0.5` (n=14). Textbook thin-sample noise per `EVALUATION.md`'s own small-sample guidance — not evidence.
+
+**Analysis:** The *sign* of the article's effect (colder marginally less bad than hotter) shows up weakly and fairly consistently across leagues, seasons, and rating constructions — but it is (1) never statistically distinguishable in aggregate (paired t ≈ 0.2–1.3, vs the article's p=0.002), (2) economically a losing strategy against real prices (colder −3.3% to −4.0% ROI, t ≈ −4 to −5 vs zero — about the size of the vig), and (3) outright contradicted by the only significant single-league result (Belgium). The gap between colder and hotter (~1–2pp) sits in `EVALUATION.md`'s "usually noise / weak signal" band. The article's headline +100% figures are on a different basis (16+ divisions including lower leagues, generous historical prices, and a "profit-over-turnover" framing) and do not transfer. Plan step 4 applies: do not proceed to feature engineering (step 2) or the correlation check (step 3).
+
+**Decision:** REJECTED — hypothesis 9 does not replicate on our data; no model feature added. The **diagnostic code is KEPT** as a permanent, reproducible tool (`--hot-hand-diagnostic`), following the precedent of `_run_compare_vig` kept after `EXP-20260804-002`. It is fully isolated from the model, backtest, and live-prediction paths. `current.md` hypothesis 9 is cleared from the queue; hypothesis 10 (Pinnacle-confirmation margin) remains, and was always queued as the iteration after this one.
