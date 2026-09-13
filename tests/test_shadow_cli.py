@@ -100,7 +100,7 @@ def test_manual_settlement_refreshes_results_then_settles_and_reports(monkeypatc
     def refresh_results():
         calls.append("refresh")
 
-    def load_results():
+    def load_results(leagues=None):
         calls.append("load")
         return results
 

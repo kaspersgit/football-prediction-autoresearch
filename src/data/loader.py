@@ -142,9 +142,18 @@ def load_fixtures() -> pd.DataFrame:
     return pd.concat([df[keep_cols], custom_df], axis=1).reset_index(drop=True)
 
 
-def load_all_data() -> pd.DataFrame:
+def load_all_data(leagues: set[str] | None = None) -> pd.DataFrame:
+    """Load historical match data from data/raw.
+
+    If `leagues` is given, only files for those league codes are read (filenames
+    are `{league}_{season}.csv`), skipping the rest instead of loading and then
+    discarding them — cheaper when only a subset of leagues is needed (e.g. live
+    prediction only needs the production allowlist).
+    """
     frames = []
     for path in sorted(RAW_DIR.glob("*.csv")):
+        if leagues is not None and path.stem.split("_", 1)[0] not in leagues:
+            continue
         df = _load_file(path)
         if df is not None and len(df) > 0:
             frames.append(df)

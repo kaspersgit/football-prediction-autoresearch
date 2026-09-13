@@ -40,6 +40,17 @@ def test_rows_with_missing_result_dropped(tmp_path, monkeypatch):
     df = load_all_data()
     assert len(df) == 1
 
+def test_load_all_data_filters_by_leagues(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.data.loader.RAW_DIR", tmp_path)
+    csv_content = (
+        "Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR,B365H,B365D,B365A\n"
+        "12/08/2023,Arsenal,Forest,2,1,H,1.8,3.5,5.0\n"
+    )
+    (tmp_path / "E0_2324.csv").write_text(csv_content)
+    (tmp_path / "D1_2324.csv").write_text(csv_content)
+    df = load_all_data(leagues={"E0"})
+    assert set(df["league"]) == {"E0"}
+
 def test_load_all_data_passes_through_pinnacle_opening_and_closing_odds(tmp_path, monkeypatch):
     monkeypatch.setattr("src.data.loader.RAW_DIR", tmp_path)
     csv_content = (

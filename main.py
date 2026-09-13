@@ -21,6 +21,7 @@ Default staking: flat 1 unit per bet
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib
@@ -84,6 +85,16 @@ _SHADOW_MODEL_REVISION_PATHS = (
     "src",
     "uv.lock",
 )
+
+
+def _log(message: str) -> None:
+    """Print a pipeline status line prefixed with a UTC timestamp.
+
+    The predict workflow can sleep for hours between kickoff waves, so a
+    bare `print()` gives no sense of when each step actually ran.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts} UTC] {message}", flush=True)
 
 
 def _parse_threshold() -> float:
@@ -187,7 +198,7 @@ def _save_empty_predictions_report(threshold: float, fetched_at, reason: str) ->
     Early exits (no fixtures / allowlist / missing models) must still produce
     ``reports/predictions_*.html``; otherwise the GitHub Actions deploy step fails.
     """
-    print(reason)
+    _log(reason)
     historical_bets = _load_historical_bets()
     ts = fetched_at.strftime("%Y%m%d_%H%M")
     csv_path = Path(f"reports/predictions_{ts}.csv")
@@ -201,7 +212,7 @@ def _save_empty_predictions_report(threshold: float, fetched_at, reason: str) ->
             "ValueBets",
         ]
     ).to_csv(csv_path, index=False)
-    print(f"Predictions saved to {csv_path}  (empty — {reason})")
+    _log(f"Predictions saved to {csv_path}  (empty — {reason})")
     _save_predictions_html([], threshold, fetched_at, historical_bets=historical_bets)
 
 
@@ -211,13 +222,13 @@ def _generate_shadow_report() -> None:
     path = generate_shadow_report(
         predictions, settlements, Path("reports/shadow_evaluation.html")
     )
-    print(f"Shadow evaluation report saved to {path}")
+    _log(f"Shadow evaluation report saved to {path}")
 
 
 def _settle_and_report_shadow(results_df, settled_at) -> None:
     """Settle completed shadow fixtures and refresh the monitoring report."""
     settled = settle_shadow_predictions(results_df, settled_at=settled_at)
-    print(f"Settled {settled} shadow prediction record(s)")
+    _log(f"Settled {settled} shadow prediction record(s)")
     _generate_shadow_report()
 
 
@@ -273,10 +284,10 @@ def _record_shadow_predictions(
 
 def _run_settle_shadow() -> None:
     """Refresh completed results and settle the shadow ledger without inference."""
-    print("Updating latest season results...")
+    _log("Updating latest season results...")
     update_current_season()
-    print("Loading completed results...")
-    results_df = load_all_data()
+    _log("Loading completed results (production leagues only)...")
+    results_df = load_all_data(leagues=PRODUCTION_LEAGUES)
     _settle_and_report_shadow(results_df, pd.Timestamp.now(tz="UTC"))
 
 
@@ -292,31 +303,31 @@ def _run_predict():
     _lt_path = Path("models/league_thresholds.json")
     league_thresholds: dict | None = _json.loads(_lt_path.read_text()) if _lt_path.exists() else None
     if league_thresholds:
-        print("Using per-league thresholds: " +
-              ", ".join(f"{lg}={v:+.2f}" for lg, v in sorted(league_thresholds.items())))
+        _log("Using per-league thresholds: " +
+             ", ".join(f"{lg}={v:+.2f}" for lg, v in sorted(league_thresholds.items())))
     else:
-        print(f"No league_thresholds.json found — using global threshold {threshold:+.2f}")
+        _log(f"No league_thresholds.json found — using global threshold {threshold:+.2f}")
 
-    print("Updating latest season results...")
+    _log("Updating latest season results...")
     update_current_season()
 
-    print("Downloading upcoming fixtures...")
+    _log("Downloading upcoming fixtures...")
     download_fixtures()
 
-    print("Loading data...")
-    df = load_all_data()
+    _log("Loading data (production leagues only)...")
+    df = load_all_data(leagues=PRODUCTION_LEAGUES)
     _settle_and_report_shadow(df, pd.Timestamp.now(tz="UTC"))
-    print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
+    _log(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
 
-    print("Training per-league models on full dataset...")
+    _log("Training per-league models on full dataset...")
     models = train_on_all_data_per_league(df)
 
-    print("Loading fixtures...")
+    _log("Loading fixtures...")
     fixtures_df = load_fixtures()
     fixtures_df = attach_pinnacle_odds(fixtures_df)
-    print(f"Found {len(fixtures_df)} upcoming fixtures in tracked leagues")
+    _log(f"Found {len(fixtures_df)} upcoming fixtures in tracked leagues")
 
-    print("Building fixture features...")
+    _log("Building fixture features...")
     fixture_features = build_fixture_features(df, fixtures_df)
     if fixture_features.empty:
         _save_empty_predictions_report(
@@ -327,7 +338,7 @@ def _run_predict():
 
     dropped = len(fixtures_df) - len(fixture_features)
     if dropped:
-        print(f"  {dropped} fixture(s) dropped — teams with < {5} games history")
+        _log(f"  {dropped} fixture(s) dropped — teams with < {5} games history")
 
     fixture_features = filter_production_fixtures(fixture_features)
     if fixture_features.empty:
@@ -340,7 +351,7 @@ def _run_predict():
     modelled_leagues = set(models)
     missing_models = sorted(set(fixture_features["league"]) - modelled_leagues)
     if missing_models:
-        print("Skipping fixtures without trained models: " + ", ".join(missing_models))
+        _log("Skipping fixtures without trained models: " + ", ".join(missing_models))
         fixture_features = fixture_features[
             fixture_features["league"].isin(modelled_leagues)
         ].reset_index(drop=True)
@@ -372,7 +383,7 @@ def _run_predict():
         threshold,
         league_thresholds,
     )
-    print(f"Recorded {appended} immutable shadow prediction record(s)")
+    _log(f"Recorded {appended} immutable shadow prediction record(s)")
     _generate_shadow_report()
 
     pred_rows = _build_prediction_rows(fixture_features, y_proba, classes, threshold,
@@ -584,7 +595,7 @@ def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, 
     path = Path(f"reports/predictions_{ts}.csv")
     path.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(path, index=False)
-    print(f"Predictions saved to {path}  (compare B365 odds before placing bets)")
+    _log(f"Predictions saved to {path}  (compare B365 odds before placing bets)")
 
 
 def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at,
@@ -596,7 +607,7 @@ def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at,
     save_predictions_html(pred_rows, threshold, fetched_at, path,
                           profit_curve_path=profit_curve if profit_curve.exists() else None,
                           historical_bets=historical_bets)
-    print(f"HTML report saved to {path}")
+    _log(f"HTML report saved to {path}")
 
 
 def _print_edge_analysis(eval_df, y_proba, classes, threshold, max_odds) -> None:
