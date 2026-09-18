@@ -282,7 +282,7 @@ def _run_settle_shadow() -> None:
 
 
 def _run_predict():
-    from src.data.download import download_fixtures
+    from src.data.download import archive_finished_seasons, download_fixtures
     from src.data.loader import load_fixtures
     from src.data.pinnacle_odds import attach_pinnacle_odds
 
@@ -297,6 +297,9 @@ def _run_predict():
               ", ".join(f"{lg}={v:+.2f}" for lg, v in sorted(league_thresholds.items())))
     else:
         print(f"No league_thresholds.json found — using global threshold {threshold:+.2f}")
+
+    print("Checking finished-season archive...")
+    archive_finished_seasons(PRODUCTION_LEAGUES)
 
     print("Updating latest season results...")
     update_current_season(PRODUCTION_LEAGUES)
@@ -744,6 +747,10 @@ def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame
 
 
 def _run_backtest():
+    print("Checking finished-season archive...")
+    from src.data.download import archive_finished_seasons
+    archive_finished_seasons()
+
     if "--update" in sys.argv:
         print("Updating current season data...")
         from src.data.download import update_current_season
