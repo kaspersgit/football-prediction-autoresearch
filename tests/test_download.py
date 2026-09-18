@@ -96,3 +96,28 @@ def test_update_current_season_restricts_to_given_leagues(monkeypatch):
     download.update_current_season(["E0", "N1"])
 
     assert set(calls) == {"E0", "N1"}
+
+
+def test_archive_finished_seasons_only_covers_finished_seasons_for_given_leagues(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        download,
+        "download_season",
+        lambda code, season, dest_dir=None, dest_name=None: calls.append((code, season)),
+    )
+
+    download.archive_finished_seasons(["E0", "N1"])
+
+    assert {code for code, _ in calls} == {"E0", "N1"}
+    assert {season for _, season in calls} == set(download.FINISHED_SEASONS)
+
+
+def test_archive_finished_seasons_writes_into_nested_league_directories(monkeypatch, tmp_path):
+    monkeypatch.setattr(download, "HISTORICAL_DIR", tmp_path)
+    monkeypatch.setattr(download, "FINISHED_SEASONS", ["1314"])
+    monkeypatch.setattr(download.requests, "get", lambda *a, **k: _FakeResponse(_VALID_E0_CSV))
+
+    paths = download.archive_finished_seasons(["E0"])
+
+    assert paths == [tmp_path / "E0" / "1314.csv"]
+    assert (tmp_path / "E0" / "1314.csv").read_bytes() == _VALID_E0_CSV

@@ -66,28 +66,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Restore historical match data
-        uses: actions/cache/restore@v4
-        id: cache-data
-        with:
-          path: data/raw
-          key: football-data-${{ github.run_id }}
-          restore-keys: football-data-
-
-      - name: Download historical data (first run or cache miss)
-        # Only production leagues: this pipeline never trains or bets on the rest.
-        run: |
-          uv run python - <<'EOF'
-          import glob
-
-          from src.config import PRODUCTION_LEAGUES
-
-          csvs = [f for f in glob.glob("data/raw/*.csv") if "fixtures" not in f]
-          if len(csvs) < 20:
-              from src.data.download import download_all
-              download_all(PRODUCTION_LEAGUES)
-          EOF
-
       - name: Run predictions once per upcoming kickoff wave
         # Only for scheduled runs: manual workflow_dispatch runs once, right away
         # (see "Run predictions immediately" below).
@@ -147,12 +125,6 @@ jobs:
         env:
           THEODDS_API: ${{ secrets.THEODDS_API }}
         run: uv run python main.py --predict --threshold 0.0
-
-      - name: Save updated match data to cache
-        uses: actions/cache/save@v4
-        with:
-          path: data/raw
-          key: football-data-${{ github.run_id }}
 
       - name: Commit shadow evaluation ledger
         run: |

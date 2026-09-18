@@ -5,6 +5,9 @@ import pandas as pd
 from src.config import LEAGUE_NAMES
 
 RAW_DIR = Path("data/raw")
+# Finished-season archive committed to the repo (data/historical/<league>/<season>.csv);
+# see src.data.download for why it's split out from RAW_DIR.
+HISTORICAL_DIR = Path("data/historical")
 
 REQUIRED_COLS = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "B365H", "B365D", "B365A"]
 _OPTIONAL_COLS = ["PSH", "PSD", "PSA", "PSCH", "PSCD", "PSCA", "HST", "AST"]  # Pinnacle opening/closing odds + shots on target
@@ -59,7 +62,27 @@ def _parse_filename(path: Path) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
-def _load_file(path: Path) -> pd.DataFrame | None:
+def _iter_season_files() -> list[tuple[Path, str, str]]:
+    """Return (path, league, season) for every tracked season file.
+
+    Finished seasons live under data/historical/<league>/<season>.csv (committed,
+    immutable); the current and previous season are instead refreshed at runtime
+    into data/raw/<league>_<season>.csv by update_current_season().
+    """
+    files = [
+        (path, league_dir.name, path.stem)
+        for league_dir in sorted(p for p in HISTORICAL_DIR.glob("*") if p.is_dir())
+        for path in sorted(league_dir.glob("*.csv"))
+    ]
+    for path in sorted(RAW_DIR.glob("*.csv")):
+        if path.stem == "fixtures":
+            continue
+        league, season = _parse_filename(path)
+        files.append((path, league, season))
+    return files
+
+
+def _load_file(path: Path, league: str, season: str) -> pd.DataFrame | None:
     try:
         df = pd.read_csv(path, encoding="latin-1", low_memory=False)
     except Exception:
@@ -90,7 +113,6 @@ def _load_file(path: Path) -> pd.DataFrame | None:
             df[c] = float("nan")
     df = df.dropna(subset=["FTR", "FTHG", "FTAG", "B365H", "B365D", "B365A"])
     df = df[df["FTR"].isin(["H", "D", "A"])]
-    league, season = _parse_filename(path)
     df["league"] = league
     df["season"] = season
     df["Date"] = _parse_dates(df["Date"])
@@ -144,8 +166,8 @@ def load_fixtures() -> pd.DataFrame:
 
 def load_all_data() -> pd.DataFrame:
     frames = []
-    for path in sorted(RAW_DIR.glob("*.csv")):
-        df = _load_file(path)
+    for path, league, season in _iter_season_files():
+        df = _load_file(path, league, season)
         if df is not None and len(df) > 0:
             frames.append(df)
     if not frames:

@@ -31,30 +31,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Restore historical match data
-        uses: actions/cache/restore@v4
-        with:
-          path: data/raw
-          key: football-data-${{ github.run_id }}
-          restore-keys: football-data-
-
-      - name: Download historical data (first run or cache miss)
-        run: |
-          uv run python - <<'EOF'
-          from pathlib import Path
-
-          from src.data.download import LEAGUES, SEASONS, download_all
-
-          raw_dir = Path("data/raw")
-          expected = {
-              raw_dir / f"{league}_{season}.csv"
-              for league in LEAGUES.values()
-              for season in SEASONS
-          }
-          if not expected.issubset(set(raw_dir.glob("*.csv"))):
-              download_all()
-          EOF
-
       - name: Run backtest
         run: uv run python main.py --per-league --threshold 0.0 --pinnacle-filter --update
 

@@ -13,6 +13,7 @@ Modes:
   python main.py --settle-shadow    # settle existing shadow predictions without inference
   python main.py --update           # re-download latest season results, then backtest
   python main.py --monthly          # monthly walk-forward retrain (experimental)
+  python main.py --archive-finished-seasons  # backfill data/historical/ (see README.md)
 
 Default staking: flat 1 unit per bet
   Threshold: 0.03  (3% minimum edge over B365 fair price)
@@ -1187,6 +1188,19 @@ def _run_track_pinnacle_vig() -> None:
     print(f"Mean overround this snapshot: {records['overround'].mean():.4f}")
 
 
+def _run_archive_finished_seasons() -> None:
+    """Backfill data/historical/ with any season that has finished but isn't
+    archived yet. Idempotent — safe to re-run; only fetches what's missing.
+
+    Manual/occasional: run this once a season wraps up, then commit the new
+    files. tests/test_historical_archive.py flags when this has been forgotten.
+    """
+    from src.data.download import archive_finished_seasons
+
+    paths = archive_finished_seasons()
+    print(f"Archived {len(paths)} finished-season file(s) to data/historical/")
+
+
 def run_pipeline():
     if "--settle-shadow" in sys.argv:
         _run_settle_shadow()
@@ -1196,6 +1210,8 @@ def run_pipeline():
         _run_compare_vig()
     elif "--track-pinnacle-vig" in sys.argv:
         _run_track_pinnacle_vig()
+    elif "--archive-finished-seasons" in sys.argv:
+        _run_archive_finished_seasons()
     else:
         _run_backtest()
 
