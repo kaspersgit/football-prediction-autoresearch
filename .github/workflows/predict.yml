@@ -126,6 +126,18 @@ jobs:
           THEODDS_API: ${{ secrets.THEODDS_API }}
         run: uv run python main.py --predict --threshold 0.0
 
+      - name: Commit newly archived historical seasons
+        # archive_finished_seasons() runs inside --predict itself; this only
+        # produces a commit the rare time it actually backfilled a gap.
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/historical
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: archive finished season(s) found during predict run"
+            git push origin "HEAD:${GITHUB_REF}"
+          fi
+
       - name: Commit shadow evaluation ledger
         run: |
           ledger_paths=()

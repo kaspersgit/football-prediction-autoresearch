@@ -34,6 +34,18 @@ jobs:
       - name: Run backtest
         run: uv run python main.py --per-league --threshold 0.0 --pinnacle-filter --update
 
+      - name: Commit newly archived historical seasons
+        # archive_finished_seasons() runs inside the backtest itself; this only
+        # produces a commit the rare time it actually backfilled a gap.
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/historical
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: archive finished season(s) found during evaluate run"
+            git push
+          fi
+
       - name: Commit updated evaluation artifacts
         run: |
           git config user.name "github-actions[bot]"
