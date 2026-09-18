@@ -44,33 +44,39 @@ def _resolve_team_name(league: str, odds_api_name: str) -> str:
     return ODDS_API_TEAM_ALIASES.get(league, {}).get(odds_api_name, odds_api_name)
 
 
-def _parse_event(league: str, event: dict) -> dict | None:
-    """Return a normalized odds row for one Odds API event, or None if unparseable."""
+def _parse_event(league: str, event: dict) -> tuple[dict | None, str | None]:
+    """Return (normalized odds row, None) or (None, reason) if the event yields no row.
+
+    The most common reason by far is "no Pinnacle odds yet" — Pinnacle simply hasn't
+    priced a fixture further out on the calendar — which is expected and not a data
+    problem. Genuine parse failures (malformed prices/dates) are reported separately
+    so the two don't get confused in the logs.
+    """
     pinnacle = next(
         (bk for bk in event.get("bookmakers", []) if bk.get("key") == "pinnacle"), None
     )
     if pinnacle is None:
-        return None
+        return None, "no Pinnacle odds yet"
     h2h = next((m for m in pinnacle.get("markets", []) if m.get("key") == "h2h"), None)
     if h2h is None:
-        return None
+        return None, "no Pinnacle odds yet"
 
     prices = {o.get("name"): o.get("price") for o in h2h.get("outcomes", [])}
     home_name = event.get("home_team")
     away_name = event.get("away_team")
     if home_name not in prices or away_name not in prices or "Draw" not in prices:
-        return None
+        return None, "no Pinnacle odds yet"
 
     try:
         psh, psd, psa = float(prices[home_name]), float(prices["Draw"]), float(prices[away_name])
     except (TypeError, ValueError):
-        return None
+        return None, "unparseable Pinnacle price"
 
     commence_time = event.get("commence_time")
     try:
         match_date = pd.Timestamp(commence_time).normalize().tz_localize(None)
     except (TypeError, ValueError):
-        return None
+        return None, "unparseable commence_time"
 
     return {
         "league": league,
@@ -80,7 +86,7 @@ def _parse_event(league: str, event: dict) -> dict | None:
         "PSH": psh,
         "PSD": psd,
         "PSA": psa,
-    }
+    }, None
 
 
 def fetch_pinnacle_odds(leagues: set[str]) -> pd.DataFrame:
@@ -122,15 +128,24 @@ def fetch_pinnacle_odds(leagues: set[str]) -> pd.DataFrame:
         if remaining is not None or used is not None:
             print(f"The Odds API quota after {league} call: used={used}, remaining={remaining}")
 
+        skipped_no_odds_yet = 0
         for event in events:
-            row = _parse_event(league, event)
+            row, reason = _parse_event(league, event)
             if row is None:
-                print(
-                    f"Unmatched or unparseable {league} event: "
-                    f"{event.get('home_team')} v {event.get('away_team')}"
-                )
+                if reason == "no Pinnacle odds yet":
+                    skipped_no_odds_yet += 1
+                else:
+                    print(
+                        f"Skipping {league} event ({reason}): "
+                        f"{event.get('home_team')} v {event.get('away_team')}"
+                    )
                 continue
             rows.append(row)
+        if skipped_no_odds_yet:
+            print(
+                f"{league}: {skipped_no_odds_yet} event(s) not yet priced by "
+                "Pinnacle — skipped (expected for fixtures further out)"
+            )
 
     if not rows:
         return _empty_odds_df()
