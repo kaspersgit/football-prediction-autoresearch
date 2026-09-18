@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
@@ -69,9 +70,11 @@ def download_season(league_code: str, season: str, force: bool = False) -> Path:
     return dest
 
 
-def download_all(force: bool = False) -> list[Path]:
+def download_all(leagues: Iterable[str] | None = None, force: bool = False) -> list[Path]:
+    """Download every season for `leagues` (default: all tracked leagues)."""
+    codes = list(leagues) if leagues is not None else list(LEAGUES.values())
     paths = []
-    for country, code in LEAGUES.items():
+    for code in codes:
         for season in SEASONS:
             try:
                 p = download_season(code, season, force=force)
@@ -81,10 +84,12 @@ def download_all(force: bool = False) -> list[Path]:
     return paths
 
 
-def update_current_season() -> None:
-    """Re-download the current (and previous) season to get latest results."""
+def update_current_season(leagues: Iterable[str] | None = None) -> None:
+    """Re-download the current (and previous) season for `leagues` (default: all) to
+    get latest results."""
+    codes = list(leagues) if leagues is not None else list(LEAGUES.values())
     for season in SEASONS[-2:]:
-        for code in LEAGUES.values():
+        for code in codes:
             try:
                 download_season(code, season, force=True)
             except requests.HTTPError as e:

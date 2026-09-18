@@ -63,3 +63,36 @@ def test_download_season_uses_cached_file_without_revalidation_when_not_forced(m
     dest = download.download_season("E0", "2627", force=False)
 
     assert dest == cached
+
+
+def test_download_all_defaults_to_every_league(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        download, "download_season", lambda code, season, force=False: calls.append(code)
+    )
+
+    download.download_all()
+
+    assert set(calls) == set(download.LEAGUES.values())
+
+
+def test_download_all_restricts_to_given_leagues(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        download, "download_season", lambda code, season, force=False: calls.append(code)
+    )
+
+    download.download_all(["E0", "N1"])
+
+    assert set(calls) == {"E0", "N1"}
+
+
+def test_update_current_season_restricts_to_given_leagues(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        download, "download_season", lambda code, season, force=False: calls.append(code)
+    )
+
+    download.update_current_season(["E0", "N1"])
+
+    assert set(calls) == {"E0", "N1"}

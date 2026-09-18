@@ -298,13 +298,14 @@ def _run_predict():
         print(f"No league_thresholds.json found — using global threshold {threshold:+.2f}")
 
     print("Updating latest season results...")
-    update_current_season()
+    update_current_season(PRODUCTION_LEAGUES)
 
     print("Downloading upcoming fixtures...")
     download_fixtures()
 
     print("Loading data...")
     df = load_all_data()
+    df = df[df["league"].isin(PRODUCTION_LEAGUES)].reset_index(drop=True)
     _settle_and_report_shadow(df, pd.Timestamp.now(tz="UTC"))
     print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
 
