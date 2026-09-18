@@ -1,0 +1,36 @@
+name: Archive historical seasons
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Archive finished seasons
+        run: uv run python main.py --archive-finished-seasons
+
+      - name: Commit archived seasons
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/historical
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: archive finished seasons"
+            git push origin "HEAD:${GITHUB_REF}"
+          fi
