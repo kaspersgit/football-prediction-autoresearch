@@ -10,7 +10,11 @@ Evaluation covers all 11 supported leagues. Production predictions are limited t
 uv sync --extra dev
 ```
 
-Historical match data is downloaded from [football-data.co.uk](https://football-data.co.uk) on first use.
+Finished-season match data lives in `data/historical/<league>/<season>.csv`, committed to
+the repo so it never needs re-downloading. The current and previous season change during
+the season, so they're fetched fresh at runtime from
+[football-data.co.uk](https://football-data.co.uk) into `data/raw/` instead — see
+[Maintaining the historical archive](#maintaining-the-historical-archive).
 
 ## Backtesting
 
@@ -89,6 +93,26 @@ an autoresearch change is kept. Select model changes through the historical walk
 evaluation described below; use shadow observations to investigate a production mismatch
 or consider a rollback.
 
+## Maintaining the historical archive
+
+`data/historical/<league>/<season>.csv` holds every season considered finished —
+everything except the current and previous season, which `update_current_season()`
+still re-downloads at runtime since their results can still change. Once a season rolls
+out of that two-season window, it needs to be archived:
+
+```bash
+uv run python main.py --archive-finished-seasons
+```
+
+This is idempotent (it only fetches seasons missing from the archive) and covers every
+tracked league, not just the production allowlist, since evaluation research needs the
+full set. Commit the new files under `data/historical/` afterwards.
+
+`tests/test_historical_archive.py` fails if a finished season is missing from the
+archive for any tracked league, so a forgotten archive step surfaces the next time the
+test suite runs (it skips entirely before the archive has been populated for the first
+time).
+
 ## Model
 
 The recommended mode trains one LightGBM classifier per league and test season, followed by isotonic probability calibration (`cv=10`, `ensemble=False`). Features cover recent form, Elo and Elo momentum, B365-implied fair probabilities, market overround and bias, league identity, head-to-head results, draw tendency, match balance, and attack/defence ratings.
@@ -109,6 +133,7 @@ main.py                  # pipeline entry point
 predict.sh               # prediction shortcut with saved league thresholds
 src/config.py            # shared betting defaults
 src/data/                # downloads and loading
+data/historical/         # committed archive of finished-season CSVs (see Maintaining the historical archive)
 src/model/               # feature generation and walk-forward training
 src/evaluation/          # betting metrics and HTML reports
 autoresearch/            # procedure, policy, current state, and history

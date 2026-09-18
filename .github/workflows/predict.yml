@@ -66,24 +66,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Restore historical match data
-        uses: actions/cache/restore@v4
-        id: cache-data
-        with:
-          path: data/raw
-          key: football-data-${{ github.run_id }}
-          restore-keys: football-data-
-
-      - name: Download historical data (first run or cache miss)
-        run: |
-          uv run python - <<'EOF'
-          import glob
-          csvs = [f for f in glob.glob("data/raw/*.csv") if "fixtures" not in f]
-          if len(csvs) < 50:
-              from src.data.download import download_all
-              download_all()
-          EOF
-
       - name: Run predictions once per upcoming kickoff wave
         # Only for scheduled runs: manual workflow_dispatch runs once, right away
         # (see "Run predictions immediately" below).
@@ -144,11 +126,17 @@ jobs:
           THEODDS_API: ${{ secrets.THEODDS_API }}
         run: uv run python main.py --predict --threshold 0.0
 
-      - name: Save updated match data to cache
-        uses: actions/cache/save@v4
-        with:
-          path: data/raw
-          key: football-data-${{ github.run_id }}
+      - name: Commit newly archived historical seasons
+        # archive_finished_seasons() runs inside --predict itself; this only
+        # produces a commit the rare time it actually backfilled a gap.
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/historical
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: archive finished season(s) found during predict run"
+            git push origin "HEAD:${GITHUB_REF}"
+          fi
 
       - name: Commit shadow evaluation ledger
         run: |

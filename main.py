@@ -13,6 +13,7 @@ Modes:
   python main.py --settle-shadow    # settle existing shadow predictions without inference
   python main.py --update           # re-download latest season results, then backtest
   python main.py --monthly          # monthly walk-forward retrain (experimental)
+  python main.py --archive-finished-seasons  # backfill data/historical/ (see README.md)
 
 Default staking: flat 1 unit per bet
   Threshold: 0.03  (3% minimum edge over B365 fair price)
@@ -281,7 +282,7 @@ def _run_settle_shadow() -> None:
 
 
 def _run_predict():
-    from src.data.download import download_fixtures
+    from src.data.download import archive_finished_seasons, download_fixtures
     from src.data.loader import load_fixtures
     from src.data.pinnacle_odds import attach_pinnacle_odds
 
@@ -297,14 +298,18 @@ def _run_predict():
     else:
         print(f"No league_thresholds.json found — using global threshold {threshold:+.2f}")
 
+    print("Checking finished-season archive...")
+    archive_finished_seasons(PRODUCTION_LEAGUES)
+
     print("Updating latest season results...")
-    update_current_season()
+    update_current_season(PRODUCTION_LEAGUES)
 
     print("Downloading upcoming fixtures...")
     download_fixtures()
 
     print("Loading data...")
     df = load_all_data()
+    df = df[df["league"].isin(PRODUCTION_LEAGUES)].reset_index(drop=True)
     _settle_and_report_shadow(df, pd.Timestamp.now(tz="UTC"))
     print(f"Loaded {len(df)} matches from {df['Date'].min().date()} to {df['Date'].max().date()}")
 
@@ -742,6 +747,10 @@ def _print_split_analysis(betting_results: pd.DataFrame, odds_test: pd.DataFrame
 
 
 def _run_backtest():
+    print("Checking finished-season archive...")
+    from src.data.download import archive_finished_seasons
+    archive_finished_seasons()
+
     if "--update" in sys.argv:
         print("Updating current season data...")
         from src.data.download import update_current_season
@@ -1186,6 +1195,19 @@ def _run_track_pinnacle_vig() -> None:
     print(f"Mean overround this snapshot: {records['overround'].mean():.4f}")
 
 
+def _run_archive_finished_seasons() -> None:
+    """Backfill data/historical/ with any season that has finished but isn't
+    archived yet. Idempotent — safe to re-run; only fetches what's missing.
+
+    Manual/occasional: run this once a season wraps up, then commit the new
+    files. tests/test_historical_archive.py flags when this has been forgotten.
+    """
+    from src.data.download import archive_finished_seasons
+
+    paths = archive_finished_seasons()
+    print(f"Archived {len(paths)} finished-season file(s) to data/historical/")
+
+
 def run_pipeline():
     if "--settle-shadow" in sys.argv:
         _run_settle_shadow()
@@ -1195,6 +1217,8 @@ def run_pipeline():
         _run_compare_vig()
     elif "--track-pinnacle-vig" in sys.argv:
         _run_track_pinnacle_vig()
+    elif "--archive-finished-seasons" in sys.argv:
+        _run_archive_finished_seasons()
     else:
         _run_backtest()
 
