@@ -106,7 +106,7 @@ def test_quota_headers_are_logged(monkeypatch, capsys):
     assert "remaining=487" in out
 
 
-def test_event_without_pinnacle_bookmaker_is_dropped(monkeypatch):
+def test_event_without_pinnacle_bookmaker_is_dropped(monkeypatch, capsys):
     monkeypatch.setenv("THEODDS_API", "test-key")
     payload = [
         {
@@ -124,6 +124,47 @@ def test_event_without_pinnacle_bookmaker_is_dropped(monkeypatch):
     result = fetch_pinnacle_odds({"N1"})
 
     assert result.empty
+    out = capsys.readouterr().out
+    assert "not yet priced by Pinnacle" in out
+    assert "Ajax" not in out  # expected/normal case, not logged per-event
+
+
+def test_event_with_malformed_price_is_reported_by_name(monkeypatch, capsys):
+    monkeypatch.setenv("THEODDS_API", "test-key")
+    payload = [
+        {
+            "home_team": "Ajax",
+            "away_team": "Feyenoord",
+            "commence_time": "2026-08-16T14:00:00Z",
+            "bookmakers": [
+                {
+                    "key": "pinnacle",
+                    "markets": [
+                        {
+                            "key": "h2h",
+                            "outcomes": [
+                                {"name": "Ajax", "price": "not-a-number"},
+                                {"name": "Feyenoord", "price": 3.4},
+                                {"name": "Draw", "price": 3.3},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+
+    def fake_get(url, params=None, timeout=None):
+        return _FakeResponse(payload)
+
+    monkeypatch.setattr("src.data.pinnacle_odds.requests.get", fake_get)
+
+    result = fetch_pinnacle_odds({"N1"})
+
+    assert result.empty
+    out = capsys.readouterr().out
+    assert "unparseable Pinnacle price" in out
+    assert "Ajax v Feyenoord" in out
 
 
 def test_attach_pinnacle_odds_overwrites_nan_placeholders(monkeypatch):
