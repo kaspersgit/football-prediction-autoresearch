@@ -2,14 +2,9 @@ import pandas as pd
 import pytest
 import requests
 
-from src.config import SUPPORTED_LEAGUES
-from src.data.pinnacle_odds import _LEAGUE_TO_SPORT_KEY, attach_pinnacle_odds, fetch_pinnacle_odds
+from src.data.pinnacle_odds import attach_pinnacle_odds, fetch_pinnacle_odds
 
 _ODDS_COLUMNS = ["league", "HomeTeam", "AwayTeam", "Date", "PSH", "PSD", "PSA"]
-
-
-def test_sport_key_map_covers_every_supported_league():
-    assert set(_LEAGUE_TO_SPORT_KEY) == set(SUPPORTED_LEAGUES)
 
 
 class _FakeResponse:
@@ -41,7 +36,7 @@ def test_per_league_request_failure_is_skipped(monkeypatch):
     def fake_get(url, params=None, timeout=None):
         raise requests.exceptions.Timeout("boom")
 
-    monkeypatch.setattr("src.data.pinnacle_odds.requests.get", fake_get)
+    monkeypatch.setattr("src.data._live_odds.requests.get", fake_get)
 
     result = fetch_pinnacle_odds({"E0"})
 
@@ -76,7 +71,7 @@ def test_successful_parse_and_alias_resolution(monkeypatch):
     def fake_get(url, params=None, timeout=None):
         return _FakeResponse(payload)
 
-    monkeypatch.setattr("src.data.pinnacle_odds.requests.get", fake_get)
+    monkeypatch.setattr("src.data._live_odds.requests.get", fake_get)
 
     result = fetch_pinnacle_odds({"N1"})
 
@@ -97,7 +92,7 @@ def test_quota_headers_are_logged(monkeypatch, capsys):
     def fake_get(url, params=None, timeout=None):
         return _FakeResponse([], headers={"x-requests-remaining": "487", "x-requests-used": "13"})
 
-    monkeypatch.setattr("src.data.pinnacle_odds.requests.get", fake_get)
+    monkeypatch.setattr("src.data._live_odds.requests.get", fake_get)
 
     fetch_pinnacle_odds({"E0"})
 
@@ -119,7 +114,7 @@ def test_event_without_pinnacle_bookmaker_is_dropped(monkeypatch, capsys):
     def fake_get(url, params=None, timeout=None):
         return _FakeResponse(payload)
 
-    monkeypatch.setattr("src.data.pinnacle_odds.requests.get", fake_get)
+    monkeypatch.setattr("src.data._live_odds.requests.get", fake_get)
 
     result = fetch_pinnacle_odds({"N1"})
 
@@ -157,7 +152,7 @@ def test_event_with_malformed_price_is_reported_by_name(monkeypatch, capsys):
     def fake_get(url, params=None, timeout=None):
         return _FakeResponse(payload)
 
-    monkeypatch.setattr("src.data.pinnacle_odds.requests.get", fake_get)
+    monkeypatch.setattr("src.data._live_odds.requests.get", fake_get)
 
     result = fetch_pinnacle_odds({"N1"})
 

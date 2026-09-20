@@ -282,6 +282,7 @@ def _run_settle_shadow() -> None:
 
 
 def _run_predict():
+    from src.data.bet365_odds import attach_bet365_odds
     from src.data.download import archive_finished_seasons, download_fixtures
     from src.data.loader import load_fixtures
     from src.data.pinnacle_odds import attach_pinnacle_odds
@@ -318,6 +319,7 @@ def _run_predict():
 
     print("Loading fixtures...")
     fixtures_df = load_fixtures()
+    fixtures_df = attach_bet365_odds(fixtures_df)
     fixtures_df = attach_pinnacle_odds(fixtures_df)
     print(f"Found {len(fixtures_df)} upcoming fixtures in tracked leagues")
 
