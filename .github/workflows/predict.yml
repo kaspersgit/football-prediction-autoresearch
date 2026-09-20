@@ -126,51 +126,6 @@ jobs:
           THEODDS_API: ${{ secrets.THEODDS_API }}
         run: uv run python main.py --predict --threshold 0.0
 
-      - name: TEMP diagnostic - Pinnacle coverage by month (current + previous season)
-        run: |
-          uv run python - <<'EOF'
-          from pathlib import Path
-
-          import pandas as pd
-
-          from src.config import PRODUCTION_LEAGUES
-          from src.data.download import SEASONS
-
-          for season in SEASONS[-2:]:
-              print(f"\n{'='*90}\nSEASON {season}\n{'='*90}")
-              for league in sorted(PRODUCTION_LEAGUES):
-                  path = Path("data/raw") / f"{league}_{season}.csv"
-                  if not path.exists():
-                      print(f"{league}: file not found ({path})")
-                      continue
-                  df = pd.read_csv(path, encoding="latin-1", low_memory=False)
-                  if len(df) == 0:
-                      print(f"{league}: no rows yet")
-                      continue
-                  df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
-                  df["month"] = df["Date"].dt.to_period("M")
-                  has_open = all(c in df.columns for c in ["PSH", "PSD", "PSA"])
-                  has_close = all(c in df.columns for c in ["PSCH", "PSCD", "PSCA"])
-                  print(f"\n--- {league} ({len(df)} matches, {df['Date'].min().date()} to {df['Date'].max().date()}) ---")
-                  print(f"  columns present: opening PSH/PSD/PSA={has_open}  closing PSCH/PSCD/PSCA={has_close}")
-                  if has_open:
-                      df["open_ok"] = df[["PSH","PSD","PSA"]].apply(pd.to_numeric, errors="coerce").notna().all(axis=1)
-                  else:
-                      df["open_ok"] = False
-                  if has_close:
-                      df["close_ok"] = df[["PSCH","PSCD","PSCA"]].apply(pd.to_numeric, errors="coerce").notna().all(axis=1)
-                  else:
-                      df["close_ok"] = False
-                  by_month = df.groupby("month").agg(
-                      matches=("Date", "count"),
-                      opening_pct=("open_ok", "mean"),
-                      closing_pct=("close_ok", "mean"),
-                  )
-                  by_month["opening_pct"] = (by_month["opening_pct"] * 100).round(0).astype(int)
-                  by_month["closing_pct"] = (by_month["closing_pct"] * 100).round(0).astype(int)
-                  print(by_month.to_string())
-          EOF
-
       - name: Commit newly archived historical seasons
         # archive_finished_seasons() runs inside --predict itself; this only
         # produces a commit the rare time it actually backfilled a gap.
