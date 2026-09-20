@@ -13,7 +13,7 @@ import pandas as pd
 
 from src.data._live_odds import attach_bookmaker_odds, fetch_bookmaker_odds
 
-_BOOKMAKER_KEY = "bet365"
+_BOOKMAKER_KEY = "bet365ww"
 _COL_PREFIX = "B365"
 _LABEL = "Bet365"
 _REGIONS = "uk"
