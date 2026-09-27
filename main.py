@@ -199,7 +199,7 @@ def _save_empty_predictions_report(threshold: float, fetched_at, reason: str) ->
             "B365H", "B365D", "B365A",
             "ModelH", "ModelD", "ModelA",
             "FairH", "FairD", "FairA",
-            "ValueBets",
+            "ValueBets", "MinAcceptableOdds",
         ]
     ).to_csv(csv_path, index=False)
     print(f"Predictions saved to {csv_path}  (empty — {reason})")
@@ -401,6 +401,23 @@ _PREDICT_MAX_EDGE = DEFAULT_MAX_EDGE
 _PREDICT_MAX_OVERROUND = DEFAULT_MAX_OVERROUND
 
 
+def _min_acceptable_odds(model_prob: float, threshold: float, other_raw_sum: float) -> float:
+    """Minimum odds for this outcome that would still clear `threshold` edge, holding
+    the other two outcomes' currently-quoted odds fixed (their raw 1/odds already
+    summed into `other_raw_sum`).
+
+    Solves fair = (1/odds) / (1/odds + other_raw_sum) = model_prob - threshold for odds,
+    the same "fair" edge test compute_value_betting_results uses, just inverted — so you
+    can check a moved price or a different bookmaker's odds against the same bar without
+    recomputing fair odds from scratch. An approximation: assumes the other two outcomes'
+    odds are unchanged, which is reasonable across bookmakers/short time gaps but not exact.
+    """
+    target_fair = model_prob - threshold
+    if target_fair <= 0 or target_fair >= 1 or other_raw_sum <= 0:
+        return float("nan")
+    return (1.0 - target_fair) / (target_fair * other_raw_sum)
+
+
 def _build_prediction_rows(
     fixture_features, y_proba, classes, threshold: float,
     league_thresholds: dict | None = None,
@@ -440,6 +457,7 @@ def _build_prediction_rows(
         t = (league_thresholds or {}).get(league, threshold)
 
         value_bets = []
+        min_acceptable_odds = {}
         for o in ["H", "D", "A"]:
             edge = probs[o] - fair[o]
             b365_odds = {"H": b365h, "D": b365d, "A": b365a}[o]
@@ -458,6 +476,8 @@ def _build_prediction_rows(
                 max_overround=_PREDICT_MAX_OVERROUND,
             ):
                 value_bets.append((o, edge))
+                other_raw_sum = sum(v for k, v in raw_implied.items() if k != o)
+                min_acceptable_odds[o] = _min_acceptable_odds(probs[o], t, other_raw_sum)
 
         def _safe_float(v):
             try:
@@ -486,6 +506,7 @@ def _build_prediction_rows(
             "FairD": fair["D"],
             "FairA": fair["A"],
             "ValueBets": value_bets,
+            "MinAcceptableOdds": min_acceptable_odds,
         })
     return rows
 
@@ -523,7 +544,11 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
             odds_str = f"{r['B365H']:.2f}/{r['B365D']:.2f}/{r['B365A']:.2f}"
             line = f"{date_str:<12} {r['HomeTeam']:<22} {r['AwayTeam']:<22} {prob_str:>11}  {odds_str:>16}"
             if r["ValueBets"]:
-                vb_parts = [f"{outcome_label[o]}(+{e:.1%})" for o, e in r["ValueBets"]]
+                vb_parts = []
+                for o, e in r["ValueBets"]:
+                    m = r["MinAcceptableOdds"].get(o, float("nan"))
+                    min_str = f", min {m:.2f}" if m == m else ""
+                    vb_parts.append(f"{outcome_label[o]}(+{e:.1%}{min_str})")
                 line += "  " + ", ".join(vb_parts)
             else:
                 line += "  -"
@@ -542,6 +567,7 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
                 "Bet": outcome_label[outcome],
                 "Edge": edge,
                 "Odds": odds_map[outcome],
+                "MinOdds": r["MinAcceptableOdds"].get(outcome, float("nan")),
             })
     all_bets.sort(key=lambda x: x["Edge"], reverse=True)
     top = all_bets[:10]
@@ -550,10 +576,11 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
     value_count = sum(1 for r in pred_rows if r["ValueBets"])
     print(f"Value bets found: {value_count} / {len(pred_rows)} fixtures  |  total individual bets: {len(all_bets)}")
     print(f"\n{'TOP 10 VALUE BETS (by edge)'}")
-    print(f"{'#':<3} {'Date':<12} {'League':<5} {'Home':<22} {'Away':<22} {'Bet':<5} {'Edge':>6}  {'Odds':>6}")
+    print(f"{'#':<3} {'Date':<12} {'League':<5} {'Home':<22} {'Away':<22} {'Bet':<5} {'Edge':>6}  {'Odds':>6}  {'MinOdds':>7}")
     print("-" * W)
     for i, b in enumerate(top, 1):
-        print(f"{i:<3} {b['Date']:<12} {b['League'].upper():<5} {b['Home']:<22} {b['Away']:<22} {b['Bet']:<5} {b['Edge']:>+5.1%}  {b['Odds']:>6.2f}")
+        min_str = f"{b['MinOdds']:>7.2f}" if b["MinOdds"] == b["MinOdds"] else f"{'-':>7}"
+        print(f"{i:<3} {b['Date']:<12} {b['League'].upper():<5} {b['Home']:<22} {b['Away']:<22} {b['Bet']:<5} {b['Edge']:>+5.1%}  {b['Odds']:>6.2f}  {min_str}")
     print(f"{'='*W}\n")
 
 
@@ -567,6 +594,10 @@ def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, 
     records = []
     for r in pred_rows:
         value_labels = "+".join(o for o, _ in r["ValueBets"]) if r["ValueBets"] else ""
+        min_odds_labels = "+".join(
+            f"{o}:{m:.2f}" for o, _ in r["ValueBets"]
+            if (m := r["MinAcceptableOdds"].get(o, float("nan"))) == m
+        ) if r["ValueBets"] else ""
         records.append({
             "fetched_at": fetched_at.strftime("%Y-%m-%d %H:%M"),
             "Date": r["Date"].strftime("%Y-%m-%d"),
@@ -583,6 +614,7 @@ def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, 
             "FairD": round(r["FairD"], 4),
             "FairA": round(r["FairA"], 4),
             "ValueBets": value_labels,
+            "MinAcceptableOdds": min_odds_labels,
         })
     out = pd.DataFrame(records)
     ts = fetched_at.strftime("%Y%m%d_%H%M")
