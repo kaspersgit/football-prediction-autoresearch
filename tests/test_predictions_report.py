@@ -77,6 +77,55 @@ def test_top_bets_html_includes_model_prob_attr():
     assert 'data-model-prob="0.5500"' in html
 
 
+def test_top_bets_html_renders_min_acceptable_odds():
+    bets = [
+        {
+            "date": "Sat May 10",
+            "league": "england",
+            "home": "Arsenal",
+            "away": "Chelsea",
+            "outcome": "H",
+            "edge": 0.023,
+            "b365_odds": 1.90,
+            "max_odds": float("nan"),
+            "max_bk": "",
+            "model_prob": 0.55,
+            "min_acceptable_odds": 1.85,
+        }
+    ]
+    html = _top_bets_html(bets)
+    assert "1.85" in html
+
+
+def test_top_bets_html_min_odds_missing_renders_placeholder():
+    bets = [
+        {
+            "date": "Sat May 10",
+            "league": "england",
+            "home": "Arsenal",
+            "away": "Chelsea",
+            "outcome": "H",
+            "edge": 0.023,
+            "b365_odds": 1.90,
+            "max_odds": float("nan"),
+            "max_bk": "",
+            "model_prob": 0.55,
+        }
+    ]
+    html = _top_bets_html(bets)
+    assert html.count("—") >= 1
+
+
+def test_generate_predictions_html_includes_min_acceptable_odds_from_pred_rows():
+    rows = _pred_rows()
+    rows[0]["MinAcceptableOdds"] = {"H": 1.75}
+    html = generate_predictions_html(
+        rows, threshold=0.0, fetched_at=datetime(2026, 5, 3),
+        historical_bets=_historical_bets(),
+    )
+    assert "1.75" in html
+
+
 def test_forecast_card_html_empty_when_no_historical():
     assert _forecast_card_html(None) == ""
     assert _forecast_card_html(pd.DataFrame()) == ""

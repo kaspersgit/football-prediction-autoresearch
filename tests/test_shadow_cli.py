@@ -1,3 +1,4 @@
+import math
 import os
 import subprocess
 import sys
@@ -278,3 +279,39 @@ def test_build_prediction_rows_pinnacle_check_is_off_by_default():
     )
 
     assert [o for o, _ in rows[0]["ValueBets"]] == ["H"]
+
+
+def test_min_acceptable_odds_matches_current_odds_at_zero_edge():
+    """At exactly the model's own fair odds, the floor should equal the current price."""
+    other_raw_sum = 1 / 4.0 + 1 / 4.0  # B365D=4.0, B365A=4.0 -> fair[H] = 0.5 for B365H=2.0
+    result = main._min_acceptable_odds(model_prob=0.5, threshold=0.0, other_raw_sum=other_raw_sum)
+    assert result == pytest.approx(2.0)
+
+
+@pytest.mark.parametrize(
+    "model_prob, threshold, other_raw_sum",
+    [
+        (0.05, 0.1, 0.5),  # target_fair <= 0
+        (0.99, 0.0, -0.5),  # negative other_raw_sum, target_fair >= ... guarded separately
+        (0.5, 0.0, 0.0),  # other_raw_sum <= 0
+    ],
+    ids=["non-positive-edge", "negative-other-raw-sum", "zero-other-raw-sum"],
+)
+def test_min_acceptable_odds_returns_nan_for_degenerate_inputs(model_prob, threshold, other_raw_sum):
+    assert math.isnan(main._min_acceptable_odds(model_prob, threshold, other_raw_sum))
+
+
+def test_build_prediction_rows_min_acceptable_odds_matches_manual_formula():
+    """MinAcceptableOdds should invert the same 'fair' edge test compute_value_betting_results uses."""
+    fixture_features = _make_pinnacle_fixture(3.0, 3.0, 3.0)  # PS* unused: no confirmation margin passed
+
+    rows = main._build_prediction_rows(
+        fixture_features,
+        np.array([[0.1, 0.2, 0.7]]),
+        ["A", "D", "H"],
+        threshold=0.0,
+    )
+
+    # B365D=4.0, B365A=4.0 -> other_raw_sum = 0.5; model_prob[H]=0.7, threshold=0.0
+    # target_fair = 0.7; min_odds = (1 - 0.7) / (0.7 * 0.5)
+    assert rows[0]["MinAcceptableOdds"]["H"] == pytest.approx(0.3 / 0.35)

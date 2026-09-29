@@ -98,7 +98,7 @@ def _empty_fixtures_notice_html() -> str:
 
 def _top_bets_html(all_bets: list[dict]) -> str:
     if not all_bets:
-        return '<tr><td colspan="8"><p>No value bets found at this threshold.</p></td></tr>'
+        return '<tr><td colspan="9"><p>No value bets found at this threshold.</p></td></tr>'
     rows = []
     for i, b in enumerate(all_bets, 1):
         color = _OUTCOME_COLOR[b["outcome"]]
@@ -109,6 +109,11 @@ def _top_bets_html(all_bets: list[dict]) -> str:
         max_cell = (
             f'<td class="odds-val">{cmax:.2f} <span class="bk-tag">{bk}</span></td>'
             if has_max else '<td class="odds-val">—</td>'
+        )
+        min_odds = b.get("min_acceptable_odds", float("nan"))
+        min_cell = (
+            f'<td class="odds-val">{min_odds:.2f}</td>'
+            if not math.isnan(min_odds) else '<td class="odds-val">—</td>'
         )
         rows.append(
             f'<tr class="bet-row" data-edge="{b["edge"]:.4f}" data-odds="{b["b365_odds"]:.2f}" data-model-prob="{b["model_prob"]:.4f}">'
@@ -121,6 +126,7 @@ def _top_bets_html(all_bets: list[dict]) -> str:
             f'<td><span class="edge-val" style="color:{color}">+{b["edge"]:.1%}</span></td>'
             f'<td class="odds-val">{b["b365_odds"]:.2f}</td>'
             f'{max_cell}'
+            f'{min_cell}'
             f'</tr>'
         )
     return "\n".join(rows)
@@ -680,6 +686,7 @@ def generate_predictions_html(
                 "max_odds": cmax if not math.isnan(cmax) else float("nan"),
                 "max_bk": bk,
                 "model_prob": r[f"Model{outcome}"],
+                "min_acceptable_odds": r.get("MinAcceptableOdds", {}).get(outcome, float("nan")),
             })
     all_bets.sort(key=lambda x: x["edge"], reverse=True)
 
@@ -877,7 +884,7 @@ def generate_predictions_html(
       <thead>
         <tr>
           <th>#</th><th>Date</th><th>League</th><th>Fixture</th>
-          <th>Bet</th><th>Edge</th><th>B365 Odds</th><th>Best Odds</th>
+          <th>Bet</th><th>Edge</th><th>B365 Odds</th><th>Best Odds</th><th>Min Odds</th>
         </tr>
       </thead>
       <tbody>
