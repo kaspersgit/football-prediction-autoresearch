@@ -2,7 +2,7 @@
 
 Football value-betting research pipeline for European leagues. It trains walk-forward models, compares their probabilities with B365 market odds, and produces HTML backtest and upcoming-fixture reports.
 
-Evaluation covers all 11 supported leagues. Production predictions are limited to England (`E0`), Netherlands (`N1`), Portugal (`P1`), and Greece (`G1`) through an explicit allowlist.
+Evaluation covers all 11 supported leagues. Production predictions are limited to England (`E0`), France (`F1`), Netherlands (`N1`), and Portugal (`P1`) through an explicit allowlist.
 
 ## Setup
 

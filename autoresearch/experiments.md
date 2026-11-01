@@ -3145,3 +3145,16 @@ Per-league worse: D1, SP1 (−1.9pp), I1 (−4.3pp), N1 (−4.8pp), G1 (−5.5pp
 - **Raising the margin** (0.020–0.030) trades bet volume for a small ROI bump and a falling t-stat — no rule permits keeping a *lower*-volume, similar-ROI variant.
 
 **Decision:** NO CHANGE — `DEFAULT_PINNACLE_CONFIRMATION_MARGIN` stays at **0.015**, now on a formal sweep rather than the informal one. The `--pinnacle-margin-sweep` tool is kept for future re-checks when the production baseline moves. Hypothesis 10 cleared from the queue.
+
+## EXP-20261101-001: Greece (G1) dropped from PRODUCTION_LEAGUES — upstream Pinnacle data gap, not a model finding
+
+**Date:** 2026-11-01
+**Trigger:** User noticed the live Predict page's "Historical Performance by Month" table had no Greece entries for the last 3-4 months, and asked why.
+
+**Investigation:** `reports/backtest_bets.csv` (the table's data source) only logs a bet when `pinnacle_confirmed=True` — i.e. when there's a live Pinnacle price to confirm the model's edge against. Checked G1's last bet date in that file (4 Oct 2025) against the raw match data directly: every G1 match since **26 Oct 2025** has `PSH/PSD/PSA` empty. football-data.co.uk simply stopped publishing Pinnacle odds for Greek Super League matches around that date — confirmed by inspecting `load_all_data()`'s output, not inferred from the backtest table alone. Nothing since then can pass the Pinnacle-confirmation filter regardless of model edge, so the table going empty is a correct reflection of a real upstream data gap, not a regression in the model or a "no value found" result.
+
+**Decision:** DROPPED, per explicit user direction. `PRODUCTION_LEAGUES` is now `{"E0", "N1", "F1", "P1"}` (`src/config.py`). `README.md`'s production-league list corrected to match (it had also been stale — missing France — independent of this change). Two tests updated (`EXCLUDED_BETTING_LEAGUES` now includes G1; `filter_production_fixtures` no longer keeps a G1 row). 200/200 tests pass.
+
+**Follow-up:** Re-add G1 if/once football-data.co.uk's Pinnacle coverage resumes — re-verify the gap is actually closed first (`load_all_data()` and check the last date with non-null `PSH/PSD/PSA` for G1), don't assume from this entry's age.
+
+**Side finding, deferred:** The same investigation flagged Portugal (P1) as a separate, unexplained gap — P1's Pinnacle data is *not* missing (confirmed present through 2026-01-11), yet the backtest shows zero P1 bets after 2025-08-24. Not a data-availability issue like Greece's; needs its own iteration (possibly the per-season threshold recalibration pushing P1's required edge too high, or a genuine multi-month zero-edge result — undetermined). User explicitly deferred this to a later iteration.

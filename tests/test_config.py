@@ -19,7 +19,7 @@ def test_betting_defaults_match_verified_configuration():
     assert DEFAULT_MAX_EDGE == 0.20
     assert DEFAULT_MAX_OVERROUND == 0.07
     assert EXCLUDED_BETTING_LEAGUES == frozenset(
-        {"SP1", "D1", "I1", "SC0", "B1", "T1"}
+        {"SP1", "D1", "I1", "SC0", "B1", "T1", "G1"}
     )
 
 
@@ -69,7 +69,7 @@ def test_production_fixture_filter_uses_allowlist():
 
     result = filter_production_fixtures(fixtures)
 
-    assert result["fixture_id"].tolist() == [1, 3]
+    assert result["fixture_id"].tolist() == [1]
 
 
 def test_main_does_not_claim_removed_pinnacle_filter_is_active():

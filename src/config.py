@@ -24,7 +24,12 @@ SUPPORTED_LEAGUES = tuple(LEAGUE_NAMES)
 # all-leagues-production re-screen showed it flat-to-slightly-positive (+3.01% ROI,
 # 135 bets) rather than clearly negative like the other seven non-production leagues —
 # the weakest of the five kept leagues, but not the same "don't add" case as the rest.
-PRODUCTION_LEAGUES = frozenset({"E0", "N1", "G1", "F1", "P1"})
+# Greece dropped 2026-11-01 per explicit user direction: football-data.co.uk stopped
+# publishing Pinnacle odds (PSH/PSD/PSA) for G1 matches after 2025-10-26, so nothing
+# since then can pass the Pinnacle-confirmation filter -- a real upstream data gap, not
+# a model/edge finding. Re-add if/once that coverage resumes (re-verify first; don't
+# assume it's back just because this comment is old).
+PRODUCTION_LEAGUES = frozenset({"E0", "N1", "F1", "P1"})
 
 DEFAULT_MAX_ODDS = 5.0
 DEFAULT_MAX_EDGE = 0.20
