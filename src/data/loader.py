@@ -120,8 +120,21 @@ def _load_file(path: Path, league: str, season: str) -> pd.DataFrame | None:
     return df
 
 
-def load_fixtures() -> pd.DataFrame:
-    """Load upcoming fixtures from data/raw/fixtures.csv, filtered to tracked leagues."""
+def load_fixtures(now: pd.Timestamp | None = None) -> pd.DataFrame:
+    """Load upcoming fixtures from data/raw/fixtures.csv, filtered to tracked leagues
+    and to today-or-later (football-data.co.uk's "upcoming fixtures" file isn't
+    pruned the moment a match kicks off, so without this a fixture from earlier this
+    matchweek can still be sitting in the file after it's already been played --
+    harmless for the odds columns football-data.co.uk itself ships in the file, but
+    live bookmaker odds genuinely can't be fetched for a match already in play/over,
+    which silently zeroed out those fixtures downstream (no Pinnacle confirmation ->
+    no value bet, regardless of model edge). `now` is injectable for tests; real
+    callers always use the actual current time.
+    """
+    if now is None:
+        now = pd.Timestamp.now()
+    today = pd.Timestamp(now).normalize()
+
     path = RAW_DIR / "fixtures.csv"
     if not path.exists():
         raise FileNotFoundError(
@@ -134,6 +147,11 @@ def load_fixtures() -> pd.DataFrame:
         raise ValueError(f"fixtures.csv missing columns: {missing_odds}")
     df["Date"] = _parse_dates(df["Date"])
     df = df.dropna(subset=["Date", "HomeTeam", "AwayTeam"] + _FIXTURE_ODDS_COLS)
+    past = df["Date"] < today
+    if past.any():
+        print(f"Dropping {past.sum()} fixture(s) already on/before today ({today.date()}) "
+              "from fixtures.csv")
+    df = df[~past]
     for col in _FIXTURE_ODDS_COLS:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=_FIXTURE_ODDS_COLS)

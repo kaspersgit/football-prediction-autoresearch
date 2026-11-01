@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.data.loader import REQUIRED_COLS, load_all_data
+from src.data.loader import REQUIRED_COLS, load_all_data, load_fixtures
 
 
 def _isolate(monkeypatch, tmp_path):
@@ -101,3 +101,34 @@ def test_load_all_data_combines_historical_archive_and_raw_cache(tmp_path, monke
     df = load_all_data()
 
     assert sorted(df["season"]) == ["1314", "2627"]
+
+
+def test_load_fixtures_drops_games_before_today(tmp_path, monkeypatch):
+    """football-data.co.uk's fixtures.csv isn't pruned the instant a match kicks
+    off, so a fixture dated before `now` must not survive -- otherwise it reaches
+    the odds-fetch/model pipeline looking "upcoming" when it's already been played."""
+    _isolate(monkeypatch, tmp_path)
+    (tmp_path / "fixtures.csv").write_text(
+        "Div,Date,HomeTeam,AwayTeam,B365H,B365D,B365A\n"
+        "E0,30/10/2026,Chelsea,ManUnited,2.0,3.3,3.8\n"   # yesterday -- already played
+        "E0,01/11/2026,Arsenal,Spurs,1.9,3.5,4.0\n"       # today -- kept
+        "E0,02/11/2026,Everton,Fulham,2.1,3.2,3.5\n"      # tomorrow -- kept
+    )
+    now = pd.Timestamp("2026-11-01 12:00:00")
+
+    df = load_fixtures(now=now)
+
+    assert sorted(df["HomeTeam"]) == ["Arsenal", "Everton"]
+
+
+def test_load_fixtures_keeps_everything_when_all_fixtures_are_upcoming(tmp_path, monkeypatch):
+    _isolate(monkeypatch, tmp_path)
+    (tmp_path / "fixtures.csv").write_text(
+        "Div,Date,HomeTeam,AwayTeam,B365H,B365D,B365A\n"
+        "E0,05/11/2026,Arsenal,Spurs,1.9,3.5,4.0\n"
+    )
+    now = pd.Timestamp("2026-11-01 12:00:00")
+
+    df = load_fixtures(now=now)
+
+    assert len(df) == 1
