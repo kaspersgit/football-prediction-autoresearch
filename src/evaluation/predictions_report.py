@@ -107,20 +107,20 @@ def _top_bets_html(all_bets: list[dict]) -> str:
         bk = b.get("max_bk", "")
         has_max = not math.isnan(cmax) and bk
         max_cell = (
-            f'<td class="odds-val">{cmax:.2f} <span class="bk-tag">{bk}</span></td>'
-            if has_max else '<td class="odds-val">—</td>'
+            f'<td class="odds-val col-max">{cmax:.2f} <span class="bk-tag">{bk}</span></td>'
+            if has_max else '<td class="odds-val col-max">—</td>'
         )
         min_odds = b.get("min_acceptable_odds", float("nan"))
         min_cell = (
-            f'<td class="odds-val">{min_odds:.2f}</td>'
-            if not math.isnan(min_odds) else '<td class="odds-val">—</td>'
+            f'<td class="odds-val col-min">{min_odds:.2f}</td>'
+            if not math.isnan(min_odds) else '<td class="odds-val col-min">—</td>'
         )
         rows.append(
             f'<tr class="bet-row" data-edge="{b["edge"]:.4f}" data-odds="{b["b365_odds"]:.2f}" data-model-prob="{b["model_prob"]:.4f}">'
             f'<td class="rank">{medal}</td>'
-            f'<td>{b["date"]}</td>'
-            f'<td><span class="league-tag">{_LEAGUE_NAMES.get(b["league"], b["league"])}</span></td>'
-            f'<td><strong>{b["home"]}</strong> vs {b["away"]}</td>'
+            f'<td class="col-date">{b["date"]}</td>'
+            f'<td class="col-league"><span class="league-tag">{_LEAGUE_NAMES.get(b["league"], b["league"])}</span></td>'
+            f'<td class="col-fixture"><strong>{b["home"]}</strong> vs {b["away"]}</td>'
             f'<td><span class="bet-outcome" style="color:{color};border-color:{color}">'
             f'{_OUTCOME_LABEL[b["outcome"]]}</span></td>'
             f'<td><span class="edge-val" style="color:{color}">+{b["edge"]:.1%}</span></td>'
@@ -669,6 +669,7 @@ def generate_predictions_html(
     fetched_at: datetime,
     profit_curve_path: Path | None = None,
     historical_bets: pd.DataFrame | None = None,
+    total_upcoming_fixtures: int = 0,
 ) -> str:
     all_bets = []
     for r in pred_rows:
@@ -704,6 +705,11 @@ def generate_predictions_html(
     fetch_str = fetched_at_local.strftime("%d %b %Y, %H:%M %Z")
     total_fixtures = len(pred_rows)
     total_value = len(all_bets)
+    # Guard against a caller that omits total_upcoming_fixtures (default 0) while
+    # pred_rows is non-empty -- that combination should never happen in practice
+    # (main.py always passes the real count), but "0 this matchweek, 5 with data"
+    # would be a nonsensical display if it ever did.
+    total_upcoming_fixtures = max(total_upcoming_fixtures, total_fixtures)
     empty_notice_html = _empty_fixtures_notice_html() if total_fixtures == 0 else ""
     profit_html = _profit_curve_html(historical_bets)
     monthly_html = _monthly_league_table_html(historical_bets)
@@ -790,6 +796,22 @@ def generate_predictions_html(
   .odds-val {{ font-weight: 600; color: #333; }}
   .bk-tag {{ font-size:.78em; color:#666; font-weight:400; }}
 
+  /* Top Value Bets table: on a phone-width screen, drop the secondary columns
+     (League, Best Odds, Min Odds) rather than letting the table force a
+     horizontal scroll — the point of this table is reading Bet/Edge/Odds in
+     portrait without flipping to landscape or sliding sideways. */
+  @media (max-width: 560px) {{
+    .top-bets-card .col-league, .top-bets-card .col-max, .top-bets-card .col-min {{
+      display: none;
+    }}
+    .top-bets-card th, .top-bets-card td {{ padding: 10px 8px; }}
+    .top-bets-card .col-date {{ font-size: .85em; }}
+    .top-bets-card .col-fixture {{
+      max-width: 38vw; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+  }}
+
   /* League sections */
   .league-section {{
     background: white; border-radius: 12px;
@@ -864,7 +886,8 @@ def generate_predictions_html(
     <div class="meta">Odds fetched {fetch_str} &nbsp;·&nbsp; Edge threshold {threshold:+.0%}</div>
     <div class="warning-banner">⚠ Verify odds are still current before placing any bet</div>
     <div class="stats-row">
-      <div class="stat-pill">{total_fixtures} fixtures</div>
+      <div class="stat-pill">{total_upcoming_fixtures} fixtures this matchweek</div>
+      <div class="stat-pill">{total_fixtures} with data</div>
       <div class="stat-pill">{total_value} value bets</div>
     </div>
   </div>
@@ -883,8 +906,8 @@ def generate_predictions_html(
     <table>
       <thead>
         <tr>
-          <th>#</th><th>Date</th><th>League</th><th>Fixture</th>
-          <th>Bet</th><th>Edge</th><th>B365 Odds</th><th>Best Odds</th><th>Min Odds</th>
+          <th>#</th><th class="col-date">Date</th><th class="col-league">League</th><th class="col-fixture">Fixture</th>
+          <th>Bet</th><th>Edge</th><th>B365 Odds</th><th class="col-max">Best Odds</th><th class="col-min">Min Odds</th>
         </tr>
       </thead>
       <tbody>
@@ -914,11 +937,13 @@ def save_predictions_html(
     output_path: Path,
     profit_curve_path: Path | None = None,
     historical_bets: pd.DataFrame | None = None,
+    total_upcoming_fixtures: int = 0,
 ) -> Path:
     html = generate_predictions_html(
         pred_rows, threshold, fetched_at,
         profit_curve_path=profit_curve_path,
         historical_bets=historical_bets,
+        total_upcoming_fixtures=total_upcoming_fixtures,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")

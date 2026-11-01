@@ -182,7 +182,8 @@ def _load_historical_bets() -> pd.DataFrame | None:
     return None
 
 
-def _save_empty_predictions_report(threshold: float, fetched_at, reason: str) -> None:
+def _save_empty_predictions_report(threshold: float, fetched_at, reason: str,
+                                    total_upcoming_fixtures: int = 0) -> None:
     """Write empty prediction artifacts so CI Pages staging always has an HTML file.
 
     Early exits (no fixtures / allowlist / missing models) must still produce
@@ -203,7 +204,8 @@ def _save_empty_predictions_report(threshold: float, fetched_at, reason: str) ->
         ]
     ).to_csv(csv_path, index=False)
     print(f"Predictions saved to {csv_path}  (empty — {reason})")
-    _save_predictions_html([], threshold, fetched_at, historical_bets=historical_bets)
+    _save_predictions_html([], threshold, fetched_at, historical_bets=historical_bets,
+                           total_upcoming_fixtures=total_upcoming_fixtures)
 
 
 def _generate_shadow_report() -> None:
@@ -319,7 +321,8 @@ def _run_predict():
     print("Loading fixtures...")
     fixtures_df = load_fixtures()
     fixtures_df = attach_pinnacle_odds(fixtures_df)
-    print(f"Found {len(fixtures_df)} upcoming fixtures in tracked leagues")
+    total_upcoming_fixtures = len(fixtures_df)
+    print(f"Found {total_upcoming_fixtures} upcoming fixtures in tracked leagues")
 
     print("Building fixture features...")
     fixture_features = build_fixture_features(df, fixtures_df)
@@ -327,6 +330,7 @@ def _run_predict():
         _save_empty_predictions_report(
             threshold, fetched_at,
             "No fixtures could be featurised (teams may lack sufficient history).",
+            total_upcoming_fixtures=total_upcoming_fixtures,
         )
         return
 
@@ -339,6 +343,7 @@ def _run_predict():
         _save_empty_predictions_report(
             threshold, fetched_at,
             "No upcoming fixtures are in the production market allowlist.",
+            total_upcoming_fixtures=total_upcoming_fixtures,
         )
         return
 
@@ -353,6 +358,7 @@ def _run_predict():
         _save_empty_predictions_report(
             threshold, fetched_at,
             "No production fixtures have a trained model.",
+            total_upcoming_fixtures=total_upcoming_fixtures,
         )
         return
 
@@ -388,11 +394,13 @@ def _run_predict():
 
     _print_predictions(fixture_features, y_proba, classes, threshold, fetched_at,
                        league_thresholds=league_thresholds,
-                       pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN)
+                       pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN,
+                       total_upcoming_fixtures=total_upcoming_fixtures)
     _save_predictions_csv(fixture_features, y_proba, classes, threshold, fetched_at,
                           league_thresholds=league_thresholds,
                           pinnacle_confirmation_margin=DEFAULT_PINNACLE_CONFIRMATION_MARGIN)
-    _save_predictions_html(pred_rows, threshold, fetched_at, historical_bets=historical_bets)
+    _save_predictions_html(pred_rows, threshold, fetched_at, historical_bets=historical_bets,
+                           total_upcoming_fixtures=total_upcoming_fixtures)
 
 
 
@@ -513,7 +521,8 @@ def _build_prediction_rows(
 
 def _print_predictions(fixture_features, y_proba, classes, threshold: float, fetched_at=None,
                        league_thresholds: dict | None = None,
-                       pinnacle_confirmation_margin: float | None = None) -> None:
+                       pinnacle_confirmation_margin: float | None = None,
+                       total_upcoming_fixtures: int | None = None) -> None:
     outcome_label = {"H": "Home", "D": "Draw", "A": "Away"}
 
     fetch_str = fetched_at.strftime("%Y-%m-%d %H:%M") if fetched_at else "unknown"
@@ -574,7 +583,8 @@ def _print_predictions(fixture_features, y_proba, classes, threshold: float, fet
 
     print(f"\n{'='*W}")
     value_count = sum(1 for r in pred_rows if r["ValueBets"])
-    print(f"Value bets found: {value_count} / {len(pred_rows)} fixtures  |  total individual bets: {len(all_bets)}")
+    matchweek_str = f"{total_upcoming_fixtures} fixtures this matchweek -> " if total_upcoming_fixtures is not None else ""
+    print(f"{matchweek_str}{len(pred_rows)} with data  |  value bets found: {value_count}  |  total individual bets: {len(all_bets)}")
     print(f"\n{'TOP 10 VALUE BETS (by edge)'}")
     print(f"{'#':<3} {'Date':<12} {'League':<5} {'Home':<22} {'Away':<22} {'Bet':<5} {'Edge':>6}  {'Odds':>6}  {'MinOdds':>7}")
     print("-" * W)
@@ -625,14 +635,15 @@ def _save_predictions_csv(fixture_features, y_proba, classes, threshold: float, 
 
 
 def _save_predictions_html(pred_rows: list[dict], threshold: float, fetched_at,
-                            historical_bets=None) -> None:
+                            historical_bets=None, total_upcoming_fixtures: int = 0) -> None:
     from src.evaluation.predictions_report import save_predictions_html
     ts = fetched_at.strftime("%Y%m%d_%H%M")
     path = Path(f"reports/predictions_{ts}.html")
     profit_curve = Path("reports/profit_curve.png")
     save_predictions_html(pred_rows, threshold, fetched_at, path,
                           profit_curve_path=profit_curve if profit_curve.exists() else None,
-                          historical_bets=historical_bets)
+                          historical_bets=historical_bets,
+                          total_upcoming_fixtures=total_upcoming_fixtures)
     print(f"HTML report saved to {path}")
 
 
