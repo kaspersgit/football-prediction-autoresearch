@@ -1,8 +1,14 @@
-"""Shared The Odds API plumbing for one bookmaker's live pre-match 1X2 odds.
+"""Shared live-odds plumbing for one bookmaker's live pre-match 1X2 odds.
 
 Not a public entry point — src.data.pinnacle_odds and src.data.bet365_odds are the
 per-bookmaker modules that wrap this with their own bookmaker key, odds-column
 prefix, and region.
+
+fetch_bookmaker_odds tries src.data._oddspapi_client (OddsPapi, the primary provider
+since 2026-11-01 — see that module's docstring for why) first, and only falls back to
+The Odds API below if OddsPapi is unavailable for this request (no key, auth failure,
+network error). Which leagues to ask for is unaffected either way — both providers
+take the same `leagues` set and the caller never needs to know which one answered.
 """
 
 import os
@@ -11,6 +17,7 @@ from collections.abc import Callable
 import pandas as pd
 import requests
 
+from src.data._oddspapi_client import OddsPapiUnavailable, fetch_oddspapi_bookmaker_odds
 from src.data.team_aliases import ODDS_API_TEAM_ALIASES
 
 _ODDS_API_BASE = "https://api.the-odds-api.com/v4/sports"
@@ -107,9 +114,23 @@ def fetch_bookmaker_odds(
 ) -> pd.DataFrame:
     """Fetch live pre-match 1X2 odds for `bookmaker_key` across the given league codes.
 
-    Never raises: a missing API key, a per-league request failure, or an
+    Tries OddsPapi first (src.data._oddspapi_client); falls back to The Odds API
+    below only if OddsPapi raised OddsPapiUnavailable for this request. Never raises
+    itself: a missing API key on both providers, a per-league request failure, or an
     unparseable response degrades to fewer (or zero) rows, never breaks the caller.
     """
+    try:
+        return fetch_oddspapi_bookmaker_odds(leagues, bookmaker_key, col_prefix, label)
+    except OddsPapiUnavailable as e:
+        print(f"OddsPapi unavailable for live {label} odds ({e}) — falling back to The Odds API")
+
+    return _fetch_via_theoddsapi(leagues, bookmaker_key, col_prefix, label, regions)
+
+
+def _fetch_via_theoddsapi(
+    leagues: set[str], bookmaker_key: str, col_prefix: str, label: str, regions: str
+) -> pd.DataFrame:
+    """Legacy fallback provider — The Odds API. See fetch_bookmaker_odds above."""
     api_key = os.environ.get("THEODDS_API")
     if not api_key:
         print(f"THEODDS_API not set — skipping live {label} odds")

@@ -37,6 +37,7 @@ jobs:
 
       - name: Record live Pinnacle vig snapshot
         env:
+          ODDSPAPI_API_KEY: ${{ secrets.ODDSPAPI_API_KEY }}
           THEODDS_API: ${{ secrets.THEODDS_API }}
         run: uv run python main.py --track-pinnacle-vig
 
