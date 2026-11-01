@@ -321,8 +321,12 @@ def _run_predict():
     print("Loading fixtures...")
     fixtures_df = load_fixtures()
     fixtures_df = attach_pinnacle_odds(fixtures_df)
-    total_upcoming_fixtures = len(fixtures_df)
-    print(f"Found {total_upcoming_fixtures} upcoming fixtures in tracked leagues")
+    # load_fixtures() returns every SUPPORTED_LEAGUES fixture, not just the production
+    # allowlist -- count only the latter so "fixtures this matchweek" means the same
+    # scope as "with data"/"value bets" below, not the wider tracked-but-not-bet-on set.
+    total_upcoming_fixtures = int((fixtures_df["league"].isin(PRODUCTION_LEAGUES)).sum())
+    print(f"Found {total_upcoming_fixtures} upcoming fixtures in production leagues "
+          f"({len(fixtures_df)} across all tracked leagues)")
 
     print("Building fixture features...")
     fixture_features = build_fixture_features(df, fixtures_df)
